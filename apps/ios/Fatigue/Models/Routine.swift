@@ -105,6 +105,16 @@ final class WorkoutStore {
         active = nil
     }
 
+    /// Puts an edited past workout back in its place in history.
+    func replace(_ workout: FinishedWorkout) {
+        guard let index = history.firstIndex(where: { $0.id == workout.id }) else { return }
+        if workout.setCount == 0 { history.remove(at: index) } else { history[index] = workout }
+    }
+
+    func deleteFromHistory(_ workoutID: UUID) {
+        history.removeAll { $0.id == workoutID }
+    }
+
     func add(_ routine: Routine) {
         routines.append(routine)
     }

@@ -2,17 +2,19 @@ import Foundation
 
 /// A workout you finished: what you did and when. Only ticked sets are kept.
 struct FinishedWorkout: Identifiable {
-    let id = UUID()
+    let id: UUID
     var title: String
     var startedAt: Date
     var duration: TimeInterval
-    /// Exercise names with the sets you ticked, in the order you did them.
-    var exercises: [Exercise]
+    /// The exercises with the sets you ticked, in the order you did them.
+    var exercises: [WorkoutExercise]
 
-    struct Exercise {
-        var name: String
-        var brand: String?
-        var sets: [WorkoutSet]
+    init(id: UUID = UUID(), title: String, startedAt: Date, duration: TimeInterval, exercises: [WorkoutExercise]) {
+        self.id = id
+        self.title = title
+        self.startedAt = startedAt
+        self.duration = duration
+        self.exercises = exercises
     }
 
     var setCount: Int { exercises.reduce(0) { $0 + $1.sets.count } }
@@ -24,6 +26,33 @@ struct FinishedWorkout: Identifiable {
             return total + weight * reps
         }
     }
+
+    /// Opens this workout on the workout screen for editing: no rest timer, and it keeps its date.
+    func editingSession() -> WorkoutSession {
+        let session = WorkoutSession(title: title, exercises: exercises, startedAt: startedAt)
+        session.startsRestWhenTicked = false
+        return session
+    }
+
+    /// This workout with the edits from the workout screen. Sets you unticked while editing are dropped.
+    func updated(from session: WorkoutSession) -> FinishedWorkout {
+        var copy = session.finished(at: startedAt.addingTimeInterval(duration))
+        copy = FinishedWorkout(id: id, title: copy.title, startedAt: startedAt, duration: duration, exercises: copy.exercises)
+        return copy
+    }
+
+    /// A prebuilt workout with the same exercises, sets and setups, to start again another day.
+    func asRoutine() -> Routine {
+        Routine(name: title, exercises: exercises.map { exercise in
+            RoutineExercise(
+                name: exercise.name,
+                brand: exercise.brand,
+                restSeconds: exercise.restSeconds,
+                fields: exercise.fields,
+                sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
+            )
+        })
+    }
 }
 
 extension WorkoutSession {
@@ -34,8 +63,9 @@ extension WorkoutSession {
             startedAt: startedAt,
             duration: end.timeIntervalSince(startedAt),
             exercises: exercises.compactMap { exercise in
-                let done = exercise.sets.filter(\.isDone)
-                return done.isEmpty ? nil : FinishedWorkout.Exercise(name: exercise.name, brand: exercise.brand, sets: done)
+                var exercise = exercise
+                exercise.sets = exercise.sets.filter(\.isDone)
+                return exercise.sets.isEmpty ? nil : exercise
             }
         )
     }
@@ -45,24 +75,36 @@ extension FinishedWorkout {
     /// Past workouts for the spike, so the profile has history to show before the database exists.
     static func samples(now: Date = .now) -> [FinishedWorkout] {
         func day(_ daysAgo: Double) -> Date { now.addingTimeInterval(-daysAgo * 86_400) }
-        func reps(_ weight: String, _ reps: String, count: Int) -> [WorkoutSet] {
-            Array(repeating: WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: reps, previous: "", isDone: true), count: count)
+        func reps(_ weight: String, _ reps: String, rpe: [Double]) -> [WorkoutSet] {
+            rpe.map { WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: reps, rpe: $0, previous: "", isDone: true) }
         }
+        func exercise(_ name: String, brand: String? = nil, _ sets: [WorkoutSet], fields: [SetField] = []) -> WorkoutExercise {
+            WorkoutExercise(name: name, brand: brand, restSeconds: 90, fields: fields, sets: sets)
+        }
+        let adductorFields = [SetField(name: "Notch", kind: .number), SetField(name: "Dead stop", kind: .yesNo)]
         return [
             FinishedWorkout(title: "Pull", startedAt: day(2), duration: 52 * 60, exercises: [
-                Exercise(name: "Lat Pulldown", sets: reps("65", "10", count: 3)),
-                Exercise(name: "Seated Row", brand: "Life Fitness", sets: reps("60", "10", count: 3)),
-                Exercise(name: "Bicep Curl", sets: reps("14", "12", count: 3)),
+                exercise("Lat Pulldown", reps("65", "10", rpe: [8, 8.5, 9])),
+                exercise("Seated Row", brand: "Life Fitness", reps("60", "10", rpe: [8, 8.5, 9])),
+                exercise("Bicep Curl", reps("14", "12", rpe: [8, 9, 9.5])),
             ]),
             FinishedWorkout(title: "Push", startedAt: day(4), duration: 47 * 60, exercises: [
-                Exercise(name: "Chest Press", brand: "Technogym", sets: reps("70", "8", count: 3)),
-                Exercise(name: "Shoulder Press", brand: "Hammer Strength", sets: reps("40", "10", count: 3)),
-                Exercise(name: "Triceps Pushdown", sets: reps("30", "12", count: 2)),
+                exercise("Chest Press", brand: "Technogym", reps("70", "8", rpe: [8, 8.5, 9])),
+                exercise("Shoulder Press", brand: "Hammer Strength", reps("40", "10", rpe: [8, 9, 9])),
+                exercise("Triceps Pushdown", reps("30", "12", rpe: [8.5, 9])),
             ]),
-            FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 61 * 60, exercises: [
-                Exercise(name: "Adductors", brand: "Technogym", sets: reps("55", "8", count: 2)),
-                Exercise(name: "Leg Press", sets: reps("160", "10", count: 3)),
-                Exercise(name: "Seated Calf Raise", brand: "Hammer Strength", sets: reps("60", "12", count: 3)),
+            FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 74 * 60, exercises: [
+                exercise("Adductors", brand: "Technogym", [
+                    WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, previous: "", isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "8", rpe: 8.5, previous: "", isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "7", rpe: 9, previous: "", isDone: true),
+                ], fields: adductorFields),
+                exercise("Leg Press", reps("160", "10", rpe: [8, 8.5, 9])),
+                exercise("Leg Extension", reps("50", "12", rpe: [8, 9])),
+                exercise("Leg Curl", reps("45", "12", rpe: [8, 9])),
+                exercise("Hip Thrust", reps("100", "10", rpe: [8, 8.5])),
+                exercise("Hack Squat", reps("80", "8", rpe: [9])),
+                exercise("Seated Calf Raise", brand: "Hammer Strength", reps("60", "12", rpe: [8, 9, 9.5])),
             ]),
         ]
     }
