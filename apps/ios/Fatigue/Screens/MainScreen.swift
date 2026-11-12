@@ -37,7 +37,7 @@ struct MainScreen: View {
         .fullScreenCover(isPresented: $store.isShowingActive) {
             if let active = store.active {
                 ThemeProvider {
-                    WorkoutScreen(session: active, onMinimise: { store.isShowingActive = false }, onFinish: store.finish)
+                    WorkoutScreen(session: active, history: store.history, onMinimise: { store.isShowingActive = false }, onFinish: store.finish)
                 }
             }
         }
