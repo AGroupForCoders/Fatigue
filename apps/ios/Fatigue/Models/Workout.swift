@@ -212,6 +212,8 @@ final class WorkoutSession {
     private(set) var rest: RestTimer?
     /// Off when editing a finished workout, where ticking a set shouldn't start a rest timer.
     var startsRestWhenTicked = true
+    /// The prebuilt workout this was started from, so finishing can offer to update it.
+    var routineID: UUID?
     /// The set whose RPE scale is open, if any. Only one is open at a time.
     var openRPE: UUID?
     private let now: () -> Date
@@ -239,6 +241,17 @@ final class WorkoutSession {
     /// With no sets left, it adds a plain rep set.
     func addSet(to exerciseIndex: Int) {
         addSet(to: exerciseIndex, setup: exercises[exerciseIndex].sets.last?.setup ?? SetSetup(kind: .reps))
+    }
+
+    /// Removes an exercise and everything logged on it.
+    func removeExercise(at exerciseIndex: Int) {
+        if let open = openRPE, exercises[exerciseIndex].sets.contains(where: { $0.id == open }) { openRPE = nil }
+        exercises.remove(at: exerciseIndex)
+    }
+
+    /// Moves exercises into a new order, as `List.onMove` reports it.
+    func moveExercises(from source: IndexSet, to destination: Int) {
+        exercises.move(fromOffsets: source, toOffset: destination)
     }
 
     /// Deletes a set. If its RPE panel was open, the panel closes too.

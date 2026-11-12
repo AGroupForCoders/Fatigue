@@ -5,6 +5,7 @@ struct WorkoutsScreen: View {
     @Environment(\.palette) private var palette
     @Environment(WorkoutStore.self) private var store
     @State private var creating = false
+    @State private var editing: Routine?
     /// The routine waiting to start while you decide what to do with the workout already running.
     @State private var pendingStart: PendingStart?
 
@@ -38,6 +39,13 @@ struct WorkoutsScreen: View {
                     } content: {
                         Button { start(.routine(routine)) } label: { row(routine) }
                             .buttonStyle(.pressRow)
+                            .contextMenu {
+                                Button("Edit workout", systemImage: "pencil") { editing = routine }
+                                Button("Start workout", systemImage: "play") { start(.routine(routine)) }
+                                Button("Delete workout", systemImage: "trash", role: .destructive) {
+                                    withAnimation(.standard) { store.delete(routine.id) }
+                                }
+                            }
                     }
                     Hairline(soft: true)
                 }
@@ -62,6 +70,16 @@ struct WorkoutsScreen: View {
         .background(palette.background)
         .sheet(isPresented: $creating) {
             RoutineEditor { store.add($0) }
+                .environment(\.palette, palette)
+        }
+        .onAppear {
+            // Debug builds open the first prebuilt workout in the editor with `-editRoutine`, for screenshots.
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-editRoutine"), editing == nil { editing = store.routines.first }
+            #endif
+        }
+        .sheet(item: $editing) { routine in
+            RoutineEditor(editing: routine) { store.update($0) }
                 .environment(\.palette, palette)
         }
         .alert(
@@ -102,7 +120,7 @@ struct WorkoutsScreen: View {
         .padding(.vertical, Tokens.Space.l)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Starts this workout")
+        .accessibilityHint("Starts this workout. Press and hold to edit it.")
     }
 
     private func start(_ pending: PendingStart) {
