@@ -18,7 +18,8 @@ This is the screen people spend their time on, so it gets the most detail.
 - A set can be marked as a warm-up, a drop set or a set to failure. Warm-ups never count toward records or scores.
 - Each set shows what you did last time on the same brand, so you can see what to beat without leaving the screen.
 - Ticking a set as done starts the rest timer for that exercise. You can add or remove 15 seconds, or skip it.
-- Finishing a workout saves it to your history.
+- If the phone is locked or you are in another app when rest ends, a notification tells you. While the app is open, the phone buzzes instead.
+- Finishing a workout shows a summary with the time, sets and volume, the records you beat, and a name and description to save it under. Then it goes into your history.
 
 ## Exercises
 
@@ -37,7 +38,7 @@ A brand is who made the equipment, such as Technogym or Hammer Strength. "Chest 
 - A brand can have an optional free-text label, for example the model or which gym it is in.
 - When you add an exercise to a workout, it defaults to the brand you used last time, or to no brand if you have never picked one.
 - Adding a brand to history logged on no brand moves that history to the brand.
-- History and records are kept per brand. The exercise page can also show all brands together.
+- History and records are kept per brand. Brands are never shown together, because 80 kg on one machine is not 80 kg on another. The exercise page shows one brand at a time, and you switch between them. [Scores and stats](/docs/scores-and-stats) and [ADR 0002](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0002-settings-weight-the-score.md) have the reasoning.
 
 ## What a set records
 
@@ -76,11 +77,11 @@ Every set gets a score, so one number shows whether you beat last time even when
 
 ## History
 
-- You can see a list of past workouts and open any of them.
-- Each exercise has a page with its best set, an estimated one-rep max, a progression line and recent sessions.
-- The page can be narrowed to one brand, and then to one value of a setting that has its own progress, such as notch 7.
-- The progression line plots one thing at a time. That can be top set weight, estimated one-rep max, hold time, score or a tracked setting such as notch.
-- Records are detected when a workout is saved and marked on the session where they happened.
+- You can see a list of past workouts and open any of them. From there you can fix the sets, rename it, save it as a routine or delete it.
+- Each exercise has a page, opened by tapping its name mid-workout or in a past workout. It shows one brand at a time, with a graph, records and every past set.
+- The graph plots one thing at a time: set volume, session volume, weight or estimated one-rep max. The two volumes can be weighted by the score or raw. Splitting by a setting draws a line per value, such as notch 7 and notch 8. [Scores and stats](/docs/scores-and-stats) covers the detail.
+- Records are the heaviest weight, best one-rep max, best set volume and best session volume. A set that beats one is marked on its row during the workout, and the finish summary lists what you beat.
+- A Stats tab shows this week against last, weekly volume for the last 12 weeks, and every exercise you have done with a small trend of its best set volume over the last 8 workouts. Tapping an exercise opens its page.
 
 ## Account and sync
 
