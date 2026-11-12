@@ -71,6 +71,10 @@ struct MainScreen: View {
         }
         .onAppear(perform: openForScreenshots)
         .task(id: store.active?.id) { await store.autosaveActive() }
+        // Keeps the "Rest done" notification in step with the timer: ticking a set schedules it, ±15 moves it,
+        // and skipping, finishing or deleting the workout cancels it. This screen is always there, even when
+        // the workout is minimised, so it never misses a change.
+        .onChange(of: store.active?.rest) { _, rest in RestNotifications.shared.update(for: rest) }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { store.saveActive() }
         }

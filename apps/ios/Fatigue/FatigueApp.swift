@@ -8,6 +8,7 @@ struct FatigueApp: App {
 
     init() {
         FontRegistry.registerBundledFonts()
+        RestNotifications.shared.becomeDelegate()
         // Everything is saved in SQLite on the phone. If the file can't be opened, the app falls
         // back to a database in memory so it still opens, but nothing is kept after it closes.
         let database: AppDatabase?

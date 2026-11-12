@@ -24,7 +24,7 @@ struct WorkoutSessionTests {
         let session = WorkoutSession.sample(now: { start })
         session.toggle(set: 2, in: 0)
         #expect(session.exercises[0].sets[2].isDone)
-        #expect(session.rest == RestTimer(endsAt: start.addingTimeInterval(120), total: 120))
+        #expect(session.rest == RestTimer(endsAt: start.addingTimeInterval(120), total: 120, exerciseName: session.exercises[0].name))
     }
 
     @Test func untickingDoesNotStartRest() {
