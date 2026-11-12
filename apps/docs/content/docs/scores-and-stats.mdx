@@ -39,14 +39,16 @@ Changing a factor re-scores all of history. Later, the app could suggest a facto
 
 Brands are never mixed on one line, because two brands' machines aren't comparable. A switcher at the top picks the brand.
 
-Four metrics. The first two are what Hevy calls set volume and session volume, weighted by settings:
+Four metrics:
 
-| Metric | What it is | Mixes settings? |
-| --- | --- | --- |
-| Best set | Your best set that day: its score | Yes, that's what the weighting is for |
-| Session | Every set that day added up, each weighted | Yes |
-| Weight | Your heaviest set | No, so it splits by setting automatically |
-| Est. 1RM | Weight × (1 + reps ÷ 30) for rep sets | No, same as weight |
+| Metric | What it is |
+| --- | --- |
+| Set volume | Your best set that day: weight × reps |
+| Session volume | Every set that day added up |
+| Weight | Your heaviest set |
+| Est. 1RM | Weight × (1 + reps ÷ 30) for rep sets |
+
+Set and session volume have a **Weighted / Raw** switch. Weighted multiplies each set by its settings, which is what lets one line run across notch 7 and notch 8. Raw is plain kilograms, like Hevy. Whichever is on is named on the graph and next to every number ("1,227 weighted", "460 kg"), so it's never a guess which one you're looking at.
 
 By default there's one line. **Split by** draws a line per value of one setting at a time: per notch you've used, or dead stop on and off. Filters pin another setting, such as notch lines with dead stop on only. Only one setting splits at a time, so the graph never becomes six tangled lines. The app remembers the split you chose for each exercise.
 
@@ -58,12 +60,12 @@ Under the graph are the lines with their best set and change, then records, then
 
 Records come in two kinds, because the weighting is an interpretation and raw numbers aren't.
 
-- **Across all setups, weighted:** best set and best session. These are the ones that say "you've never worked harder on this machine". They move if you change a factor, since they're scored with it.
-- **Per exact setup, raw:** for each combination you've done, such as notch 8 with a dead stop, the heaviest set, the best estimated 1RM, and for holds the longest hold. These never move when a factor changes.
+- **Across all setups, weighted:** best set volume and best session volume. These are the ones that say "you've never worked harder on this machine". They move if you change a factor, since they're scored with it.
+- **Per exact setup, raw:** for each combination you've done, such as notch 8 with a dead stop, the best set volume in kg, the heaviest set, the best estimated 1RM, and for holds the longest hold. These never move when a factor changes.
 
 A record only competes within one brand. With "own progress per value" on a setting, each of its values keeps its own records, so notch 8 is never beaten by notch 7.
 
-When you finish a workout, the summary lists what you beat: "Best set ever" for a weighted record, or "Heaviest at notch 8, dead stop" for a raw one.
+When you finish a workout, the summary lists what you beat: "Best set volume, weighted" for a weighted record, or "Heaviest at notch 8, dead stop" for a raw one.
 
 ## The Stats tab
 
