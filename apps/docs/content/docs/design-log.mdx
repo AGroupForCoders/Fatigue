@@ -7,6 +7,71 @@ This page keeps a dated record of what the app looked like at each point, so we 
 
 These are mock-ups, not screenshots of a running app. Nothing here is final.
 
+## 12 November 2026, light mode and a calmer workout screen
+
+We wanted the app to feel more refined, closer to the warm, minimal websites that win design awards. This entry is the second pass. It adds a light mode and works through what made the workout screen feel busy. The numbered marks on the earlier screenshots point at the problem each step fixed.
+
+### The current drafts
+
+<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16 }}>
+  <img src="/design/2026-11-12-light/04-workout-light.png" alt="Light workout screen on warm beige, with outlined rest, note and brand controls, and sets grouped under small headings such as Hold, notch 8" />
+  <img src="/design/2026-11-12-light/05-workout-dark.png" alt="The same workout screen in the dark version, on warm near-black" />
+  <img src="/design/2026-11-12-light/06-history-light.png" alt="Light exercise history narrowed to Technogym and notch 7, with a large best set, a line graph, records and recent sessions separated by thin lines" />
+  <img src="/design/2026-11-12-light/07-history-dark.png" alt="The same exercise history screen in the dark version" />
+  <img src="/design/2026-11-12-light/08-brand-light.png" alt="Light choose brand screen listing Technogym, Hammer Strength and No brand as large rows separated by thin lines" />
+</div>
+
+In order, these are the workout screen in light and dark, the exercise history in light and dark, and choosing a brand in light.
+
+### What we settled on
+
+- One font for the whole app, Inter. Mixing a serif with a sans looked unsteady.
+- A warm beige light mode (`#ECE8E1`) with near-black text, and a dark mode that swaps the same colours: warm near-black with warm off-white text. Both share one layout.
+- Thin full-width lines between rows instead of filled blocks. This came from a reference site Anton liked, where a list of services was just large text with a line under each item.
+- Weight, reps and RPE sit in soft filled cells, all the same size. The cells separate the numbers and look tappable without any lines between them.
+- A faint grain over the screen. It is lighter in dark mode, where grain shows more.
+- Big numbers, such as the rest timer and best set, use Inter Light with tighter letter spacing.
+- The rest bar sits flat at the bottom behind a thin line instead of floating.
+
+### What we changed, and why
+
+**1. The dot on the brand control.**
+
+<img src="/design/2026-11-12-light/01-brand-dot.png" alt="Brand control showing Technogym with a small sand-coloured dot before it, marked 1" style={{ maxWidth: 420 }} />
+
+1. A coloured dot before the brand name meant nothing and looked like a generated-app habit. We removed it.
+
+**2. Numbers at different sizes.**
+
+<img src="/design/2026-11-12-light/02-number-sizes.png" alt="Set rows where the RPE column, marked 1, is noticeably smaller than the weight and reps beside it" style={{ maxWidth: 300 }} />
+
+1. RPE was smaller than weight and reps, so the row looked uneven. All three are now the same size and weight.
+
+**3. No depth.** With only lines, every row looked the same and nothing told one exercise apart from the next. We tried two fixes, and kept the second:
+
+- Cards. Each exercise sat on a slightly raised panel. It worked, but made the screen feel like a stack of boxes again.
+- Soft cells behind the numbers on a flat background. This gives each row something to hold onto without boxing the whole exercise.
+
+**4. A cluttered workout screen.**
+
+<img src="/design/2026-11-12-light/03-cluttered.png" alt="Dark workout screen where the settings line under each set is marked 1, 2 and 3" style={{ maxWidth: 300 }} />
+
+1. The settings for a set (hold, notch 8) sat on a second line under its numbers, crowded against "Previous".
+2. The next set started its own settings line.
+3. The third set repeated the same settings as the second, word for word.
+
+We first tried removing the outlined rest, note and brand boxes and showing settings only when they changed. Anton preferred the boxes, so they came back. What fixed it was moving the settings out of the set rows:
+
+- "Previous" now shows numbers only, as weight × reps @ RPE, for example `55 × 8 @8.5`.
+- Sets that share the same setup are grouped under a small heading, such as "Hold · Notch 8" or "Reps · Notch 7 · Dead stop". A new heading only appears when the setup changes, so an exercise without settings has none.
+- Rows have more room: wider side margins, taller sets and more space between exercises.
+
+### Still undecided
+
+- Which mode is the main look. The light mode is closer to the feel we want.
+- Whether a group of holds should label its column "Time" instead of "Reps".
+- The brand, set fields and reorder screens have not had this pass yet, apart from choosing a brand in light mode.
+
 ## 12 November 2026, first direction
 
 The first set of screens we were happy enough with to write down.
