@@ -9,22 +9,64 @@ enum SetKind: String {
     var name: String { self == .reps ? "Reps" : "Hold" }
 }
 
-/// A custom field an exercise tracks on each set, such as "Notch" or "Dead stop".
-struct SetField: Identifiable, Hashable {
+/// A setting on an exercise, shown as a row under its name: seat height, notch, dead stop.
+/// Every set uses the exercise's value unless its group overrides it from the group heading,
+/// so a hold at notch 8 sits under "Hold · Notch 8" while the rest of the sets use notch 7.
+/// Saved per exercise and brand, since every machine is set up differently.
+struct ExerciseSetting: Identifiable, Hashable {
     enum Kind: Hashable {
-        /// A value such as notch 7.
+        /// A number, such as notch 7 or seat 4.
         case number
         /// On or off, such as dead stop.
         case yesNo
+        /// Anything else, such as "wide grip". Text never counts towards the score.
+        case text
     }
 
-    let name: String
-    let kind: Kind
-    var id: String { name }
+    /// Which way is progress, for a number setting that counts towards the score.
+    enum Direction: Hashable {
+        case higher, lower
+    }
+
+    var id = UUID()
+    var name: String
+    var kind: Kind = .number
+    /// The value for the whole exercise as typed. A yes/no setting holds "yes" or "no".
+    var value = ""
+    /// Set only on a number setting that counts towards the score. Without it the setting never weighs on it.
+    var direction: Direction? = nil
+    /// The worst and best values a counted setting can take, such as notch 1 to 10.
+    var rangeMin: Double? = nil
+    var rangeMax: Double? = nil
+    /// Gives each value its own progress, so notch 8 is compared with notch 8 and never with notch 7.
+    var splitByValue = false
+
+    /// Whether this setting counts towards the set's score: a number with a direction and a range.
+    var isTracked: Bool {
+        guard kind == .number, direction != nil, let rangeMin, let rangeMax else { return false }
+        return rangeMax > rangeMin
+    }
+
+    /// The exercise-wide value as a number, for comparing with a group's override. Yes is 1 and no is 0.
+    var numberValue: Double? {
+        switch kind {
+        case .number: Double(value)
+        case .yesNo: value == "yes" ? 1 : 0
+        case .text: nil
+        }
+    }
+
+    /// How an override reads in a heading, such as "Notch 8", "Dead stop" or "No dead stop".
+    func label(for override: Double) -> String {
+        switch kind {
+        case .number, .text: "\(name) \(PlainNumber.string(override))"
+        case .yesNo: override == 1 ? name : "No \(name.lowercased())"
+        }
+    }
 }
 
-/// How a set is done: reps or a hold, and its field values keyed by field name.
-/// A yes/no field is on when its value is 1. A field with no value is left out of the heading.
+/// How a set is done: reps or a hold, plus any settings this set's group changes from the exercise's
+/// values, keyed by setting name. A yes/no override is 1 for yes and 0 for no.
 struct SetSetup: Hashable {
     var kind: SetKind
     var values: [String: Double] = [:]
@@ -58,8 +100,8 @@ struct WorkoutExercise: Identifiable {
     var brand: String?
     var restSeconds: Int
     var notes: [ExerciseNote] = []
-    /// The custom fields this exercise tracks, in the order they appear in headings.
-    var fields: [SetField] = []
+    /// Settings like seat height or notch, in the order they show under the name and in headings.
+    var settings: [ExerciseSetting] = []
     var sets: [WorkoutSet]
     /// Brands you have used for this exercise before, with your last set on each.
     /// Sample data for the spike. The real app reads this from history.
@@ -80,6 +122,8 @@ enum FocusedCell: Hashable {
     case weight(UUID)
     case amount(UUID)
     case note(UUID)
+    case settingName(UUID)
+    case settingValue(UUID)
 }
 
 
@@ -92,18 +136,21 @@ struct SetGroup: Identifiable, Equatable {
 }
 
 extension WorkoutExercise {
-    /// The field values of a setup in display form, such as ["Notch 7", "Dead stop"].
+    /// The settings a setup changes from the exercise's values, in display form, such as ["Notch 8"].
+    /// An override that matches the exercise's value, or names a setting that no longer exists, is left out.
     func labels(for setup: SetSetup) -> [String] {
-        fields.compactMap { field in
-            guard let value = setup.values[field.name] else { return nil }
-            switch field.kind {
-            case .number: return "\(field.name) \(PlainNumber.string(value))"
-            case .yesNo: return value == 1 ? field.name : nil
-            }
+        settings.compactMap { setting in
+            guard setting.kind != .text, let value = setup.values[setting.name], value != setting.numberValue else { return nil }
+            return setting.label(for: value)
         }
     }
 
-    /// The heading for a setup, such as "Reps · Notch 7 · Dead stop".
+    /// The value a setting has for a set: the group's override, or the exercise's value.
+    func value(of setting: ExerciseSetting, in setup: SetSetup) -> Double? {
+        setup.values[setting.name] ?? setting.numberValue
+    }
+
+    /// The heading for a setup, such as "Hold · Notch 8".
     func heading(for setup: SetSetup) -> String {
         ([setup.kind.name] + labels(for: setup)).joined(separator: " · ")
     }
@@ -218,6 +265,27 @@ final class WorkoutSession {
         return note.id
     }
 
+    /// Adds an empty setting row to an exercise and returns its id, so the screen can put the cursor in it.
+    @discardableResult
+    func addSetting(to exerciseIndex: Int) -> UUID {
+        let setting = ExerciseSetting(name: "")
+        exercises[exerciseIndex].settings.append(setting)
+        return setting.id
+    }
+
+    func deleteSetting(_ settingID: UUID) {
+        for index in exercises.indices { exercises[index].settings.removeAll { $0.id == settingID } }
+    }
+
+    /// Drops setting rows left with no name and no value.
+    func removeEmptySettings() {
+        for index in exercises.indices {
+            exercises[index].settings.removeAll {
+                $0.name.trimmingCharacters(in: .whitespaces).isEmpty && $0.value.trimmingCharacters(in: .whitespaces).isEmpty
+            }
+        }
+    }
+
     /// Drops notes that were left empty, such as one added by mistake.
     func removeEmptyNotes() {
         for index in exercises.indices {
@@ -262,11 +330,11 @@ extension WorkoutSession {
                 WorkoutExercise(
                     name: "Adductors", brand: "Technogym", restSeconds: 120,
                     notes: [ExerciseNote(text: "Pads on the widest setting.")],
-                    fields: [SetField(name: "Notch", kind: .number), SetField(name: "Dead stop", kind: .yesNo)],
+                    settings: ExerciseCatalog.sampleAdductorSettings,
                     sets: [
                         WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "50", rpe: 8, previous: "40 × 45s @8", isDone: true),
-                        WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "8", rpe: 8.5, previous: "55 × 8 @8.5", isDone: true),
-                        WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "8", previous: "55 × 7 @9"),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: "55 × 8 @8.5", isDone: true),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", previous: "55 × 7 @9"),
                     ],
                     knownBrands: [
                         KnownBrand(name: "Technogym", lastSet: "55 × 8", when: "3 days ago"),

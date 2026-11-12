@@ -17,12 +17,13 @@ struct RoutineExercise: Identifiable, Equatable {
     var name: String
     var brand: String?
     var restSeconds = 90
-    var fields: [SetField] = []
+    var settings: [ExerciseSetting] = []
     var sets: [RoutineSet]
 
-    /// A new exercise in the routine editor: three plain rep sets with nothing filled in.
-    static func new(named name: String) -> RoutineExercise {
-        RoutineExercise(name: name, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
+    /// A new exercise in the routine editor: three plain rep sets with nothing filled in,
+    /// and the settings saved for it with no brand.
+    static func new(named name: String, settings: [ExerciseSetting] = []) -> RoutineExercise {
+        RoutineExercise(name: name, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
     }
 }
 
@@ -44,7 +45,7 @@ extension Routine {
                     name: exercise.name,
                     brand: exercise.brand,
                     restSeconds: exercise.restSeconds,
-                    fields: exercise.fields,
+                    settings: exercise.settings,
                     sets: exercise.sets.map { set in
                         WorkoutSet(setup: set.setup, weight: set.weight, amount: set.amount, previous: Self.target(set))
                     }
@@ -125,22 +126,39 @@ final class WorkoutStore {
 }
 
 extension WorkoutSession {
-    /// Adds exercises picked from the library, each with one empty rep set to start.
-    func addExercises(named names: [String]) {
+    /// Adds exercises picked from the library, each with one empty rep set to start,
+    /// and the settings saved for it with no brand.
+    func addExercises(named names: [String], catalog: ExerciseCatalog? = nil) {
         for name in names {
-            exercises.append(WorkoutExercise(name: name, brand: nil, restSeconds: 90, sets: [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]))
+            let saved = catalog?.setup(for: name, brand: nil) ?? BrandSetup()
+            exercises.append(WorkoutExercise(
+                name: name, brand: nil, restSeconds: 90, settings: saved.settings,
+                sets: [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
+            ))
         }
     }
-}
 
-/// The built-in exercises, until the real library ships with the local database.
-nonisolated enum ExerciseLibrary {
-    static let all = [
-        "Adductors", "Abductors", "Bench Press", "Bicep Curl", "Cable Fly", "Calf Raise", "Chest Press",
-        "Deadlift", "Hack Squat", "Hip Thrust", "Incline Dumbbell Press", "Lat Pulldown", "Lateral Raise",
-        "Leg Curl", "Leg Extension", "Leg Press", "Pec Deck", "Preacher Curl", "Pull Up", "Rear Delt Fly",
-        "Romanian Deadlift", "Seated Calf Raise", "Seated Row", "Shoulder Press", "Squat", "Triceps Pushdown",
-    ]
+    /// Applies an edit from the exercise editor to an exercise in this workout.
+    /// Renamed settings keep their group overrides, and removed or text settings drop theirs.
+    func applyEdit(to exerciseIndex: Int, name: String, settings: [ExerciseSetting], renamedSettings: [String: String]) {
+        exercises[exerciseIndex].name = name
+        exercises[exerciseIndex].settings = settings
+        let kept = Set(settings.filter { $0.kind != .text }.map(\.name))
+        for setIndex in exercises[exerciseIndex].sets.indices {
+            var values: [String: Double] = [:]
+            for (key, value) in exercises[exerciseIndex].sets[setIndex].setup.values {
+                let newKey = renamedSettings[key] ?? key
+                if kept.contains(newKey) { values[newKey] = value }
+            }
+            exercises[exerciseIndex].sets[setIndex].setup.values = values
+        }
+    }
+
+    /// Switches an exercise to another brand, bringing in the settings saved for that brand.
+    func changeBrand(of exerciseIndex: Int, to brand: String?, catalog: ExerciseCatalog) {
+        exercises[exerciseIndex].brand = brand
+        exercises[exerciseIndex].settings = catalog.setup(for: exercises[exerciseIndex].name, brand: brand).settings
+    }
 }
 
 extension Routine {
@@ -149,11 +167,11 @@ extension Routine {
         Routine(name: "Leg day", exercises: [
             RoutineExercise(
                 name: "Adductors", brand: "Technogym", restSeconds: 120,
-                fields: [SetField(name: "Notch", kind: .number), SetField(name: "Dead stop", kind: .yesNo)],
+                settings: ExerciseCatalog.sampleAdductorSettings,
                 sets: [
                     RoutineSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45"),
-                    RoutineSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "8"),
-                    RoutineSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "8"),
+                    RoutineSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8"),
+                    RoutineSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8"),
                 ]
             ),
             RoutineExercise(name: "Leg Press", restSeconds: 150, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10"), count: 3)),

@@ -4,6 +4,7 @@ import SwiftUI
 struct FatigueApp: App {
     @State private var auth = AuthStore()
     @State private var workouts = WorkoutStore()
+    @State private var catalog = ExerciseCatalog()
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -16,6 +17,7 @@ struct FatigueApp: App {
             }
             .environment(auth)
             .environment(workouts)
+            .environment(catalog)
         }
     }
 }

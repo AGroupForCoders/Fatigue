@@ -1,18 +1,20 @@
 import SwiftUI
 
 /// A sheet for picking exercises from the library: search, tick as many as you like, add them in one go.
-/// Ticked exercises are added in the order you ticked them.
+/// Ticked exercises are added in the order you ticked them. Create exercise makes a custom one and ticks it.
 struct ExercisePicker: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(ExerciseCatalog.self) private var catalog
     let onAdd: ([String]) -> Void
 
     @State private var search = ""
     @State private var picked: [String] = []
+    @State private var creating = false
 
     private var results: [String] {
         let query = search.trimmingCharacters(in: .whitespaces)
-        return query.isEmpty ? ExerciseLibrary.all : ExerciseLibrary.all.filter { $0.localizedCaseInsensitiveContains(query) }
+        return query.isEmpty ? catalog.names : catalog.names.filter { $0.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -48,6 +50,19 @@ struct ExercisePicker: View {
 
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    Button { creating = true } label: {
+                        HStack {
+                            Text(search.isEmpty ? "Create exercise" : "Create \u{201C}\(search.trimmingCharacters(in: .whitespaces))\u{201D}")
+                                .textStyle(Tokens.Typography.body)
+                                .foregroundStyle(palette.foreground)
+                            Spacer()
+                            Image(systemName: "plus").foregroundStyle(palette.foreground)
+                        }
+                        .frame(minHeight: Tokens.Size.primaryButton)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressRow)
+                    Hairline()
                     ForEach(results, id: \.self) { name in
                         let isPicked = picked.contains(name)
                         Button {
@@ -66,13 +81,7 @@ struct ExercisePicker: View {
                         .buttonStyle(.pressRow)
                         Hairline(soft: true)
                     }
-                    if results.isEmpty {
-                        Text("No exercise called \u{201C}\(search)\u{201D} yet. Custom exercises come next.")
-                            .textStyle(Tokens.Typography.caption)
-                            .foregroundStyle(palette.foregroundMuted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, Tokens.Space.l)
-                    }
+
                 }
                 .padding(.horizontal, Tokens.Space.xxl)
             }
@@ -92,6 +101,14 @@ struct ExercisePicker: View {
         .presentationDetents([.large])
         .presentationBackground(palette.background)
         .sensoryFeedback(.selection, trigger: picked)
+        .sheet(isPresented: $creating) {
+            ExerciseEditor(newNamed: search.trimmingCharacters(in: .whitespaces), existingNames: catalog.names) { edit in
+                catalog.save(edit.info, brand: nil, setup: edit.setup)
+                picked.append(edit.info.name)
+                search = ""
+            }
+            .environment(\.palette, palette)
+        }
     }
 }
 

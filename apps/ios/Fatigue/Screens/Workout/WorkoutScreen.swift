@@ -11,6 +11,7 @@ struct WorkoutScreen: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ExerciseCatalog.self) private var catalog
     @State var session: WorkoutSession
     /// Running now, or a finished workout opened from history to fix.
     var mode: Mode = .live
@@ -26,6 +27,9 @@ struct WorkoutScreen: View {
                 .onChange(of: focused) { old, new in
                     if case .note = old, old != new {
                         withAnimation(.standard) { session.removeEmptyNotes() }
+                    }
+                    if Self.isSetting(old), !Self.isSetting(new) {
+                        withAnimation(.standard) { session.removeEmptySettings() }
                     }
                 }
                 .onChange(of: session.openRPE) { _, id in
@@ -83,7 +87,7 @@ struct WorkoutScreen: View {
         .sensoryFeedback(.impact(weight: .medium), trigger: restFinished) { _, finished in finished }
         .sheet(isPresented: $addingExercises) {
             ExercisePicker { names in
-                withAnimation(.standard) { session.addExercises(named: names) }
+                withAnimation(.standard) { session.addExercises(named: names, catalog: catalog) }
             }
             .environment(\.palette, palette)
         }
@@ -165,6 +169,13 @@ struct WorkoutScreen: View {
         .padding(.bottom, Tokens.Space.xl)
     }
 
+    private static func isSetting(_ cell: FocusedCell?) -> Bool {
+        switch cell {
+        case .settingName, .settingValue: true
+        default: false
+        }
+    }
+
     static func clock(_ seconds: TimeInterval) -> String {
         let total = Int(max(0, seconds))
         return String(format: "%d:%02d", total / 60, total % 60)
@@ -174,20 +185,23 @@ struct WorkoutScreen: View {
 /// One exercise in the workout: its name, the rest, note and brand controls, and its sets.
 private struct ExerciseSection: View {
     @Environment(\.palette) private var palette
+    @Environment(ExerciseCatalog.self) private var catalog
     @Bindable var session: WorkoutSession
     let exerciseIndex: Int
     var focus: FocusState<FocusedCell?>.Binding
+    @State private var editingExercise = false
     @State private var pickingBrand = false
     @State private var editingSetup: SetupEdit?
     @State private var pickingRest = false
 
-    /// Debug builds can open a picker on launch with `-openBrand`, `-openRest` or `-openRPE`, for screenshots.
+    /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE` or `-editExercise`, for screenshots.
     private func openForScreenshots() {
         #if DEBUG
         guard exerciseIndex == 0 else { return }
         let args = ProcessInfo.processInfo.arguments
         if args.contains("-openBrand") { pickingBrand = true }
         if args.contains("-openRest") { pickingRest = true }
+        if args.contains("-editExercise") { editingExercise = true }
         if args.contains("-openRPE") { session.openRPE = exercise.sets.last?.id }
         #endif
     }
@@ -202,6 +216,7 @@ private struct ExerciseSection: View {
                     .foregroundStyle(palette.foreground)
                 Spacer()
                 Menu {
+                    Button("Edit exercise", systemImage: "slider.horizontal.3") { editingExercise = true }
                     Button("Reorder exercises") {}
                     Button("Remove exercise", role: .destructive) {}
                 } label: {
@@ -213,8 +228,9 @@ private struct ExerciseSection: View {
             }
 
             notes
+            settings
 
-            HStack(spacing: Tokens.Space.s) {
+            FlowLayout(spacing: Tokens.Space.s) {
                 Button { pickingRest = true } label: {
                     OutlinedLabel(systemImage: "timer", text: WorkoutScreen.clock(TimeInterval(exercise.restSeconds)))
                 }
@@ -229,6 +245,15 @@ private struct ExerciseSection: View {
                 }
                 .buttonStyle(.press)
                 .accessibilityLabel("Add a note")
+
+                Button {
+                    let id = withAnimation(.standard) { session.addSetting(to: exerciseIndex) }
+                    focus.wrappedValue = .settingName(id)
+                } label: {
+                    OutlinedLabel(systemImage: "plus", text: "Setting", isMuted: exercise.settings.isEmpty)
+                }
+                .buttonStyle(.press)
+                .accessibilityLabel("Add a setting, like seat height")
 
                 Button { pickingBrand = true } label: {
                     OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
@@ -292,13 +317,30 @@ private struct ExerciseSection: View {
         .onAppear(perform: openForScreenshots)
         .sheet(isPresented: $pickingBrand) {
             BrandSheet(exerciseName: exercise.name, known: exercise.knownBrands, current: exercise.brand) { brand in
-                session.exercises[exerciseIndex].brand = brand
+                withAnimation(.standard) { session.changeBrand(of: exerciseIndex, to: brand, catalog: catalog) }
             }
             .environment(\.palette, palette)
         }
         .sheet(isPresented: $pickingRest) {
             RestSheet(exerciseName: exercise.name, seconds: $session.exercises[exerciseIndex].restSeconds)
                 .environment(\.palette, palette)
+        }
+        .onChange(of: exercise.settings) { _, settings in
+            catalog.saveSettings(settings, for: exercise.name, brand: exercise.brand)
+        }
+        .sheet(isPresented: $editingExercise) {
+            ExerciseEditor(
+                editing: catalog.info(named: exercise.name) ?? ExerciseInfo(name: exercise.name, equipment: .other, primaryMuscle: .chest, isCustom: true),
+                brand: exercise.brand,
+                setup: BrandSetup(settings: exercise.settings),
+                existingNames: catalog.names
+            ) { edit in
+                catalog.save(edit.info, renamedFrom: exercise.name, brand: exercise.brand, setup: edit.setup)
+                withAnimation(.standard) {
+                    session.applyEdit(to: exerciseIndex, name: edit.info.name, settings: edit.setup.settings, renamedSettings: edit.renamedSettings)
+                }
+            }
+            .environment(\.palette, palette)
         }
         .sheet(item: $editingSetup) { edit in
             SetupSheet(exercise: exercise, setup: edit.setup, actionTitle: edit.actionTitle) { setup in
@@ -333,6 +375,80 @@ private struct ExerciseSection: View {
                 }
             }
             .padding(.top, Tokens.Space.s)
+        }
+    }
+
+    /// Settings like seat height, one row each under the notes: a name and a value.
+    /// Setting adds another row. They're remembered for this exercise on this brand.
+    @ViewBuilder private var settings: some View {
+        if !exercise.settings.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(exercise.settings) { setting in
+                    SwipeToDelete(accessibilityName: setting.name.isEmpty ? "setting" : setting.name) {
+                        session.deleteSetting(setting.id)
+                    } content: {
+                        HStack(spacing: Tokens.Space.m) {
+                            TextField("", text: settingText(setting.id, \.name), prompt: Text("Seat height").foregroundStyle(palette.foregroundFaint))
+                                .textStyle(Tokens.Typography.control)
+                                .foregroundStyle(palette.foregroundMuted)
+                                .focused(focus, equals: .settingName(setting.id))
+                                .submitLabel(.next)
+                                .onSubmit { focus.wrappedValue = .settingValue(setting.id) }
+                            if setting.isTracked {
+                                Image(systemName: setting.direction == .lower ? "arrow.down.right" : "arrow.up.right")
+                                    .imageScale(.small)
+                                    .foregroundStyle(palette.foregroundFaint)
+                                    .accessibilityLabel("Counts towards your score")
+                            }
+                            settingValue(setting)
+                        }
+                        .padding(.vertical, Tokens.Space.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .padding(.top, Tokens.Space.s)
+        }
+    }
+
+    /// The value side of a setting row: Yes or No for a yes/no setting, otherwise a small cell to type in.
+    @ViewBuilder private func settingValue(_ setting: ExerciseSetting) -> some View {
+        if setting.kind == .yesNo {
+            let isOn = setting.value == "yes"
+            Button {
+                settingText(setting.id, \.value).wrappedValue = isOn ? "no" : "yes"
+            } label: {
+                Text(isOn ? "Yes" : "No")
+                    .textStyle(Tokens.Typography.control)
+                    .foregroundStyle(isOn ? palette.background : palette.foreground)
+                    .frame(width: Tokens.Size.amountColumn, height: Tokens.Size.cell - Tokens.Space.s)
+                    .background(isOn ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+                    .animation(.quick, value: isOn)
+            }
+            .buttonStyle(.press)
+            .accessibilityLabel("\(setting.name), \(isOn ? "yes" : "no")")
+        } else {
+            TextField("", text: settingText(setting.id, \.value), prompt: Text("-").foregroundStyle(palette.foregroundFaint))
+                .keyboardType(setting.kind == .number ? .decimalPad : .default)
+                .textStyle(Tokens.Typography.control)
+                .monospacedDigit()
+                .multilineTextAlignment(.center)
+                .foregroundStyle(palette.foreground)
+                .focused(focus, equals: .settingValue(setting.id))
+                .frame(width: Tokens.Size.amountColumn, height: Tokens.Size.cell - Tokens.Space.s)
+                .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+        }
+    }
+
+    /// A setting's name or value looked up by id, so a row deleted mid-edit never leaves a binding to a missing index.
+    private func settingText(_ id: UUID, _ keyPath: WritableKeyPath<ExerciseSetting, String>) -> Binding<String> {
+        Binding {
+            session.exercises[exerciseIndex].settings.first { $0.id == id }?[keyPath: keyPath] ?? ""
+        } set: { text in
+            if let index = session.exercises[exerciseIndex].settings.firstIndex(where: { $0.id == id }) {
+                session.exercises[exerciseIndex].settings[index][keyPath: keyPath] = text
+            }
         }
     }
 
@@ -505,12 +621,14 @@ private struct RestBar: View {
 
 #Preview("Light") {
     WorkoutScreen(session: .sample())
+        .environment(ExerciseCatalog())
         .environment(\.palette, .light)
         .preferredColorScheme(.light)
 }
 
 #Preview("Dark") {
     WorkoutScreen(session: .sample())
+        .environment(ExerciseCatalog())
         .environment(\.palette, .dark)
         .preferredColorScheme(.dark)
 }
