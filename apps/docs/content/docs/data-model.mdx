@@ -1,0 +1,161 @@
+---
+title: Data model
+description: The tables on the phone, and the rules that hold them together.
+---
+
+This is the SQLite schema the iOS app starts with. Postgres on the server holds the same tables, as [tech stack](/docs/tech-stack) explains. The words used here are the ones defined in `GLOSSARY.md`.
+
+This page is a draft. Nothing is built yet.
+
+## Rules every table follows
+
+Every table that holds your data has the same three columns, so sync can treat all of them the same way.
+
+| Column | Type | What it is |
+| --- | --- | --- |
+| `id` | text | A UUIDv7 made on the phone. Rows never need the server to get an ID. |
+| `updated_at` | integer | Milliseconds since 1970. Set on every change. When the same row changed on two devices, the later one wins. |
+| `deleted_at` | integer, nullable | Set instead of deleting the row, so the deletion syncs like any other change. |
+
+On the server, every row also has a `user_id` and a sync cursor. The phone does not store either.
+
+- Weight is always stored in kilograms. A setting picks whether you see and type kg or lb.
+- Durations are stored in whole seconds.
+- Order within a list is a `position` number. When you drag an exercise between two others, it gets the number halfway between theirs, so a reorder changes one row and not the whole list.
+
+## Exercises and machines
+
+```
+exercise ──< machine ──< field
+```
+
+**`exercise`**
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `name` | text | |
+| `primary_muscle` | text | |
+| `secondary_muscles` | text | JSON list, can be empty |
+| `equipment` | text | |
+| `is_builtin` | integer | 1 for the built-in list |
+
+Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. Custom exercises are ordinary rows.
+
+**`machine`**
+
+A machine is a brand on one exercise. Technogym + Adductors, Technogym + Pulldown and Hammer Strength + Pulldown are three machines.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `exercise_id` | text | |
+| `brand` | text, nullable | Empty means "no machine" |
+| `label` | text, nullable | The model, the gym, or anything else that tells two of the same brand apart |
+
+- An exercise done without a brand, such as barbell bench, still gets a machine row, with an empty brand. Fields, sets and records then always hang off a machine, and nothing needs a special case for "no machine".
+- That row is created the first time you log the exercise. Hevy imports use it as well.
+- Brand is plain text. The built-in brand list only feeds the suggestions when you type one.
+
+**`field`**
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `machine_id` | text | Fields never carry over between machines |
+| `name` | text | Such as "Notch" or "Dead stop" |
+| `kind` | text | `number` or `yes_no` |
+| `direction` | text, nullable | `higher` or `lower`. Set only on a tracked field |
+| `range_min` | real, nullable | Required when `direction` is set |
+| `range_max` | real, nullable | Required when `direction` is set, and above `range_min` |
+| `split_by_value` | integer | 1 gives each value its own progress |
+| `position` | real | |
+
+## Workouts and sets
+
+```
+workout ──< workout_exercise ──< set ──< set_field_value
+```
+
+**`workout`**
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `started_at` | integer | |
+| `finished_at` | integer, nullable | Empty while the workout is running |
+| `routine_id` | text, nullable | The routine it was started from, if any |
+| `note` | text, nullable | |
+
+At most one workout has no `finished_at`. That is the one the app opens into.
+
+**`workout_exercise`**
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `workout_id` | text | |
+| `machine_id` | text | The exercise comes from the machine |
+| `position` | real | |
+| `rest_seconds` | integer | |
+| `note` | text, nullable | |
+
+**`set`**
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `workout_exercise_id` | text | |
+| `position` | real | |
+| `kind` | text | `reps` or `hold` |
+| `weight_kg` | real, nullable | Empty means unloaded, which is not 0 kg |
+| `reps` | integer, nullable | Rep sets only |
+| `duration_seconds` | integer, nullable | Holds only |
+| `rpe` | real, nullable | 6 to 10 in half steps |
+| `completed_at` | integer, nullable | Set when you tick the set |
+
+The values can be empty while you are still typing. Once a set is ticked, a rep set must have reps and no duration, and a hold must have a duration and no reps.
+
+**`set_field_value`**
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `set_id` | text | |
+| `field_id` | text | Must belong to the same machine as the set |
+| `value` | real | A yes/no field stores 1 or 0 |
+
+A set has at most one value per field. A field added after the set was logged has no value on it, and that is what gives older sets a different shape.
+
+## Routines
+
+```
+routine ──< routine_exercise ──< routine_set
+```
+
+| Table | Columns |
+| --- | --- |
+| `routine` | `name`, `position` |
+| `routine_exercise` | `routine_id`, `machine_id`, `position`, `rest_seconds`, `note` |
+| `routine_set` | `routine_exercise_id`, `position`, `kind`, `weight_kg`, `reps`, `duration_seconds` |
+
+Starting a workout copies these rows into new `workout_exercise` and `set` rows. Changes made during the workout never reach the routine.
+
+## Settings
+
+| Table | Columns |
+| --- | --- |
+| `user_setting` | `weight_unit` (`kg` or `lb`) |
+
+There is one row per account. It syncs, so a second phone gets the same unit.
+
+## On the phone only
+
+These tables never sync.
+
+| Table | What it holds |
+| --- | --- |
+| `sync_outbox` | Rows changed since the last push. Each row is the table name and the row ID. |
+| `sync_state` | The cursor from the last pull. |
+| `record` | The best weight, reps, time, tracked field value and score for each machine and shape, with the set it came from. Rebuilt from the sets when a workout is saved or a field's range or direction changes. |
+
+Records and scores are worked out from the sets, so they are never synced and two devices cannot disagree about them. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) explains the score.
+
+## Still open
+
+- **Changing the machine mid-workout.** If you switch adductors from Technogym to Hammer Strength after logging two sets, the field values on those sets belong to the old machine's fields. One option is to move the logged sets to the new machine and drop the values that don't match. The other is to only allow the switch before any set is ticked.
+- **Deleting a field.** Proposed: the field is marked deleted and its values stay, so history and records don't change. It also stops showing on new sets.
+- **Merging duplicates.** Two phones could each create Technogym + Adductors while offline, giving the same machine twice. Proposed: allow it in v1, and add a merge later.
