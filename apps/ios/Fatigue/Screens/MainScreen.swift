@@ -12,6 +12,7 @@ struct MainScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkoutStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     /// Launch with `-openProfile` to start on the Profile tab, for screenshots.
     @State private var tab: Tab = ProcessInfo.processInfo.arguments.contains("-openProfile") ? .profile : .workout
 
@@ -51,6 +52,10 @@ struct MainScreen: View {
             }
         }
         .onAppear(perform: openForScreenshots)
+        .task(id: store.active?.id) { await store.autosaveActive() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { store.saveActive() }
+        }
     }
 
     /// Debug builds start the leg day workout on launch with `-openWorkout`, or start it minimised

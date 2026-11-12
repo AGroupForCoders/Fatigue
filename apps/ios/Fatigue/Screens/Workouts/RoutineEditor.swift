@@ -61,7 +61,7 @@ struct RoutineEditor: View {
                 .plainRow(palette)
 
                 ForEach($routine.exercises) { $exercise in
-                    RoutineExerciseRow(exercise: $exercise)
+                    RoutineExerciseEditorRow(exercise: $exercise)
                         .listRowBackground(palette.background)
                         .listRowSeparatorTint(palette.borderSoft)
                         .listRowInsets(EdgeInsets(top: 0, leading: Tokens.Space.xxl, bottom: 0, trailing: Tokens.Space.xxl))
@@ -117,7 +117,7 @@ struct RoutineEditor: View {
 /// One exercise in the routine editor: its name, how many sets, and the weight and reps to aim for.
 /// Exercises whose sets differ, such as a hold then reps, show the count only; finishing a workout
 /// can update those sets (see the finish summary).
-private struct RoutineExerciseRow: View {
+private struct RoutineExerciseEditorRow: View {
     @Environment(\.palette) private var palette
     @Binding var exercise: RoutineExercise
 

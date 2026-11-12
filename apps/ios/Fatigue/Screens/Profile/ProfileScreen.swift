@@ -151,7 +151,7 @@ nonisolated enum ProfilePhoto {
     }
 
     static func load() -> UIImage? {
-        UIImage(contentsOfFile: url.path())
+        UIImage(contentsOfFile: url.path(percentEncoded: false))
     }
 
     /// Shrinks the picked photo to 512 points across and saves it. Returns the saved image.

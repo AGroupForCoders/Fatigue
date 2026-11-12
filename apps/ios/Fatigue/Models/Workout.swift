@@ -75,7 +75,7 @@ struct SetSetup: Hashable {
 /// One set in a running workout. Weight and amount are kept as typed text for this spike,
 /// so the cells can be edited directly. The real model stores numbers.
 struct WorkoutSet: Identifiable {
-    let id = UUID()
+    var id = UUID()
     var setup: SetSetup
     var weight: String
     /// Reps for a rep set, seconds for a hold.
@@ -90,12 +90,12 @@ struct WorkoutSet: Identifiable {
 
 /// A free-form note under an exercise's name. An exercise can have several.
 struct ExerciseNote: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
     var text: String
 }
 
 struct WorkoutExercise: Identifiable {
-    let id = UUID()
+    var id = UUID()
     var name: String
     var brand: String?
     var restSeconds: Int
@@ -206,12 +206,16 @@ struct RestTimer: Equatable {
 /// The workout that is running. Holds everything the workout screen shows and changes.
 @Observable
 final class WorkoutSession {
+    var id = UUID()
     var title: String
     let startedAt: Date
     var exercises: [WorkoutExercise]
     private(set) var rest: RestTimer?
     /// Off when editing a finished workout, where ticking a set shouldn't start a rest timer.
     var startsRestWhenTicked = true
+    /// Looks up your sets on an exercise and brand from last time, for the Previous column.
+    /// Set by the store; nil in tests and previews.
+    @ObservationIgnored var previousLookup: ((String, String?) -> [WorkoutSet])?
     /// The prebuilt workout this was started from, so finishing can offer to update it.
     var routineID: UUID?
     /// The set whose RPE scale is open, if any. Only one is open at a time.
@@ -396,5 +400,5 @@ nonisolated enum PlainNumber {
     }
 }
 
-/// Lets a running session drive `.fullScreenCover(item:)`. Classes get an identity-based id for free.
+/// Lets a running session drive `.fullScreenCover(item:)`.
 extension WorkoutSession: Identifiable {}

@@ -34,11 +34,16 @@
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
+/* Begin PBXBuildFile section */
+		F1A70000000000000000D0D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F1A70000000000000000D0D1 /* GRDB */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		F1A70000000000000000F002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F1A70000000000000000D0D2 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +95,7 @@
 			);
 			name = Fatigue;
 			packageProductDependencies = (
+				F1A70000000000000000D0D1 /* GRDB */,
 			);
 			productName = Fatigue;
 			productReference = F1A70000000000000000B001 /* Fatigue.app */;
@@ -145,6 +151,9 @@
 				Base,
 			);
 			mainGroup = F1A70000000000000000C010;
+			packageReferences = (
+				F1A70000000000000000D0D0 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F1A70000000000000000C011 /* Products */;
@@ -386,6 +395,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F1A70000000000000000D0D0 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.11.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F1A70000000000000000D0D1 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A70000000000000000D0D0 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F1A70000000000000000E001 /* Project object */;
 }

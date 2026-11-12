@@ -4,7 +4,7 @@ import Observation
 /// A prebuilt workout: a name and the exercises and sets to start from.
 /// Starting one copies it into a new `WorkoutSession`, so changes during the workout never reach it.
 struct Routine: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
     var name: String
     var exercises: [RoutineExercise]
 
@@ -20,7 +20,7 @@ struct RoutineExercise: Identifiable, Equatable {
             + sets.map { "\($0.setup.kind.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
     }
 
-    let id = UUID()
+    var id = UUID()
     var name: String
     var brand: String?
     var restSeconds = 90
@@ -96,7 +96,9 @@ extension Routine {
 /// the bottom nav and the workout screen.
 @Observable
 final class WorkoutStore {
-    var routines: [Routine]
+    var routines: [Routine] {
+        didSet { persist { try $0.saveRoutines(RoutineRows(routines)) } }
+    }
     /// Finished workouts, newest first.
     private(set) var history: [FinishedWorkout]
     /// The workout running now, if any. Only one runs at a time.
@@ -104,21 +106,96 @@ final class WorkoutStore {
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
     var isShowingActive = false
     private let now: () -> Date
+    /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
+    private let database: AppDatabase?
 
     init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), now: @escaping () -> Date = Date.init) {
         self.routines = routines
         self.history = history
         self.now = now
+        self.database = nil
+    }
+
+    /// Loads everything saved on the phone, including a workout that was running when the app closed.
+    /// Debug builds fill an empty database with the sample workouts, so there's something to look at.
+    init(database: AppDatabase, now: @escaping () -> Date = Date.init) {
+        self.database = database
+        self.now = now
+        let workouts = (try? database.workoutRows()) ?? WorkoutRows()
+        let saved = (try? database.routineRows()) ?? RoutineRows()
+        routines = saved.routinesInOrder
+        history = workouts.history
+        active = workouts.active
+        #if DEBUG
+        if routines.isEmpty, history.isEmpty, active == nil {
+            routines = Routine.samples
+            for workout in FinishedWorkout.samples() { history.append(workout) }
+            try? database.saveRoutines(RoutineRows(routines))
+            for workout in history { try? database.saveWorkout(workout.rows) }
+        }
+        #endif
+        active?.previousLookup = previousSets
     }
 
     func start(_ routine: Routine) {
-        active = routine.start(now: now)
-        isShowingActive = true
+        let session = routine.start(now: now)
+        begin(session)
+        for index in session.exercises.indices { session.fillPrevious(for: index) }
+        saveActive()
     }
 
     func startEmpty() {
-        active = WorkoutSession(title: "Workout", exercises: [], now: now)
+        begin(WorkoutSession(title: "Workout", exercises: [], now: now))
+        saveActive()
+    }
+
+    private func begin(_ session: WorkoutSession) {
+        session.previousLookup = previousSets
+        active = session
         isShowingActive = true
+    }
+
+    /// Your sets on an exercise and brand the last time you did it, newest workout first.
+    func previousSets(name: String, brand: String?) -> [WorkoutSet] {
+        for workout in history {
+            if let exercise = workout.exercises.first(where: { $0.name == name && $0.brand == brand }) { return exercise.sets }
+        }
+        return []
+    }
+
+    /// Saves the running workout as it is now. Called after every change, and when the app goes to the background.
+    func saveActive() {
+        guard let session = active else { return }
+        persist { try $0.saveWorkout(session.rows) }
+    }
+
+    /// Saves the running workout a moment after each change, for as long as it runs.
+    /// Waiting a moment means typing a weight saves once, not once per digit.
+    func autosaveActive() async {
+        while !Task.isCancelled, let session = active {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = session.title
+                    _ = session.exercises
+                } onChange: {
+                    done.resume()
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard active === session else { return }
+            saveActive()
+        }
+    }
+
+    /// Runs a database write, if there's a database. A failed write is logged rather than shown,
+    /// since the app can carry on with what's in memory.
+    private func persist(_ write: (AppDatabase) throws -> Void) {
+        guard let database else { return }
+        do { try write(database) } catch {
+            #if DEBUG
+            print("Saving failed: \(error)")
+            #endif
+        }
     }
 
     /// Ends the workout and puts it at the top of your history, if it has any sets to keep.
@@ -138,7 +215,11 @@ final class WorkoutStore {
         var finished = session.finished(at: now())
         if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { finished.title = title.trimmingCharacters(in: .whitespaces) }
         finished.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        if finished.setCount > 0 { history.insert(finished, at: 0) }
+        persist { try $0.deleteWorkout(id: session.id.uuidString) }
+        if finished.setCount > 0 {
+            history.insert(finished, at: 0)
+            persist { try $0.saveWorkout(finished.rows) }
+        }
         isShowingActive = false
         active = nil
     }
@@ -155,6 +236,8 @@ final class WorkoutStore {
         let title = title.trimmingCharacters(in: .whitespaces)
         if !title.isEmpty { history[index].title = title }
         history[index].description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workout = history[index]
+        persist { try $0.saveWorkout(workout.rows) }
     }
 
     /// Replaces a prebuilt workout with an edited copy.
@@ -165,6 +248,7 @@ final class WorkoutStore {
 
     /// Throws the running workout away without saving it.
     func discard() {
+        if let session = active { persist { try $0.deleteWorkout(id: session.id.uuidString) } }
         isShowingActive = false
         active = nil
     }
@@ -172,11 +256,18 @@ final class WorkoutStore {
     /// Puts an edited past workout back in its place in history.
     func replace(_ workout: FinishedWorkout) {
         guard let index = history.firstIndex(where: { $0.id == workout.id }) else { return }
-        if workout.setCount == 0 { history.remove(at: index) } else { history[index] = workout }
+        if workout.setCount == 0 {
+            history.remove(at: index)
+            persist { try $0.deleteWorkout(id: workout.id.uuidString) }
+        } else {
+            history[index] = workout
+            persist { try $0.saveWorkout(workout.rows) }
+        }
     }
 
     func deleteFromHistory(_ workoutID: UUID) {
         history.removeAll { $0.id == workoutID }
+        persist { try $0.deleteWorkout(id: workoutID.uuidString) }
     }
 
     func add(_ routine: Routine) {
@@ -194,11 +285,32 @@ extension WorkoutSession {
     func addExercises(named names: [String], catalog: ExerciseCatalog? = nil) {
         for name in names {
             let saved = catalog?.setup(for: name, brand: nil) ?? BrandSetup()
-            exercises.append(WorkoutExercise(
-                name: name, brand: nil, restSeconds: 90, settings: saved.settings,
-                sets: [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
-            ))
+            let last = previousLookup?(name, nil) ?? []
+            // Start from last time's sets when there were any, so the cells are already filled in.
+            let sets = last.isEmpty
+                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
+                : last.map { WorkoutSet(setup: $0.setup, weight: $0.weight, amount: $0.amount, previous: "") }
+            exercises.append(WorkoutExercise(name: name, brand: nil, restSeconds: 90, settings: saved.settings, sets: sets))
+            fillPrevious(for: exercises.count - 1)
         }
+    }
+
+    /// Fills each set's Previous with what you did on that set last time, on this exercise and brand.
+    /// Leaves it as it was when there's no history, such as the target from a prebuilt workout.
+    func fillPrevious(for exerciseIndex: Int) {
+        let exercise = exercises[exerciseIndex]
+        let last = previousLookup?(exercise.name, exercise.brand) ?? []
+        guard !last.isEmpty else { return }
+        for index in exercise.sets.indices {
+            exercises[exerciseIndex].sets[index].previous = Self.describe(last[min(index, last.count - 1)])
+        }
+    }
+
+    /// A past set in the Previous column's form, such as "55 × 8 @8.5" or "40 × 45s @8".
+    static func describe(_ set: WorkoutSet) -> String {
+        var text = "\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")"
+        if let rpe = set.rpe { text += " @\(PlainNumber.string(rpe))" }
+        return text
     }
 
     /// Applies an edit from the exercise editor to an exercise in this workout.
@@ -221,6 +333,7 @@ extension WorkoutSession {
     func changeBrand(of exerciseIndex: Int, to brand: String?, catalog: ExerciseCatalog) {
         exercises[exerciseIndex].brand = brand
         exercises[exerciseIndex].settings = catalog.setup(for: exercises[exerciseIndex].name, brand: brand).settings
+        fillPrevious(for: exerciseIndex)
     }
 }
 

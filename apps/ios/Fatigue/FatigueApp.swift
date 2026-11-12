@@ -3,11 +3,29 @@ import SwiftUI
 @main
 struct FatigueApp: App {
     @State private var auth = AuthStore()
-    @State private var workouts = WorkoutStore()
-    @State private var catalog = ExerciseCatalog()
+    @State private var workouts: WorkoutStore
+    @State private var catalog: ExerciseCatalog
 
     init() {
         FontRegistry.registerBundledFonts()
+        // Everything is saved in SQLite on the phone. If the file can't be opened, the app falls
+        // back to a database in memory so it still opens, but nothing is kept after it closes.
+        let database: AppDatabase?
+        do {
+            database = try AppDatabase.onDisk()
+        } catch {
+            #if DEBUG
+            print("Couldn't open the database, keeping everything in memory: \(error)")
+            #endif
+            database = try? AppDatabase.inMemory()
+        }
+        if let database {
+            _workouts = State(initialValue: WorkoutStore(database: database))
+            _catalog = State(initialValue: ExerciseCatalog.load(from: database))
+        } else {
+            _workouts = State(initialValue: WorkoutStore())
+            _catalog = State(initialValue: ExerciseCatalog())
+        }
     }
 
     var body: some Scene {
