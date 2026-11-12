@@ -39,6 +39,24 @@ struct BrandSetup: Equatable {
 final class ExerciseCatalog {
     private(set) var exercises: [ExerciseInfo]
     private var setups: [String: BrandSetup]
+    /// Where changes are saved. Nil keeps them in memory, as tests and previews do.
+    private var database: AppDatabase?
+
+    /// Every saved exercise-and-brand's settings, keyed "Adductors|Technogym".
+    var savedSetups: [String: BrandSetup] { setups }
+
+    /// The library as saved on the phone.
+    static func load(from database: AppDatabase) -> ExerciseCatalog {
+        let catalog = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary())
+        catalog.database = database
+        return catalog
+    }
+
+    private func persist() {
+        guard let database else { return }
+        let stored = stored
+        try? database.save(stored)
+    }
 
     init(exercises: [ExerciseInfo] = ExerciseCatalog.builtIn, setups: [String: BrandSetup] = ExerciseCatalog.sampleSetups) {
         self.exercises = exercises.sorted { $0.name < $1.name }
@@ -72,12 +90,15 @@ final class ExerciseCatalog {
             }
         }
         setups[Self.key(info.name, brand)] = setup
+        persist()
     }
 
     /// Remembers the settings for an exercise on a brand, such as after you add a row on the workout screen.
     func saveSettings(_ settings: [ExerciseSetting], for name: String, brand: String?) {
         let named = settings.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard setups[Self.key(name, brand)]?.settings != named else { return }
         setups[Self.key(name, brand), default: BrandSetup()].settings = named
+        persist()
     }
 
     private static func key(_ name: String, _ brand: String?) -> String { "\(name)|\(brand ?? "")" }

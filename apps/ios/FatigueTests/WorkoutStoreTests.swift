@@ -13,7 +13,8 @@ struct WorkoutStoreTests {
         #expect(active.title == routine.name)
         #expect(active.exercises.map(\.name) == routine.exercises.map(\.name))
         #expect(active.doneCount == 0)
-        #expect(active.exercises[0].sets[1].previous == "55 × 8")
+        // Previous comes from the last Leg day in history, not the prebuilt workout's targets.
+        #expect(active.exercises[0].sets[1].previous == "55 × 8 @8.5")
     }
 
     @Test func changesDuringTheWorkoutNeverReachTheRoutine() {
@@ -49,6 +50,7 @@ struct WorkoutStoreTests {
         store.startEmpty()
         store.active?.addExercises(named: ["Squat", "Leg Curl"])
         #expect(store.active?.exercises.map(\.name) == ["Squat", "Leg Curl"])
-        #expect(store.active?.setCount == 2)
+        // Squat is new, so it starts with one set. Leg Curl copies its two sets from last time.
+        #expect(store.active?.setCount == 3)
     }
 }
