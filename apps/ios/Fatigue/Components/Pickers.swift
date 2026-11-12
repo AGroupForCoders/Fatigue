@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// The RPE scale that opens under a set: 6 to 10 in half steps, with what the number means.
-/// One tap picks a value and closes the scale.
-struct RPEScale: View {
+/// The RPE picker pinned to the bottom of the workout screen, where the rest timer sits:
+/// which set it is for, what the chosen value means, and 6 to 10 in half steps.
+/// One tap picks a value and closes it.
+struct RPEPanel: View {
     @Environment(\.palette) private var palette
+    let title: String
     let selected: Double?
     let onPick: (Double?) -> Void
+    let onClose: () -> Void
 
     static let values = stride(from: 6.0, through: 10.0, by: 0.5).map { $0 }
 
@@ -24,37 +27,55 @@ struct RPEScale: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.s) {
-            HStack {
-                Text(selected.map(Self.meaning) ?? "How hard was it?")
-                    .foregroundStyle(palette.foregroundMuted)
-                Spacer()
-                if selected != nil {
-                    Button("Clear") { onPick(nil) }
-                        .foregroundStyle(palette.foregroundMuted)
-                }
-            }
-            .textStyle(Tokens.Typography.caption)
-
-            HStack(spacing: Tokens.Space.xs) {
-                ForEach(Self.values, id: \.self) { value in
-                    let isSelected = value == selected
-                    Button { onPick(value) } label: {
-                        Text(RPECell.format(value))
-                            .textStyle(Tokens.Typography.control)
-                            .monospacedDigit()
-                            .foregroundStyle(isSelected ? palette.background : palette.foreground)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: Tokens.Size.cell)
-                            .background(isSelected ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+        VStack(spacing: 0) {
+            Hairline()
+            VStack(alignment: .leading, spacing: Tokens.Space.m) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                        Text(title)
+                            .textStyle(Tokens.Typography.body)
+                            .foregroundStyle(palette.foreground)
+                        Text(selected.map(Self.meaning) ?? "How hard was it?")
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("RPE \(RPECell.format(value)), \(Self.meaning(value))")
+                    Spacer()
+                    if selected != nil {
+                        Button("Clear") { onPick(nil) }
+                            .textStyle(Tokens.Typography.control)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .frame(height: Tokens.Size.control)
+                    }
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(palette.foreground)
+                            .frame(width: Tokens.Size.control, height: Tokens.Size.control, alignment: .trailing)
+                    }
+                    .accessibilityLabel("Close")
+                }
+
+                HStack(spacing: Tokens.Space.xs) {
+                    ForEach(Self.values, id: \.self) { value in
+                        let isSelected = value == selected
+                        Button { onPick(value) } label: {
+                            Text(RPECell.format(value))
+                                .textStyle(Tokens.Typography.control)
+                                .monospacedDigit()
+                                .foregroundStyle(isSelected ? palette.background : palette.foreground)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: Tokens.Size.control)
+                                .background(isSelected ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("RPE \(RPECell.format(value)), \(Self.meaning(value))")
+                    }
                 }
             }
+            .padding(.horizontal, Tokens.Space.xxl)
+            .padding(.top, Tokens.Space.m)
+            .padding(.bottom, Tokens.Space.l)
         }
-        .padding(.leading, Tokens.Size.setNumberColumn + Tokens.Space.s)
-        .padding(.bottom, Tokens.Space.m)
+        .background(palette.background.ignoresSafeArea(edges: .bottom))
         .sensoryFeedback(.selection, trigger: selected)
     }
 }

@@ -108,7 +108,6 @@ nonisolated enum Tokens {
         static let amountColumn: CGFloat = 52
         static let rpeColumn: CGFloat = 46
         static let tickColumn: CGFloat = 34
-        static let restBarClearance: CGFloat = 120
     }
 
     /// Durations in seconds.

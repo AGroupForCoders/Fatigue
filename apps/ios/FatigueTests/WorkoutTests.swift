@@ -78,40 +78,13 @@ struct ThemeTests {
     }
 }
 
-struct NumberTextTests {
-    @Test func stepsUpAndDown() {
-        #expect(NumberText.adjust("55", by: 2.5) == "57.5")
-        #expect(NumberText.adjust("57.5", by: -2.5) == "55")
-        #expect(NumberText.adjust("", by: 2.5) == "2.5")
-    }
-
-    @Test func neverGoesBelowZero() {
-        #expect(NumberText.adjust("1", by: -2.5) == "0")
-    }
-}
-
 @MainActor
-struct KeyboardOrderTests {
-    @Test func nextMovesFromWeightToAmountToTheNextSet() {
+struct SetPlaceTests {
+    @Test func findsWhereASetIs() {
         let session = WorkoutSession.sample()
-        let first = session.exercises[0].sets[0].id
-        let second = session.exercises[0].sets[1].id
-        #expect(session.cell(after: .weight(first)) == .amount(first))
-        #expect(session.cell(after: .amount(first)) == .weight(second))
-    }
-
-    @Test func lastFieldHasNoNext() {
-        let session = WorkoutSession.sample()
-        let last = session.exercises.last!.sets.last!.id
-        #expect(session.cell(after: .amount(last)) == nil)
-    }
-
-    @Test func stepUsesFiveSecondsForHolds() {
-        let session = WorkoutSession.sample()
-        let hold = session.exercises[0].sets[0]
-        session.step(.amount(hold.id), up: true)
-        #expect(session.exercises[0].sets[0].amount == "55")
-        session.step(.weight(hold.id), up: false)
-        #expect(session.exercises[0].sets[0].weight == "37.5")
+        let set = session.exercises[1].sets[2]
+        let place = session.place(of: set.id)
+        #expect(place?.exercise == 1)
+        #expect(place?.set == 2)
     }
 }

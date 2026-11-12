@@ -8,37 +8,13 @@ struct WorkoutScreen: View {
     @FocusState private var focused: FocusedCell?
 
     var body: some View {
-        NavigationStack {
+        ScrollViewReader { proxy in
             content
-                .toolbar(.hidden, for: .navigationBar)
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) { keyboardBar }
+                .onChange(of: session.openRPE) { _, id in
+                    guard let id else { return }
+                    focused = nil
+                    withAnimation(.easeOut(duration: Tokens.Motion.standard)) { proxy.scrollTo(id, anchor: .center) }
                 }
-        }
-    }
-
-    /// The bar above the number keyboard: step the value down or up, or move to the next field.
-    @ViewBuilder private var keyboardBar: some View {
-        if let cell = focused {
-            Button { session.step(cell, up: false) } label: { Text(stepLabel(cell, up: false)) }
-                .accessibilityLabel("Decrease")
-            Button { session.step(cell, up: true) } label: { Text(stepLabel(cell, up: true)) }
-                .accessibilityLabel("Increase")
-            Spacer()
-            Button(session.cell(after: cell) == nil ? "Done" : "Next") {
-                focused = session.cell(after: cell)
-            }
-            .fontWeight(.medium)
-        }
-    }
-
-    private func stepLabel(_ cell: FocusedCell, up: Bool) -> String {
-        let sign = up ? "+" : "-"
-        switch cell {
-        case .weight: return "\(sign)2.5 kg"
-        case .amount(let id):
-            let isHold = session.exercises.flatMap(\.sets).first { $0.id == id }?.kind == .hold
-            return isHold ? "\(sign)5 s" : "\(sign)1 rep"
         }
     }
 
@@ -67,19 +43,14 @@ struct WorkoutScreen: View {
                     Hairline()
                 }
                 .padding(.horizontal, Tokens.Space.xxl)
-                .padding(.bottom, Tokens.Size.restBarClearance)
             }
             .scrollDismissesKeyboard(.interactively)
         }
         .background(palette.background)
-        .overlay(alignment: .bottom) {
-            if let rest = session.rest {
-                RestBar(rest: rest, onAdjust: { session.adjustRest(by: $0) }, onSkip: { session.skipRest() })
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomPanel }
         .overlay { GrainOverlay() }
         .animation(.easeOut(duration: Tokens.Motion.standard), value: session.rest)
+        .animation(.easeOut(duration: Tokens.Motion.standard), value: session.openRPE)
         .task(id: session.rest?.endsAt) {
             guard let endsAt = session.rest?.endsAt else { return }
             try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
@@ -89,6 +60,26 @@ struct WorkoutScreen: View {
     }
 
     @State private var restFinished = false
+
+    /// The panel pinned to the bottom: the RPE scale while picking an RPE, otherwise the rest timer.
+    @ViewBuilder private var bottomPanel: some View {
+        if let id = session.openRPE, let place = session.place(of: id) {
+            let set = session.exercises[place.exercise].sets[place.set]
+            RPEPanel(
+                title: "\(session.exercises[place.exercise].name) · Set \(place.set + 1)",
+                selected: set.rpe,
+                onPick: { value in
+                    session.exercises[place.exercise].sets[place.set].rpe = value
+                    session.openRPE = nil
+                },
+                onClose: { session.openRPE = nil }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else if let rest = session.rest {
+            RestBar(rest: rest, onAdjust: { session.adjustRest(by: $0) }, onSkip: { session.skipRest() })
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
 
     private var header: some View {
         HStack(alignment: .bottom) {
@@ -264,17 +255,7 @@ private struct SetRow: View {
 
     var body: some View {
         let set = session.exercises[exerciseIndex].sets[setIndex]
-        VStack(spacing: 0) {
-            row(set)
-            if session.openRPE == set.id {
-                RPEScale(selected: set.rpe) { value in
-                    session.exercises[exerciseIndex].sets[setIndex].rpe = value
-                    session.openRPE = nil
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .animation(.easeOut(duration: Tokens.Motion.quick), value: session.openRPE)
+        row(set).id(set.id)
     }
 
     private func row(_ set: WorkoutSet) -> some View {

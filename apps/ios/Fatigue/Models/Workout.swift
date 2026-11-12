@@ -52,14 +52,6 @@ enum FocusedCell: Hashable {
     case amount(UUID)
 }
 
-/// Adds or removes a step from a number typed as text, such as "55" to "57.5".
-/// Empty text counts as zero, and the result never goes below zero.
-enum NumberText {
-    nonisolated static func adjust(_ text: String, by step: Double) -> String {
-        let value = max(0, (Double(text) ?? 0) + step)
-        return value.rounded() == value ? String(Int(value)) : String(value)
-    }
-}
 
 /// A run of sets that share a kind and setup, shown under one small heading.
 struct SetGroup: Identifiable, Equatable {
@@ -137,35 +129,12 @@ final class WorkoutSession {
         )
     }
 
-    /// Every number field in order, the way "Next" on the keyboard moves through them:
-    /// weight, then reps or time, then the next set.
-    var cellOrder: [FocusedCell] {
-        exercises.flatMap(\.sets).flatMap { [FocusedCell.weight($0.id), .amount($0.id)] }
-    }
-
-    func cell(after cell: FocusedCell) -> FocusedCell? {
-        let order = cellOrder
-        guard let index = order.firstIndex(of: cell), index + 1 < order.count else { return nil }
-        return order[index + 1]
-    }
-
-    /// Steps the focused field: 2.5 kg for weight, 1 rep, or 5 seconds for a hold.
-    func step(_ cell: FocusedCell, up: Bool) {
+    /// Where a set is: the index of its exercise, and its index within that exercise.
+    func place(of setID: UUID) -> (exercise: Int, set: Int)? {
         for e in exercises.indices {
-            for s in exercises[e].sets.indices {
-                let set = exercises[e].sets[s]
-                switch cell {
-                case .weight(set.id):
-                    exercises[e].sets[s].weight = NumberText.adjust(set.weight, by: up ? 2.5 : -2.5)
-                case .amount(set.id):
-                    let step: Double = set.kind == .hold ? 5 : 1
-                    exercises[e].sets[s].amount = NumberText.adjust(set.amount, by: up ? step : -step)
-                default:
-                    continue
-                }
-                return
-            }
+            if let s = exercises[e].sets.firstIndex(where: { $0.id == setID }) { return (e, s) }
         }
+        return nil
     }
 
     func adjustRest(by seconds: TimeInterval) {
