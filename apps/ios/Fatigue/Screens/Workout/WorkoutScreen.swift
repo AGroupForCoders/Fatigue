@@ -190,11 +190,13 @@ private struct ExerciseSection: View {
     let exerciseIndex: Int
     var focus: FocusState<FocusedCell?>.Binding
     @State private var editingExercise = false
+    /// Whether the settings line is opened up into editable rows.
+    @State private var editingSettings = false
     @State private var pickingBrand = false
     @State private var editingSetup: SetupEdit?
     @State private var pickingRest = false
 
-    /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE` or `-editExercise`, for screenshots.
+    /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE`, `-editExercise` or `-editSettings`, for screenshots.
     private func openForScreenshots() {
         #if DEBUG
         guard exerciseIndex == 0 else { return }
@@ -202,6 +204,7 @@ private struct ExerciseSection: View {
         if args.contains("-openBrand") { pickingBrand = true }
         if args.contains("-openRest") { pickingRest = true }
         if args.contains("-editExercise") { editingExercise = true }
+        if args.contains("-editSettings") { editingSettings = true }
         if args.contains("-openRPE") { session.openRPE = exercise.sets.last?.id }
         #endif
     }
@@ -216,6 +219,7 @@ private struct ExerciseSection: View {
                     .foregroundStyle(palette.foreground)
                 Spacer()
                 Menu {
+                    Button("Add setting", systemImage: "plus") { addSetting() }
                     Button("Edit exercise", systemImage: "slider.horizontal.3") { editingExercise = true }
                     Button("Reorder exercises") {}
                     Button("Remove exercise", role: .destructive) {}
@@ -227,8 +231,8 @@ private struct ExerciseSection: View {
                 .accessibilityLabel("Exercise options")
             }
 
-            notes
             settings
+            notes
 
             FlowLayout(spacing: Tokens.Space.s) {
                 Button { pickingRest = true } label: {
@@ -245,15 +249,6 @@ private struct ExerciseSection: View {
                 }
                 .buttonStyle(.press)
                 .accessibilityLabel("Add a note")
-
-                Button {
-                    let id = withAnimation(.standard) { session.addSetting(to: exerciseIndex) }
-                    focus.wrappedValue = .settingName(id)
-                } label: {
-                    OutlinedLabel(systemImage: "plus", text: "Setting", isMuted: exercise.settings.isEmpty)
-                }
-                .buttonStyle(.press)
-                .accessibilityLabel("Add a setting, like seat height")
 
                 Button { pickingBrand = true } label: {
                     OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
@@ -378,11 +373,47 @@ private struct ExerciseSection: View {
         }
     }
 
-    /// Settings like seat height, one row each under the notes: a name and a value.
-    /// Setting adds another row. They're remembered for this exercise on this brand.
+    /// Settings like seat height, as one quiet line under the name: "Seat 4 · Notch 7 · Dead stop".
+    /// Tapping it opens the settings up into editable rows. They're remembered for this exercise on this brand.
     @ViewBuilder private var settings: some View {
-        if !exercise.settings.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
+        if editingSettings {
+            settingRows
+        } else if !exercise.settings.isEmpty {
+            Button {
+                withAnimation(.standard) { editingSettings = true }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
+                    Text(exercise.settingsSummary)
+                        .textStyle(Tokens.Typography.control)
+                        .foregroundStyle(palette.foregroundMuted)
+                        .multilineTextAlignment(.leading)
+                    Image(systemName: "pencil")
+                        .imageScale(.small)
+                        .foregroundStyle(palette.foregroundFaint)
+                }
+                .padding(.vertical, Tokens.Space.xs)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.pressRow)
+            .accessibilityLabel("Settings: \(exercise.settingsSummary)")
+            .accessibilityHint("Edit settings")
+            .padding(.top, Tokens.Space.s)
+            .transition(.opacity)
+        }
+    }
+
+    private func addSetting() {
+        let id = withAnimation(.standard) {
+            editingSettings = true
+            return session.addSetting(to: exerciseIndex)
+        }
+        focus.wrappedValue = .settingName(id)
+    }
+
+    /// The settings opened up: one editable row each, then Add setting and Done.
+    private var settingRows: some View {
+        VStack(alignment: .leading, spacing: 0) {
                 ForEach(exercise.settings) { setting in
                     SwipeToDelete(accessibilityName: setting.name.isEmpty ? "setting" : setting.name) {
                         session.deleteSetting(setting.id)
@@ -407,9 +438,34 @@ private struct ExerciseSection: View {
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                HStack {
+                    Button(action: addSetting) {
+                        Label("Add setting", systemImage: "plus")
+                            .textStyle(Tokens.Typography.control)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .frame(minHeight: Tokens.Size.control)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressRow)
+                    Spacer()
+                    Button {
+                        focus.wrappedValue = nil
+                        withAnimation(.standard) {
+                            session.removeEmptySettings()
+                            editingSettings = false
+                        }
+                    } label: {
+                        Text("Done")
+                            .textStyle(Tokens.Typography.control)
+                            .foregroundStyle(palette.foreground)
+                            .frame(minWidth: Tokens.Size.control, minHeight: Tokens.Size.control, alignment: .trailing)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressRow)
+                }
             }
             .padding(.top, Tokens.Space.s)
-        }
+            .transition(.opacity)
     }
 
     /// The value side of a setting row: Yes or No for a yes/no setting, otherwise a small cell to type in.
@@ -421,9 +477,9 @@ private struct ExerciseSection: View {
             } label: {
                 Text(isOn ? "Yes" : "No")
                     .textStyle(Tokens.Typography.control)
-                    .foregroundStyle(isOn ? palette.background : palette.foreground)
+                    .foregroundStyle(isOn ? palette.foreground : palette.foregroundFaint)
                     .frame(width: Tokens.Size.amountColumn, height: Tokens.Size.cell - Tokens.Space.s)
-                    .background(isOn ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+                    .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
                     .animation(.quick, value: isOn)
             }
             .buttonStyle(.press)

@@ -65,4 +65,12 @@ struct SettingsTests {
         session.removeEmptySettings()
         #expect(session.exercises[1].settings.isEmpty)
     }
+
+    @Test func settingsReadAsOneLine() {
+        var adductors = WorkoutSession.sample().exercises[0]
+        #expect(adductors.settingsSummary == "Seat 4 · Notch 7 · Dead stop")
+        adductors.settings[2].value = "no"
+        adductors.settings.append(ExerciseSetting(name: "Grip"))
+        #expect(adductors.settingsSummary == "Seat 4 · Notch 7 · No dead stop · Grip")
+    }
 }
