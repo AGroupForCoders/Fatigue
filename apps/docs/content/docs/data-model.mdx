@@ -21,7 +21,8 @@ On the server, every row also has a `user_id` and a sync cursor. The phone does 
 
 - Weight is always stored in kilograms. A setting picks whether you see and type kg or lb.
 - Durations are stored in whole seconds.
-- Order within a list is a `position` number. When you drag an exercise between two others, it gets the number halfway between theirs, so a reorder changes one row and not the whole list.
+- Order within a list is a `position` number. When you drag an exercise between two others, it gets the number halfway between theirs, so a reorder changes one row and not the whole list. After many drags between the same two rows the gap gets too small to halve, so when that happens the app renumbers that one list.
+- Deleting a row also sets `deleted_at` on every row under it in the same transaction. Deleting a workout marks its exercises, sets and field values deleted too, so any table can be read without checking its parents.
 
 ## Exercises and brands
 
@@ -43,17 +44,18 @@ Built-in exercises ship with the app and have fixed IDs, so they are the same on
 
 **`exercise_brand`**
 
-One row for each brand you have used for an exercise. Technogym chest press and Hammer Strength chest press are two rows. Fields, sets and records all hang off this row.
+One row for each brand you have used for an exercise, plus one for no brand if you have logged it without one. Technogym chest press and Hammer Strength chest press are two rows. Fields, sets and records all hang off this row.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `exercise_id` | text | |
-| `brand` | text | Required. Plain text, so "Gym dumbbells" is fine |
+| `brand` | text, nullable | Empty means no brand. Otherwise plain text you typed or picked |
 | `label` | text, nullable | The model, the gym, or anything else that tells two of the same brand apart |
 
-- Every logged exercise needs one, so the app asks for a brand the first time you add an exercise and defaults to the last one after that.
+- Logging an exercise without picking a brand uses its no-brand row, and creates it the first time. An exercise has at most one no-brand row.
+- When you add an exercise to a workout, the app defaults to the row you used last time.
 - The built-in brand list only feeds the suggestions when you type one.
-- Renaming a brand edits this row, so the history comes with it.
+- Renaming a brand edits this row, so the history comes with it. Adding a brand to the no-brand row works the same way.
 
 **`field`**
 
@@ -115,7 +117,7 @@ The values can be empty while you are still typing. Once a set is ticked, a rep 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `set_id` | text | |
-| `field_id` | text | Must belong to the same exercise and brand as the set |
+| `field_id` | text | Must belong to the same exercise and brand as the set. A foreign key cannot check this, so the app checks it before saving |
 | `value` | real | A yes/no field stores 1 or 0 |
 
 A set has at most one value per field. A field added after the set was logged has no value on it, and that is what gives older sets a different shape.

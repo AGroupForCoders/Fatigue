@@ -17,9 +17,8 @@ What you do, such as "Chest Press", "Adductors" or "Dumbbell Flies", either buil
 _Avoid_: Machine, movement, lift
 
 **Brand**:
-Who made the equipment an exercise is done on, such as Technogym or Hammer Strength, with an optional label such as the model or gym. Every logged exercise has one. Technogym chest press and Hammer Strength chest press are the same exercise on different brands, and keep separate history, fields and records.
-_Avoid_: Machine, variant, manufacturer
-_Avoid_: Variant, equipment, station
+Who made the equipment an exercise is done on, such as Technogym or Hammer Strength, with an optional label such as the model or gym. A brand is optional. An exercise logged without one is on "no brand", which keeps its own history, fields and records like any other brand. Technogym chest press and Hammer Strength chest press are the same exercise on different brands, and keep separate history, fields and records.
+_Avoid_: Machine, variant, manufacturer, equipment, station
 
 ## Sets
 
