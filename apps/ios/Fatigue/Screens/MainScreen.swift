@@ -39,6 +39,7 @@ struct MainScreen: View {
                 ThemeProvider {
                     WorkoutScreen(
                         session: active,
+                        history: store.history,
                         onMinimise: { store.isShowingActive = false },
                         routine: store.activeRoutine,
                         onFinish: { details in
