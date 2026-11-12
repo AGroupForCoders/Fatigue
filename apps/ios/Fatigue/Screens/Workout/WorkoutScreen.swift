@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkoutScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var session: WorkoutSession
     @FocusState private var focused: FocusedCell?
 
@@ -13,7 +14,7 @@ struct WorkoutScreen: View {
                 .onChange(of: session.openRPE) { _, id in
                     guard let id else { return }
                     focused = nil
-                    withAnimation(.easeOut(duration: Tokens.Motion.standard)) { proxy.scrollTo(id, anchor: .center) }
+                    withAnimation(.standard) { proxy.scrollTo(id, anchor: .center) }
                 }
         }
     }
@@ -39,7 +40,7 @@ struct WorkoutScreen: View {
                         .frame(height: Tokens.Size.primaryButton + Tokens.Space.m)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressRow)
                     Hairline()
                 }
                 .padding(.horizontal, Tokens.Space.xxl)
@@ -49,8 +50,8 @@ struct WorkoutScreen: View {
         .background(palette.background)
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomPanel }
         .overlay { GrainOverlay() }
-        .animation(.easeOut(duration: Tokens.Motion.standard), value: session.rest)
-        .animation(.easeOut(duration: Tokens.Motion.standard), value: session.openRPE)
+        .animation(.standard, value: session.rest == nil)
+        .animation(.standard, value: session.openRPE)
         .task(id: session.rest?.endsAt) {
             guard let endsAt = session.rest?.endsAt else { return }
             try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
@@ -62,7 +63,17 @@ struct WorkoutScreen: View {
     @State private var restFinished = false
 
     /// The panel pinned to the bottom: the RPE scale while picking an RPE, otherwise the rest timer.
+    /// The container rises from the bottom edge when the first of them appears. Switching between
+    /// the two only crossfades in place, so the bottom of the screen never has two panels sliding past each other.
     @ViewBuilder private var bottomPanel: some View {
+        if session.openRPE != nil || session.rest != nil {
+            ZStack(alignment: .bottom) { panelContent }
+                .background(palette.background.ignoresSafeArea(edges: .bottom))
+                .transition(.bottomPanel(reduceMotion: reduceMotion))
+        }
+    }
+
+    @ViewBuilder private var panelContent: some View {
         if let id = session.openRPE, let place = session.place(of: id) {
             let set = session.exercises[place.exercise].sets[place.set]
             RPEPanel(
@@ -74,10 +85,10 @@ struct WorkoutScreen: View {
                 },
                 onClose: { session.openRPE = nil }
             )
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(.opacity)
         } else if let rest = session.rest {
             RestBar(rest: rest, onAdjust: { session.adjustRest(by: $0) }, onSkip: { session.skipRest() })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.opacity)
         }
     }
 
@@ -88,10 +99,16 @@ struct WorkoutScreen: View {
                     .textStyle(Tokens.Typography.title)
                     .foregroundStyle(palette.foreground)
                 TimelineView(.periodic(from: session.startedAt, by: 1)) { context in
-                    Text("\(Self.clock(context.date.timeIntervalSince(session.startedAt)))  ·  \(session.doneCount) of \(session.setCount) sets")
-                        .textStyle(Tokens.Typography.control)
-                        .monospacedDigit()
-                        .foregroundStyle(palette.foregroundMuted)
+                    HStack(spacing: 0) {
+                        Text("\(Self.clock(context.date.timeIntervalSince(session.startedAt)))  ·  ")
+                        Text("\(session.doneCount)")
+                            .contentTransition(.numericText(value: Double(session.doneCount)))
+                            .animation(.quick, value: session.doneCount)
+                        Text(" of \(session.setCount) sets")
+                    }
+                    .textStyle(Tokens.Typography.control)
+                    .monospacedDigit()
+                    .foregroundStyle(palette.foregroundMuted)
                 }
             }
             Spacer()
@@ -154,7 +171,7 @@ private struct ExerciseSection: View {
                 Button { pickingRest = true } label: {
                     OutlinedLabel(systemImage: "timer", text: WorkoutScreen.clock(TimeInterval(exercise.restSeconds)))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.press)
                 .accessibilityLabel("Rest time")
 
                 Button {
@@ -163,12 +180,12 @@ private struct ExerciseSection: View {
                 } label: {
                     OutlinedLabel(text: "Note", isMuted: exercise.note.isEmpty)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.press)
 
                 Button { pickingBrand = true } label: {
                     OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.press)
                 .accessibilityLabel("Brand")
             }
             .padding(.top, Tokens.Space.m)
@@ -198,18 +215,19 @@ private struct ExerciseSection: View {
                         Hairline(soft: true)
                     }
                     SetRow(session: session, exerciseIndex: exerciseIndex, setIndex: setIndex, focus: focus)
+                        .transition(.opacity)
                 }
             }
 
             Hairline(soft: true)
-            Button { session.addSet(to: exerciseIndex) } label: {
+            Button { withAnimation(.standard) { session.addSet(to: exerciseIndex) } } label: {
                 Text("Add set")
                     .textStyle(Tokens.Typography.control)
                     .foregroundStyle(palette.foregroundMuted)
                     .frame(maxWidth: .infinity, minHeight: Tokens.Size.control, alignment: .leading)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressRow)
         }
         .padding(.top, Tokens.Space.xxxl)
         .padding(.bottom, Tokens.Space.s)
@@ -304,11 +322,13 @@ private struct RestBar: View {
             let remaining = max(0, rest.endsAt.timeIntervalSince(context.date))
             let progress = rest.total > 0 ? 1 - remaining / rest.total : 1
             VStack(spacing: 0) {
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(palette.border)
-                        Rectangle().fill(palette.foreground).frame(width: proxy.size.width * progress)
-                    }
+                // Scaled rather than resized, so each tick only moves pixels and never re-lays out the bar.
+                // Linear over the same quarter second as the timeline, so the line creeps instead of stepping.
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(palette.border)
+                    Rectangle().fill(palette.foreground)
+                        .scaleEffect(x: progress, anchor: .leading)
+                        .animation(.linear(duration: 0.25), value: progress)
                 }
                 .frame(height: Tokens.Size.line)
 
@@ -316,6 +336,8 @@ private struct RestBar: View {
                     Text(WorkoutScreen.clock(remaining.rounded(.up)))
                         .textStyle(Tokens.Typography.timer)
                         .monospacedDigit()
+                        .contentTransition(.numericText(countsDown: true))
+                        .animation(.quick, value: remaining.rounded(.up))
                         .foregroundStyle(palette.foreground)
                     Text("Rest")
                         .textStyle(Tokens.Typography.caption)
@@ -324,7 +346,7 @@ private struct RestBar: View {
                     restButton("-15") { onAdjust(-15) }
                     restButton("+15") { onAdjust(15) }
                     Button(action: onSkip) { OutlinedLabel(text: "Skip") }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.press)
                 }
                 .padding(.horizontal, Tokens.Space.xxl)
                 .padding(.vertical, Tokens.Space.l)
@@ -341,7 +363,7 @@ private struct RestBar: View {
                 .frame(width: Tokens.Size.control, height: Tokens.Size.control)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
         .accessibilityLabel(title == "+15" ? "Add 15 seconds" : "Remove 15 seconds")
     }
 }

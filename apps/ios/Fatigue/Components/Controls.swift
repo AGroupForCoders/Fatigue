@@ -30,7 +30,7 @@ struct PrimaryButton: View {
                 .frame(height: compact ? Tokens.Size.control : Tokens.Size.primaryButton)
                 .background(palette.foreground, in: .rect(cornerRadius: Tokens.Radius.control))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
     }
 }
 
@@ -94,6 +94,7 @@ struct NumberCell: View {
         .textStyle(Tokens.Typography.number)
         .monospacedDigit()
         .foregroundStyle(isDone ? palette.foreground : palette.foregroundFaint)
+        .animation(.quick, value: isDone)
         .frame(maxWidth: .infinity)
         .frame(height: Tokens.Size.cell)
         .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
@@ -104,7 +105,8 @@ struct NumberCell: View {
     }
 }
 
-/// The RPE for a set. Tapping it opens the RPE scale under the set.
+/// The RPE for a set. Tapping it opens the RPE panel at the bottom of the screen,
+/// and the cell stays filled in while that panel is for this set.
 struct RPECell: View {
     @Environment(\.palette) private var palette
     let rpe: Double?
@@ -117,12 +119,15 @@ struct RPECell: View {
             Text(rpe.map(Self.format) ?? "-")
                 .textStyle(Tokens.Typography.number)
                 .monospacedDigit()
+                .contentTransition(.numericText(value: rpe ?? 0))
                 .foregroundStyle(isOpen ? palette.background : (rpe != nil && isDone ? palette.foreground : palette.foregroundFaint))
                 .frame(maxWidth: .infinity)
                 .frame(height: Tokens.Size.cell)
                 .background(isOpen ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+                .animation(.quick, value: isOpen)
+                .animation(.quick, value: isDone)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
         .accessibilityLabel("RPE \(rpe.map(Self.format) ?? "not set")")
     }
 
@@ -150,13 +155,15 @@ struct TickBox: View {
                         Image(systemName: "checkmark")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(palette.background)
+                            .transition(.scale(scale: 0.9).combined(with: .opacity))
                     }
                 }
+                .animation(.quick, value: isDone)
                 .frame(width: Tokens.Size.tick, height: Tokens.Size.tick)
                 .frame(width: Tokens.Size.tickColumn, height: Tokens.Size.control, alignment: .trailing)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.press)
         .sensoryFeedback(.success, trigger: isDone) { _, done in done }
         .accessibilityLabel(isDone ? "Set done" : "Mark set done")
     }

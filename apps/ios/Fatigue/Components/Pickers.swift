@@ -66,7 +66,7 @@ struct RPEPanel: View {
                                 .frame(height: Tokens.Size.control)
                                 .background(isSelected ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.press)
                         .accessibilityLabel("RPE \(RPECell.format(value)), \(Self.meaning(value))")
                     }
                 }
@@ -164,7 +164,7 @@ struct BrandSheet: View {
                             .frame(minHeight: Tokens.Size.setRow + Tokens.Space.m)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressRow)
                         Hairline()
                     }
 
@@ -190,7 +190,7 @@ struct BrandSheet: View {
                             .frame(minHeight: Tokens.Size.primaryButton)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressRow)
                         Hairline()
                     }
                     TextField("", text: $typed, prompt: Text("Or type your own").foregroundStyle(palette.foregroundMuted))
@@ -255,8 +255,9 @@ struct RestSheet: View {
                                 RoundedRectangle(cornerRadius: Tokens.Radius.control)
                                     .strokeBorder(isSelected ? palette.foreground : palette.borderControl, lineWidth: Tokens.Size.line)
                             )
+                            .animation(.quick, value: isSelected)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.press)
                 }
             }
             .padding(.top, Tokens.Space.xl)
