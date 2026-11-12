@@ -97,7 +97,7 @@ struct WorkoutDetailScreen: View {
                 Hairline()
 
                 ForEach(Array(workout.exercises.enumerated()), id: \.offset) { _, exercise in
-                    ExerciseRecord(exercise: exercise)
+                    ExerciseRecord(exercise: exercise, history: store.history)
                     Hairline()
                 }
             }
@@ -112,13 +112,24 @@ struct WorkoutDetailScreen: View {
 private struct ExerciseRecord: View {
     @Environment(\.palette) private var palette
     let exercise: WorkoutExercise
+    let history: [FinishedWorkout]
+    @State private var showingStats = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s) {
             HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
-                Text(exercise.name)
-                    .textStyle(Tokens.Typography.exerciseName)
-                    .foregroundStyle(palette.foreground)
+                Button { showingStats = true } label: {
+                    Text(exercise.name)
+                        .textStyle(Tokens.Typography.exerciseName)
+                        .foregroundStyle(palette.foreground)
+                        .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.press)
+                .accessibilityHint("Shows your progress on this exercise")
+                .sheet(isPresented: $showingStats) {
+                    ExerciseScreen(name: exercise.name, brand: exercise.brand, history: history)
+                        .environment(\.palette, palette)
+                }
                 if let brand = exercise.brand {
                     Text(brand)
                         .textStyle(Tokens.Typography.control)
