@@ -1,0 +1,53 @@
+---
+title: Design log
+description: Screenshots of the design as it changes.
+---
+
+This page keeps a dated record of what the app looked like at each point, so we can see how the design moved and why. The newest entry goes at the top.
+
+These are mock-ups, not screenshots of a running app. Nothing here is final.
+
+## 12 November 2026, first direction
+
+The first set of screens we were happy enough with to write down.
+
+<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16 }}>
+  <img src="/design/2026-11-12/workout.png" alt="Workout screen with an adductor exercise showing a timed hold and two rep sets, each with notch and dead stop fields" />
+  <img src="/design/2026-11-12/set-fields.png" alt="Set fields screen listing weight, reps or time, notch and dead stop, with a form to add a field" />
+  <img src="/design/2026-11-12/reorder.png" alt="Reorder screen with one exercise lifted out of the list" />
+  <img src="/design/2026-11-12/choose-machine.png" alt="Choose machine screen listing machines used before and brands to add" />
+  <img src="/design/2026-11-12/exercise-history.png" alt="Exercise history screen with a best set, a progression line, records and recent sessions" />
+</div>
+
+In order, these are the workout, set fields, reorder, choose machine and exercise history screens.
+
+### What we settled on
+
+- Black and greys, with an off-white primary button and one muted accent. The accent only marks completed sets, the selected machine and new records.
+- One typeface in light and regular weights, in sentence case.
+- A title or an action on its own. No small label sitting above every value.
+- Corners with a little rounding. Controls are 8 and panels are 12.
+- The workout is one scrolling list. Each exercise has rest time, note and machine controls under its name.
+
+### What we tried and dropped
+
+- A neon accent, then an orange one. Both pulled too much attention.
+- Condensed uppercase headings with monospace labels. It looked loud, and we want the app to feel calm.
+- Fully round pill buttons. They felt too soft.
+
+### How this entry handles flexible sets
+
+- A timed hold shows its duration where a rep set shows reps.
+- Your own fields sit on a second line under each set, so the columns stay the same however many fields an exercise has.
+- The set fields screen is where you add a field and say whether a higher or lower number is a record.
+
+### Still undecided
+
+- The typeface. The mock-ups use Hanken Grotesk. The other option is the iOS system font.
+- The accent colour. The mock-ups use a muted sand.
+
+## Adding an entry
+
+1. Put the screenshots in `apps/docs/public/design/<date>/`, with the date written as year, month, day.
+2. Add a section above the previous entry with the date and a short name.
+3. Say what changed and why. The reasons are the useful part later.
