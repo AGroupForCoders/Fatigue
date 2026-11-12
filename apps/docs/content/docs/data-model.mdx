@@ -13,11 +13,19 @@ Every table that holds your data has the same three columns, so sync can treat a
 
 | Column | Type | What it is |
 | --- | --- | --- |
-| `id` | text | A UUIDv7 made on the phone. Rows never need the server to get an ID. |
+| `id` | text | Made on the phone, so rows never need the server to get an ID. Usually a random UUIDv7. See below for the rows that build it from their contents. |
 | `updated_at` | integer | Milliseconds since 1970. Set on every change. When the same row changed on two devices, the later one wins. |
 | `deleted_at` | integer, nullable | Set instead of deleting the row, so the deletion syncs like any other change. |
 
 On the server, every row also has a `user_id` and a sync cursor. The phone does not store either.
+
+Some rows must be unique, and a random ID can't guarantee that. Two phones offline would each make their own row, and sync would keep both. These rows build their ID from what makes them unique instead, as a UUIDv5 of the parts listed. Two phones then produce the same ID, and sync merges them like any other edit to one row.
+
+| Table | ID built from |
+| --- | --- |
+| `user_setting` | The account ID |
+| `exercise_brand`, no-brand row only | The exercise ID |
+| `set_field_value` | The set ID and the field ID |
 
 - Weight is always stored in kilograms. A setting picks whether you see and type kg or lb.
 - Durations are stored in whole seconds.
@@ -28,6 +36,7 @@ On the server, every row also has a `user_id` and a sync cursor. The phone does 
 
 ```
 exercise ──< exercise_brand ──< field
+    └──< exercise_muscle
 ```
 
 **`exercise`**
@@ -35,12 +44,25 @@ exercise ──< exercise_brand ──< field
 | Column | Type | Notes |
 | --- | --- | --- |
 | `name` | text | Such as "Chest Press" or "Dumbbell Flies" |
-| `primary_muscle` | text | |
-| `secondary_muscles` | text | JSON list, can be empty |
 | `equipment` | text | |
 | `is_builtin` | integer | 1 for the built-in list |
 
-Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. Custom exercises are ordinary rows.
+Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. The server is seeded with the same rows and IDs, so synced rows that point at a built-in exercise still pass its foreign keys. Custom exercises are ordinary rows.
+
+**`exercise_muscle`**
+
+Which muscles an exercise works, and how much of the work each one does. A future fatigue meter needs this per muscle, and it can't be filled in for old exercises after the fact.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `exercise_id` | text | |
+| `muscle` | text | From the fixed muscle list below |
+| `share` | real | Above 0, up to 1. The primary muscle is 1 |
+
+- An exercise has at least one row, and exactly one with a share of 1.
+- The muscle list is fixed in the app and on the server: `abdominals`, `abductors`, `adductors`, `biceps`, `calves`, `chest`, `forearms`, `glutes`, `hamstrings`, `lats`, `lower back`, `middle back`, `neck`, `quadriceps`, `shoulders`, `traps`, `triceps`. It matches free-exercise-db, which the built-in list is seeded from.
+- Muscles belong to the exercise, not the brand. A different brand of chest press still works the chest.
+- A custom exercise gets a share of 1 for its primary muscle and 0.5 for each secondary muscle. The shares can be edited later.
 
 **`exercise_brand`**
 
@@ -73,7 +95,7 @@ One row for each brand you have used for an exercise, plus one for no brand if y
 ## Workouts and sets
 
 ```
-workout ──< workout_exercise ──< set ──< set_field_value
+workout ──< workout_exercise ──< workout_set ──< set_field_value
 ```
 
 **`workout`**
@@ -85,7 +107,7 @@ workout ──< workout_exercise ──< set ──< set_field_value
 | `routine_id` | text, nullable | The routine it was started from, if any |
 | `note` | text, nullable | |
 
-At most one workout has no `finished_at`. That is the one the app opens into.
+At most one workout has no `finished_at`. That is the one the app opens into. If a pull brings in a second running workout, because you started one on each phone while offline, the app keeps the one with the most recent ticked set open and finishes the other at the time of its last ticked set. Nothing is deleted.
 
 **`workout_exercise`**
 
@@ -97,13 +119,16 @@ At most one workout has no `finished_at`. That is the one the app opens into.
 | `rest_seconds` | integer | |
 | `note` | text, nullable | |
 
-**`set`**
+**`workout_set`**
+
+Not called `set`, because `SET` is a reserved word in SQLite and every query would have to quote it.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `workout_exercise_id` | text | |
 | `position` | real | |
 | `kind` | text | `reps` or `hold` |
+| `set_type` | text | `normal`, `warmup`, `drop` or `failure`. Defaults to `normal` |
 | `weight_kg` | real, nullable | Empty means unloaded, which is not 0 kg |
 | `reps` | integer, nullable | Rep sets only |
 | `duration_seconds` | integer, nullable | Holds only |
@@ -112,11 +137,13 @@ At most one workout has no `finished_at`. That is the one the app opens into.
 
 The values can be empty while you are still typing. Once a set is ticked, a rep set must have reps and no duration, and a hold must have a duration and no reps.
 
+Warm-up sets never count toward records or scores. Drop sets and sets to failure count like normal sets, and the type is kept so a fatigue meter can weigh them differently later.
+
 **`set_field_value`**
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `set_id` | text | |
+| `workout_set_id` | text | |
 | `field_id` | text | Must belong to the same exercise and brand as the set. A foreign key cannot check this, so the app checks it before saving |
 | `value` | real | A yes/no field stores 1 or 0 |
 
@@ -132,9 +159,9 @@ routine ──< routine_exercise ──< routine_set
 | --- | --- |
 | `routine` | `name`, `position` |
 | `routine_exercise` | `routine_id`, `exercise_brand_id`, `position`, `rest_seconds`, `note` |
-| `routine_set` | `routine_exercise_id`, `position`, `kind`, `weight_kg`, `reps`, `duration_seconds` |
+| `routine_set` | `routine_exercise_id`, `position`, `kind`, `set_type`, `weight_kg`, `reps`, `duration_seconds` |
 
-Starting a workout copies these rows into new `workout_exercise` and `set` rows. Changes made during the workout never reach the routine.
+Starting a workout copies these rows into new `workout_exercise` and `workout_set` rows. Changes made during the workout never reach the routine.
 
 ## Settings
 
@@ -152,7 +179,7 @@ These tables never sync.
 | --- | --- |
 | `sync_outbox` | Rows changed since the last push. Each row is the table name and the row ID. |
 | `sync_state` | The cursor from the last pull. |
-| `record` | The best weight, reps, time, tracked field value and score for each exercise, brand and shape, with the set it came from. Rebuilt from the sets when a workout is saved or a field's range or direction changes. |
+| `record` | The best weight, reps, time, tracked field value and score for each exercise, brand and shape, with the set it came from. For a field with its own progress per value, the value is part of the key, so notch 7 and notch 8 keep separate records. Rebuilt from the sets when a workout is saved, when a field's range, direction or split setting changes, and after a pull that brought in sets or fields. |
 
 Records and scores are worked out from the sets, so they are never synced and two devices cannot disagree about them. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) explains the score.
 
@@ -160,4 +187,5 @@ Records and scores are worked out from the sets, so they are never synced and tw
 
 - **Changing the brand mid-workout.** If you switch adductors from Technogym to Hammer Strength after logging two sets, the field values on those sets belong to the Technogym fields. One option is to move the logged sets to the new brand and drop the values that don't match. The other is to only allow the switch before any set is ticked.
 - **Deleting a field.** Proposed: the field is marked deleted and its values stay, so history and records don't change. It also stops showing on new sets.
+- **Splitting shoulders.** The muscle list has one `shoulders`, which mixes front delts (pressing) with rear delts (pulling). A fatigue meter would want them apart. Splitting later means deciding the split for every exercise that uses `shoulders`, so it is cheaper to decide before the built-in list is seeded.
 - **Merging duplicates.** Two phones could each add Technogym to adductors while offline, giving the same exercise and brand twice. Proposed: allow it in v1, and add a merge later.
