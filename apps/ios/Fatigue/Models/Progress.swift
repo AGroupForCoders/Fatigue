@@ -1,22 +1,35 @@
 import Foundation
 
-/// A set's score, as in ADR 0001: its load (weight × reps, or weight × seconds for a hold, with an unloaded
-/// set counting its weight as 1) multiplied by `1 + position in range` for each tracked setting.
-/// Worked out whenever it's shown and never stored, so fixing a setting's range rescores every past set.
+/// A set's score, as in ADR 0001 and 0002: its load (weight × reps, or weight × seconds for a hold, with an
+/// unloaded set counting its weight as 1) multiplied by each tracked setting's factor, capped at ×3 in total.
+/// A number setting's factor is `1 + position in range`. A yes/no setting's is the factor you picked, when it's on.
+/// Worked out whenever it's shown and never stored, so changing a factor rescores every past set.
 enum SetScore {
+    /// The most the settings together can multiply a set's load by.
+    static let maxFactor = 3.0
+
     static func score(of set: WorkoutSet, in exercise: WorkoutExercise) -> Double? {
         guard let amount = Double(set.amount), amount > 0 else { return nil }
         let load = (Double(set.weight) ?? 1) * amount
-        return exercise.settings.reduce(load) { score, setting in
-            guard let position = position(of: setting, for: set, in: exercise) else { return score }
-            return score * (1 + position)
+        return load * factor(of: set, in: exercise)
+    }
+
+    /// Every tracked setting's factor for this set, multiplied together and capped at ×3.
+    static func factor(of set: WorkoutSet, in exercise: WorkoutExercise) -> Double {
+        let total = exercise.settings.reduce(1.0) { total, setting in
+            if let position = position(of: setting, for: set, in: exercise) { return total * (1 + position) }
+            if setting.kind == .yesNo, setting.isTracked, exercise.value(of: setting, in: set.setup) == 1, let factor = setting.factor {
+                return total * min(factor, 2)
+            }
+            return total
         }
+        return min(total, maxFactor)
     }
 
     /// Where a tracked setting's value for this set falls in its range: 0 at the worst end, 1 at the best.
     /// A value outside the range is held at the nearest end. `nil` for untracked settings and for no value.
     static func position(of setting: ExerciseSetting, for set: WorkoutSet, in exercise: WorkoutExercise) -> Double? {
-        guard setting.isTracked, let direction = setting.direction, let low = setting.rangeMin, let high = setting.rangeMax,
+        guard setting.kind == .number, setting.isTracked, let direction = setting.direction, let low = setting.rangeMin, let high = setting.rangeMax,
               let value = exercise.value(of: setting, in: set.setup) else { return nil }
         let fromLow = (min(max(value, low), high) - low) / (high - low)
         return direction == .higher ? fromLow : 1 - fromLow
@@ -127,7 +140,7 @@ struct RecordBook {
         values.weight = Double(set.weight)
         values.reps = set.kind == .reps ? amount : nil
         values.time = set.kind == .hold ? amount : nil
-        for setting in exercise.settings where setting.isTracked {
+        for setting in exercise.settings where setting.isTracked && setting.kind == .number {
             guard let value = exercise.value(of: setting, in: set.setup) else { continue }
             values.settings[setting.name] = setting.direction == .lower ? -value : value
         }

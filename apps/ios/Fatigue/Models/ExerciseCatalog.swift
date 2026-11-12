@@ -123,7 +123,7 @@ extension ExerciseCatalog {
     static let sampleAdductorSettings = [
         ExerciseSetting(name: "Seat", value: "4"),
         ExerciseSetting(name: "Notch", value: "7", direction: .higher, rangeMin: 1, rangeMax: 10, splitByValue: true),
-        ExerciseSetting(name: "Dead stop", kind: .yesNo, value: "yes"),
+        ExerciseSetting(name: "Dead stop", kind: .yesNo, value: "yes", factor: 1.5),
     ]
 
     static let sampleSetups: [String: BrandSetup] = [
