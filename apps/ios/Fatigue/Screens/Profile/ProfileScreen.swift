@@ -11,8 +11,27 @@ struct ProfileScreen: View {
     @State private var showingSettings = ProcessInfo.processInfo.arguments.contains("-openSettings")
     @State private var photoItem: PhotosPickerItem?
     @State private var photo: UIImage? = ProfilePhoto.load()
+    @State private var path: [UUID] = []
 
     var body: some View {
+        NavigationStack(path: $path) {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: UUID.self) { id in
+                    WorkoutDetailScreen(workoutID: id)
+                }
+        }
+        .onAppear {
+            // Debug builds open the third workout in history with `-openHistory`, for screenshots.
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-openHistory"), path.isEmpty, store.history.count > 2 {
+                path = [store.history[2].id]
+            }
+            #endif
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
@@ -52,7 +71,10 @@ struct ProfileScreen: View {
                         .padding(.vertical, Tokens.Space.xxl)
                 }
                 ForEach(store.history) { workout in
-                    HistoryRow(workout: workout)
+                    NavigationLink(value: workout.id) {
+                        HistoryRow(workout: workout)
+                    }
+                    .buttonStyle(.pressRow)
                     Hairline(soft: true)
                 }
             }
@@ -119,51 +141,6 @@ struct Avatar: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay(Circle().strokeBorder(palette.borderControl, lineWidth: Tokens.Size.line))
-    }
-}
-
-/// One finished workout in the history list: name, when, and how long, how many sets and how much weight.
-struct HistoryRow: View {
-    @Environment(\.palette) private var palette
-    let workout: FinishedWorkout
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(workout.title)
-                    .textStyle(Tokens.Typography.exerciseName)
-                    .foregroundStyle(palette.foreground)
-                Spacer()
-                Text(Self.when(workout.startedAt))
-                    .textStyle(Tokens.Typography.caption)
-                    .foregroundStyle(palette.foregroundMuted)
-            }
-            Text(workout.exercises.map(\.name).joined(separator: ", "))
-                .textStyle(Tokens.Typography.caption)
-                .foregroundStyle(palette.foregroundMuted)
-                .lineLimit(1)
-            Text(Self.summary(workout))
-                .textStyle(Tokens.Typography.caption)
-                .monospacedDigit()
-                .foregroundStyle(palette.foregroundFaint)
-        }
-        .padding(.vertical, Tokens.Space.l)
-        .accessibilityElement(children: .combine)
-    }
-
-    /// "Today", "Yesterday", or the weekday and date, such as "Tue 10 Nov".
-    static func when(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
-        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
-        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-    }
-
-    /// Such as "52 min · 9 sets · 4,170 kg".
-    static func summary(_ workout: FinishedWorkout) -> String {
-        let minutes = max(1, Int((workout.duration / 60).rounded()))
-        var parts = ["\(minutes) min", "\(workout.setCount) set\(workout.setCount == 1 ? "" : "s")"]
-        if workout.volume > 0 { parts.append("\(Int(workout.volume).formatted()) kg") }
-        return parts.joined(separator: " · ")
     }
 }
 

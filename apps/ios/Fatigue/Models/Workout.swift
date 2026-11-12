@@ -151,15 +151,17 @@ final class WorkoutSession {
     let startedAt: Date
     var exercises: [WorkoutExercise]
     private(set) var rest: RestTimer?
+    /// Off when editing a finished workout, where ticking a set shouldn't start a rest timer.
+    var startsRestWhenTicked = true
     /// The set whose RPE scale is open, if any. Only one is open at a time.
     var openRPE: UUID?
     private let now: () -> Date
 
-    init(title: String, exercises: [WorkoutExercise], now: @escaping () -> Date = Date.init) {
+    init(title: String, exercises: [WorkoutExercise], startedAt: Date? = nil, now: @escaping () -> Date = Date.init) {
         self.title = title
         self.exercises = exercises
         self.now = now
-        self.startedAt = now()
+        self.startedAt = startedAt ?? now()
     }
 
     var doneCount: Int { exercises.reduce(0) { $0 + $1.sets.filter(\.isDone).count } }
@@ -168,7 +170,7 @@ final class WorkoutSession {
     /// Ticks or unticks a set. Ticking starts the rest timer for that exercise.
     func toggle(set setIndex: Int, in exerciseIndex: Int) {
         exercises[exerciseIndex].sets[setIndex].isDone.toggle()
-        if exercises[exerciseIndex].sets[setIndex].isDone {
+        if startsRestWhenTicked, exercises[exerciseIndex].sets[setIndex].isDone {
             let seconds = TimeInterval(exercises[exerciseIndex].restSeconds)
             rest = RestTimer(endsAt: now().addingTimeInterval(seconds), total: seconds)
         }
@@ -300,3 +302,6 @@ nonisolated enum PlainNumber {
         value.rounded() == value ? String(Int(value)) : String(value)
     }
 }
+
+/// Lets a running session drive `.fullScreenCover(item:)`. Classes get an identity-based id for free.
+extension WorkoutSession: Identifiable {}
