@@ -159,14 +159,13 @@ struct ExerciseEditor: View {
         }
     }
 
-    /// The brand under the name. Tapping it picks another, or adds one.
+    /// The brand, first of the rows under the name. Tapping it picks another, or adds one.
     private var brandButton: some View {
         Button { pickingBrand = true } label: {
             OutlinedLabel(text: brand ?? "No brand", showsChevron: true, isMuted: brand == nil)
         }
         .buttonStyle(.press)
         .accessibilityLabel("Brand, \(brand ?? "no brand")")
-        .padding(.top, Tokens.Space.m)
     }
 
     private var header: some View {
@@ -193,7 +192,6 @@ struct ExerciseEditor: View {
                 LineField(label: "Name", text: $info.name, kind: .name, isFocused: editingName)
                     .focused($editingName)
                     .submitLabel(.done)
-                brandButton
             } else {
                 VStack(alignment: .leading, spacing: Tokens.Space.s) {
                     Text(info.name)
@@ -202,11 +200,12 @@ struct ExerciseEditor: View {
                     Text("Built in, so the name stays the same for everyone.")
                         .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
-                    brandButton
                 }
             }
 
             Hairline().padding(.top, Tokens.Space.xxl)
+            row("Brand") { brandButton }
+            Hairline(soft: true)
             row("Equipment") {
                 Menu {
                     Picker("Equipment", selection: $info.equipment) {
