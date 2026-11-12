@@ -104,9 +104,11 @@ struct RoutineEditor: View {
         .presentationBackground(palette.background)
         .onAppear { if isNew { editingName = true } }
         .sheet(isPresented: $picking) {
-            ExercisePicker { names in
+            ExercisePicker { names, brands in
                 withAnimation(.standard) {
-                    routine.exercises += names.map { RoutineExercise.new(named: $0, settings: catalog.setup(for: $0, brand: nil).settings) }
+                    routine.exercises += names.map { name in
+                        RoutineExercise.new(named: name, brand: brands[name], settings: catalog.setup(for: name, brand: brands[name]).settings)
+                    }
                 }
             }
             .environment(\.palette, palette)

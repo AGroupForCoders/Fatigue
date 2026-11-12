@@ -29,8 +29,8 @@ struct RoutineExercise: Identifiable, Equatable {
 
     /// A new exercise in the routine editor: three plain rep sets with nothing filled in,
     /// and the settings saved for it with no brand.
-    static func new(named name: String, settings: [ExerciseSetting] = []) -> RoutineExercise {
-        RoutineExercise(name: name, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
+    static func new(named name: String, brand: String? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
+        RoutineExercise(name: name, brand: brand, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
     }
 }
 
@@ -107,7 +107,8 @@ final class WorkoutStore {
     /// The workout running now, if any. Only one runs at a time.
     private(set) var active: WorkoutSession?
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
-    var isShowingActive = false
+    /// Debug builds open a running workout on launch with `-openWorkout`, for screenshots.
+    var isShowingActive = ProcessInfo.processInfo.arguments.contains("-openWorkout")
     private let now: () -> Date
     /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
     private let database: AppDatabase?
@@ -291,16 +292,17 @@ final class WorkoutStore {
 
 extension WorkoutSession {
     /// Adds exercises picked from the library, each with one empty rep set to start,
-    /// and the settings saved for it with no brand.
-    func addExercises(named names: [String], catalog: ExerciseCatalog? = nil) {
+    /// on the brand picked when it was created (no brand otherwise), with the settings saved for it.
+    func addExercises(named names: [String], brands: [String: String] = [:], catalog: ExerciseCatalog? = nil) {
         for name in names {
-            let saved = catalog?.setup(for: name, brand: nil) ?? BrandSetup()
-            let last = previousLookup?(name, nil) ?? []
+            let brand = brands[name]
+            let saved = catalog?.setup(for: name, brand: brand) ?? BrandSetup()
+            let last = previousLookup?(name, brand) ?? []
             // Start from last time's sets when there were any, so the cells are already filled in.
             let sets = last.isEmpty
                 ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
                 : last.map { WorkoutSet(setup: $0.setup, weight: $0.weight, amount: $0.amount, previous: "") }
-            exercises.append(WorkoutExercise(name: name, brand: nil, restSeconds: 90, settings: saved.settings, sets: sets))
+            exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets))
             fillPrevious(for: exercises.count - 1)
         }
     }
