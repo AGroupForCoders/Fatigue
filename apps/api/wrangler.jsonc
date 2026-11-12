@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fatigue-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  // postgres.js needs Node's net and crypto modules, which Workers provide behind this flag.
+  "compatibility_flags": ["nodejs_compat"]
+}
