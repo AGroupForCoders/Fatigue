@@ -17,7 +17,7 @@ What you do, such as "Chest Press", "Adductors" or "Dumbbell Flies", either buil
 _Avoid_: Machine, movement, lift
 
 **Brand**:
-Who made the equipment an exercise is done on, such as Technogym or Hammer Strength, with an optional label such as the model or gym. A brand is optional. An exercise logged without one is on "no brand", which keeps its own history, fields and records like any other brand. Technogym chest press and Hammer Strength chest press are the same exercise on different brands, and keep separate history, fields and records.
+Who made the equipment an exercise is done on, such as Technogym or Hammer Strength, with an optional label such as the model or gym. A brand is optional. An exercise logged without one is on "no brand", which keeps its own history, settings and records like any other brand. Technogym chest press and Hammer Strength chest press are the same exercise on different brands, and keep separate history, settings and records.
 _Avoid_: Machine, variant, manufacturer, equipment, station
 
 ## Sets
@@ -36,26 +36,33 @@ _Avoid_: Timed hold, isometric, time set
 A set with no weight logged. Unloaded is not the same as 0 kg.
 _Avoid_: Bodyweight, zero weight
 
-**Field**:
-A user-defined value logged on every set of an exercise on one brand, either a number (such as "Notch") or a yes/no (such as "Dead stop"). Fields do not carry over between brands.
-_Avoid_: Custom field, set field, variable, attribute
+**Setting**:
+Something you set up on an exercise on one brand, such as "Seat 4", "Notch 7" or "Dead stop": a number, a yes/no or text. It has one value for the whole exercise in a workout, and a group of sets can override it. Settings do not carry over between brands.
+_Avoid_: Field, custom field, set field, variable, attribute
 
-**Tracked field**:
-A number field with a direction (higher or lower is better) and a range (lowest and highest value), so the app can detect records on it and factor it into the score.
+**Override**:
+A setting value that a group of sets changes from the exercise's value, such as a hold at notch 8 while the rest of the sets use notch 7.
+
+**Group**:
+A run of sets in one exercise that share a kind and the same overrides, shown under one heading such as "Hold · Notch 8".
+
+**Tracked setting**:
+A number setting with a direction (higher or lower is better) and a range (lowest and highest value), so the app can detect records on it and factor it into the score.
+_Avoid_: Tracked field, counted setting
 
 **Range of motion**:
-How deep a set went, almost always logged as a tracked field such as "Notch".
+How deep a set went, almost always logged as a tracked setting such as "Notch".
 _Avoid_: ROM (in UI copy)
 
 ## Progress
 
 **Shape**:
-Which values a set has: rep set or hold, loaded or unloaded, and which tracked fields. Only sets with the same shape on the same exercise and brand are compared.
+Which values a set has: rep set or hold, loaded or unloaded, and which tracked settings it has a value for. Only sets with the same shape on the same exercise and brand are compared.
 
 **Score**:
-A single number for a set: its load (weight × reps, or weight × time, with unloaded counting as 1) multiplied by a factor of 1.0 to 2.0 for each tracked field, depending on where in its range the value falls.
+A single number for a set: its load (weight × reps, or weight × time, with unloaded counting as 1) multiplied by a factor of 1.0 to 2.0 for each tracked setting, depending on where in its range the value falls.
 _Avoid_: Volume, rating
 
 **Record**:
-The best value of something (weight, reps, time, a tracked field, or score) among sets of the same shape on the same exercise and brand.
+The best value of something (weight, reps, time, a tracked setting, or score) among sets of the same shape on the same exercise and brand.
 _Avoid_: PR, PB, best
