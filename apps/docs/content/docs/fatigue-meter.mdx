@@ -1,0 +1,45 @@
+---
+title: Fatigue meter
+description: A later feature that shows how tired each muscle is.
+---
+
+This is not in the first version. It is written down now so the first version records the data it will need.
+
+## The idea
+
+The app already knows what you trained, how hard and when. A fatigue meter turns that into how tired each muscle probably is right now, and how that fades over the next few days. The point is to answer "is my chest ready to train again?" without guessing.
+
+## What the first version records for it
+
+These are in the data model draft because they cannot be filled in for old workouts after the fact.
+
+- **Which muscles an exercise works, and how much.** Each exercise lists its muscles with a share of the work, such as chest 1, triceps 0.5 and shoulders 0.3.
+- **Set type.** Warm-ups should add little or nothing, so every set records whether it was a warm-up, a normal set, a drop set or a set to failure.
+- **Effort and time.** RPE and the time each set was ticked are already on every set.
+
+## How it could work
+
+This is a starting point to argue about, not a decision.
+
+1. Each set adds load to each of its muscles, in proportion to that muscle's share.
+2. Sets closer to failure add more. RPE says how close a set was.
+3. The load on each muscle fades over the following days. Big muscles probably recover more slowly than small ones.
+4. The result is compared with your own usual weeks, so "high" means high for you and not for an average lifter.
+
+## Decisions to make first
+
+- **What it shows.** One level per muscle, perhaps on a body map, is the likely answer. A single overall number could summarise it. This decides most of what follows.
+- **The formula.** Any formula is a convention we make up, like the [set score](/docs/requirements#what-a-set-records). It should get its own decision record before it is built.
+- **Sets without RPE.** RPE is optional, so most sets will not have one. We need an assumed effort for those.
+- **How fast each muscle recovers.** These numbers live in code, and we need a source for them.
+- **When it starts showing.** A personal baseline needs a few weeks of history. Until then the meter either waits or compares against a general default.
+- **Splitting shoulders.** The muscle list has one `shoulders`. Pressing and pulling load different parts of it, so the meter would be better with front and rear delts apart. It is cheaper to decide before the built-in exercises are seeded.
+
+## What can be added later
+
+Each of these is a new table or setting, so none of them changes data the first version has already recorded.
+
+- **Soreness check-ins** per muscle. They also tell us whether the formula matches how people feel.
+- **Body weight**, so pull-ups and other sets with no weight logged add real load.
+- **Sleep and recovery data** from HealthKit.
+- **A cache of results** on the phone, worked out from the sets like records are, and never synced.
