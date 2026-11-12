@@ -1,0 +1,79 @@
+---
+title: Contributing
+description: Branches, commits, pull requests and issues.
+---
+
+These are the same rules as `CONTRIBUTING.md` at the root of the repository, with examples. If the two ever disagree, `CONTRIBUTING.md` wins and this page needs fixing.
+
+## Branches
+
+Branch off `main` and never commit to it directly.
+
+| Type | Pattern | Example |
+| --- | --- | --- |
+| Feature | `feat/<name>` | `feat/machine-variants` |
+| Bug fix | `fix/<name>` | `fix/rest-timer-reset` |
+| Refactor | `refactor/<name>` | `refactor/sync-queue` |
+| Docs | `docs/<name>` | `docs/api-structure` |
+| Chore | `chore/<name>` | `chore/update-deps` |
+
+## Commits
+
+We use [Conventional Commits](https://www.conventionalcommits.org/) with a scope. The scope says which part of the monorepo the commit changes.
+
+```
+<type>(<scope>): <description>
+```
+
+**Types** are `feat`, `fix`, `refactor`, `perf`, `style`, `test`, `docs`, `chore`, `ci` and `revert`.
+
+**Scopes** match the folders:
+
+| Scope | Covers |
+| --- | --- |
+| `ios` | `apps/ios` |
+| `android` | `apps/android` |
+| `web` | `apps/web` |
+| `api` | `apps/api` |
+| `docs` | `apps/docs` |
+| `contract` | `packages/contract` |
+| `ci` | `.github/workflows` |
+| `repo` | Root config, templates and anything that spans the whole repository |
+
+Some examples:
+
+```
+feat(ios): add rest timer to the workout screen
+fix(api): reject sync pushes with a missing row id
+docs(docs): explain why sync is hand-rolled
+chore(repo): add issue templates
+```
+
+The rest of the format:
+
+- Lowercase, imperative mood, no full stop at the end.
+- 72 characters at most.
+- For a breaking change, add `!` after the scope, as in `feat(api)!: change the sync cursor format`.
+
+The scope matters more here than in a single-app repository. It tells a reviewer which platform a commit affects before they open it, and it lines up with the [CI](/docs/ci-cd) paths.
+
+If a change spans two apps, split it into one commit per app where you can. If it cannot be split, use the scope of the part that drives the change.
+
+## Pull requests
+
+- Keep one concern per pull request. Do not mix a feature with a refactor.
+- The title follows the commit format, scope included. It becomes the commit message on `main`.
+- We squash merge every pull request, so the commits on your branch collapse into one.
+- Delete the branch after merging.
+
+The pull request template asks for four things: the goal, what you did, how you tested it and any notes. Say which checks you ran yourself. For an iOS change, say which simulator or device you used.
+
+## Issues
+
+There are three issue templates.
+
+- **Bug report** for something that behaves wrongly. It asks for the steps, what you expected and what happened.
+- **Feature request** for something new. It asks what problem it solves before it asks for the solution.
+- **Task** for work that is neither, such as a refactor, a dependency update or a docs change.
+
+Each template asks which part of the app is affected, using the same names as the commit scopes.

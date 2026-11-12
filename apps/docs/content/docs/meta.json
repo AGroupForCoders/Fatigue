@@ -1,0 +1,17 @@
+{
+  "title": "Fatigue",
+  "pages": [
+    "index",
+    "---Product---",
+    "mvp",
+    "requirements",
+    "---Engineering---",
+    "tech-stack",
+    "repository-layout",
+    "api-structure",
+    "ci-cd",
+    "design-system",
+    "---Team---",
+    "contributing"
+  ]
+}

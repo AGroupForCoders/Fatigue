@@ -1,0 +1,47 @@
+name: Bug report
+description: Something behaves wrongly
+title: "fix(<scope>): "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part is affected?
+      options:
+        - ios
+        - android
+        - web
+        - api
+        - docs
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. Include the exercise, weights or input if they matter.
+      placeholder: |
+        1. Start a workout from a routine
+        2. Tick the first set as done
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Paste any error text. Screenshots or a screen recording help a lot.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Device and version
+      description: For example iPhone 15, iOS 18.1, app build 12. Leave empty for API or docs bugs.

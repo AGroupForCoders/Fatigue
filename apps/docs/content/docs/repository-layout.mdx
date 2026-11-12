@@ -1,0 +1,49 @@
+---
+title: Repository layout
+description: Where each app lives in the monorepo.
+---
+
+Everything lives in one repository. A feature like machine variants touches the API, the iOS app and later Android and the website, and one repository lets a single pull request or issue cover all of them.
+
+```
+Fatigue/
+├── apps/
+│   ├── ios/          SwiftUI app
+│   ├── android/      Kotlin app, later
+│   ├── web/          Next.js website, later
+│   ├── api/          Hono API
+│   └── docs/         this site
+├── packages/
+│   ├── contract/     request and response schemas shared by api and web
+│   └── tokens/       design tokens shared by every app
+├── .github/          workflows, issue and pull request templates
+├── CONTRIBUTING.md
+├── package.json
+└── pnpm-workspace.yaml
+```
+
+Only `apps/docs` exists today. The other folders appear as we start each part.
+
+## Two kinds of project in one repository
+
+The TypeScript projects (`api`, `web`, `docs` and anything in `packages`) form a pnpm workspace. One `pnpm install` at the root installs all of them, and they can import each other.
+
+The iOS and Android apps sit in the same repository but are not part of that workspace. Xcode and Gradle build them, and pnpm does not need to know they exist. `pnpm-workspace.yaml` lists the TypeScript projects by name for that reason, where a catch-all `apps/*` would also match the native apps.
+
+## Sharing between the API and the apps
+
+`packages/contract` holds the shapes of API requests and responses as TypeScript schemas. The API validates against them and the website imports the same types, so the two cannot drift apart without a type error.
+
+Swift and Kotlin cannot import TypeScript, so the native apps work from an OpenAPI document instead.
+
+An OpenAPI document is one file that lists every endpoint with what it accepts, what it returns and which errors it can give. The API generates it from the same schemas it validates requests with, so the file cannot fall out of date with the code. The iOS and Android apps write or generate their networking code against that file.
+
+A change to an endpoint then shows up as a change to one file that every app depends on.
+
+`packages/tokens` holds the colours, type sizes, spacing and corner radii that every app uses. The [design system](/docs/design-system) page explains how.
+
+## Logic that exists three times
+
+Some calculations run on the device, such as estimated one-rep max, volume and record detection. They will be written in Swift, in Kotlin and in TypeScript.
+
+To keep the three versions honest, the plan is a shared set of test cases stored as plain data files that every platform's tests read. A case would be an input like "72.5 kg for 10 reps" and the expected result. Where those files live is still open. `packages/test-cases` is the likely spot.

@@ -1,0 +1,20 @@
+# dependencies
+node_modules
+
+# environment
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+build/
+
+# Android
+.gradle/
+local.properties

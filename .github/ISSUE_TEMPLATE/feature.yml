@@ -1,0 +1,42 @@
+name: Feature request
+description: Something new the app should do
+title: "feat(<scope>): "
+labels: ["feature"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part does this touch?
+      multiple: true
+      options:
+        - ios
+        - android
+        - web
+        - api
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation where the app falls short today, before describing a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should it do?
+      description: The behaviour you have in mind. A sketch or example is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: How do we know it is done?
+      description: The things someone could check to confirm it works.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Alternatives you considered, open questions, related issues.

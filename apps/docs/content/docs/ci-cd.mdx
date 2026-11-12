@@ -1,0 +1,99 @@
+---
+title: CI/CD
+description: Running only the checks a change needs.
+---
+
+This page is a plan. No workflows exist in the repository yet.
+
+## The problem we are fixing
+
+If every push runs every check, a one-line docs fix waits on the whole test suite and a mobile change runs the API tests for no reason.
+
+In this repository an iOS build needs a macOS runner and takes minutes. Running it for a change to the API would slow every pull request down.
+
+## How it will work
+
+One workflow runs on every pull request. Its first job looks at which files changed, and the remaining jobs only run if their part of the repository was touched.
+
+| If the change touches | These checks run |
+| --- | --- |
+| `apps/ios/**` | Build and test the iOS app on a macOS runner |
+| `apps/android/**` | Build and test the Android app |
+| `apps/api/**` or `packages/**` | Lint, type check and test the API |
+| `apps/web/**` or `packages/**` | Lint, type check and build the website |
+| `apps/docs/**` | Type check and build the docs |
+| Anything | Check the pull request title follows our commit format |
+
+A change to `packages/` runs both the API and the website checks, because both import from it. A change to the workflow file itself runs everything.
+
+## Why one workflow and not one per app
+
+GitHub lets a workflow declare the paths it cares about, so the obvious design is a separate workflow per app. It breaks as soon as you require checks to pass before merging.
+
+If "iOS tests" is a required check and a pull request only touches the API, the iOS workflow never starts. GitHub then waits for a result that will never arrive, and the pull request cannot be merged.
+
+The fix is a single workflow with a final job that always runs and passes only if every job before it passed or was skipped. Branch protection requires that one job and nothing else.
+
+A simplified sketch of the proposed workflow:
+
+```yaml
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+      api: ${{ steps.filter.outputs.api }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            ios:
+              - 'apps/ios/**'
+            api:
+              - 'apps/api/**'
+              - 'packages/**'
+
+  ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-latest
+    steps:
+      - run: echo "build and test the iOS app"
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "lint, type check and test the API"
+
+  ci-ok:
+    needs: [ios, api]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            exit 1
+          fi
+```
+
+The action versions above need checking when we write the real file.
+
+## Deploys
+
+Deploys follow the same idea. Merging to `main` only deploys the parts that changed.
+
+| Part | When it deploys | Where |
+| --- | --- | --- |
+| API | On merge to `main`, if `apps/api` or `packages` changed | Cloudflare Workers |
+| Docs | On merge to `main`, if `apps/docs` changed | Not chosen yet |
+| iOS | Manually at first | TestFlight, then the App Store |
+
+iOS releases stay manual until we have shipped a few by hand and know which steps are worth automating.
+
+## Cost
+
+The repository is public, and GitHub does not charge public repositories for its standard runners. We should confirm that still covers macOS runners before leaning on it.
