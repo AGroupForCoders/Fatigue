@@ -17,6 +17,8 @@ struct FinishSummary: View {
     let unticked: UntickedSets
     /// The prebuilt workout it started from, only when today's workout differs from it.
     let changedRoutine: Routine?
+    /// Workouts finished before this one, for the records it beat.
+    var history: [FinishedWorkout] = []
     let onSave: (FinishDetails) -> Void
 
     @State private var title: String
@@ -27,10 +29,11 @@ struct FinishSummary: View {
 
     private enum Field { case title, description }
 
-    init(session: WorkoutSession, unticked: UntickedSets, changedRoutine: Routine?, onSave: @escaping (FinishDetails) -> Void) {
+    init(session: WorkoutSession, unticked: UntickedSets, changedRoutine: Routine?, history: [FinishedWorkout] = [], onSave: @escaping (FinishDetails) -> Void) {
         self.session = session
         self.unticked = unticked
         self.changedRoutine = changedRoutine
+        self.history = history
         self.onSave = onSave
         _title = State(initialValue: session.title)
     }
@@ -98,6 +101,8 @@ struct FinishSummary: View {
                     }
                     .padding(.top, Tokens.Space.m)
 
+                    records
+
                     if let changedRoutine {
                         Hairline().padding(.top, Tokens.Space.xl)
                         HStack(alignment: .center, spacing: Tokens.Space.m) {
@@ -137,6 +142,40 @@ struct FinishSummary: View {
         .overlay { GrainOverlay() }
         .presentationDetents([.large])
         .presentationBackground(palette.background)
+    }
+
+    /// The records this workout beat, such as "Adductors · Heaviest weight · 60 kg". Nothing when it beat none.
+    @ViewBuilder private var records: some View {
+        let beaten = ExerciseStats.beaten(by: workout, history: history)
+        if !beaten.isEmpty {
+            Hairline().padding(.top, Tokens.Space.xl)
+            Text("Records")
+                .textStyle(Tokens.Typography.caption)
+                .foregroundStyle(palette.foregroundMuted)
+                .padding(.top, Tokens.Space.l)
+                .padding(.bottom, Tokens.Space.xs)
+            ForEach(beaten) { record in
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
+                    Image(systemName: "arrow.up")
+                        .imageScale(.small)
+                        .foregroundStyle(palette.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(record.record)
+                            .foregroundStyle(palette.foreground)
+                        Text([record.exercise, record.brand].compactMap { $0 }.joined(separator: " · "))
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                    }
+                    Spacer()
+                    Text(record.value)
+                        .monospacedDigit()
+                        .foregroundStyle(palette.foreground)
+                }
+                .textStyle(Tokens.Typography.control)
+                .padding(.vertical, Tokens.Space.xs)
+                .accessibilityElement(children: .combine)
+            }
+        }
     }
 
     /// Time, sets and volume, side by side in large numbers.

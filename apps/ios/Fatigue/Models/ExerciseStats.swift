@@ -213,6 +213,43 @@ struct ExerciseStats {
         return records
     }
 
+    /// A record a workout beat, for the finish summary.
+    struct Beaten: Identifiable, Equatable {
+        let exercise: String
+        let brand: String?
+        /// Such as "Heaviest weight" or "Best set volume, weighted".
+        let record: String
+        /// Such as "60 kg" or "1,227 weighted".
+        let value: String
+        var id: String { "\(exercise)|\(brand ?? "")|\(record)" }
+    }
+
+    /// The records each exercise in `workout` beat, against everything before it on the same exercise and brand.
+    /// Doing an exercise or brand for the first time has nothing to beat, so it sets no records.
+    static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout]) -> [Beaten] {
+        var seen: Set<String> = []
+        return workout.exercises.flatMap { exercise -> [Beaten] in
+            guard seen.insert("\(exercise.name)|\(exercise.brand ?? "")").inserted else { return [] }
+            let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history).records()
+            let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout]).records()
+            let weighted = exercise.settings.contains(where: \.isTracked)
+            let checks: [(String, KeyPath<ExerciseRecords, StatRecord?>, String, Bool)] = [
+                ("Heaviest weight", \.heaviestWeight, "kg", false),
+                ("Best 1RM", \.bestOneRepMax, "kg", false),
+                ("Best set volume", \.bestSetVolume, "kg", true),
+                ("Best session volume", \.bestSessionVolume, "kg", true),
+                ("Best set volume, weighted", \.weightedSetVolume, "weighted", true),
+                ("Best session volume, weighted", \.weightedSessionVolume, "weighted", true),
+            ]
+            return checks.compactMap { title, path, unit, whole in
+                if unit == "weighted", !weighted { return nil }
+                guard let old = before[keyPath: path], let new = after[keyPath: path], new.value > old.value else { return nil }
+                let number = new.value.formatted(.number.precision(.fractionLength(0...(whole ? 0 : 1))))
+                return Beaten(exercise: exercise.name, brand: exercise.brand, record: title, value: "\(number) \(unit)")
+            }
+        }
+    }
+
     /// Keeps the first time a best was reached, so a tie doesn't move the record's date.
     private static func keepBest(_ best: inout StatRecord?, _ candidate: StatRecord) {
         if best == nil || candidate.value > best!.value { best = candidate }
