@@ -13,7 +13,7 @@ We chose to let users set the weighting instead of predetermining it. Settings a
 
 ## Consequences
 
-- A setting needs a factor (yes/no) or a direction and range (number) before it counts. The data model's `field` table needs a factor column for yes/no settings.
+- A setting needs a factor (yes/no) or a direction and range (number) before it counts. The data model's `setting` table needs a factor column for yes/no settings, and its rule that only a `number` can be tracked has to allow yes/no too.
 - Changing a factor re-scores all of history, which is why scores stay computed when shown and never stored (ADR 0001).
 - Because combinations are weighted, the graph can show one line across them. Splitting by a setting is how someone checks that their factor is right.
 - The app may suggest a name-based factor ("Most people use ×1.25 for a dead stop") and, later, one worked out from the user's own RPE. A suggestion is only applied when the user confirms it.
