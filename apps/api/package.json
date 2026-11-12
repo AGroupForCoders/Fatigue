@@ -1,0 +1,29 @@
+{
+  "name": "@fatigue/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "auth:schema": "auth generate --config src/modules/auth/auth.cli.ts --output src/db/schema/auth.ts --yes"
+  },
+  "dependencies": {
+    "better-auth": "1.7.22",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.13.18",
+    "postgres": "4.1.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261112.1",
+    "@types/node": "^24.19.2",
+    "auth": "1.7.22",
+    "drizzle-kit": "0.31.11",
+    "typescript": "^5.9.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.160.1"
+  }
+}

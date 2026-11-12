@@ -7,6 +7,10 @@
     "docs:build": "pnpm --filter docs build",
     "docs:types": "pnpm --filter docs types:check",
     "tokens:build": "pnpm --filter @fatigue/tokens build",
-    "tokens:check": "pnpm --filter @fatigue/tokens check"
+    "tokens:check": "pnpm --filter @fatigue/tokens check",
+    "api:dev": "pnpm --filter @fatigue/api dev",
+    "api:test": "pnpm --filter @fatigue/api test",
+    "api:typecheck": "pnpm --filter @fatigue/api typecheck",
+    "api:migrate": "pnpm --filter @fatigue/api db:migrate"
   }
 }
