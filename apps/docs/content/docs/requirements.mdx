@@ -39,19 +39,20 @@ A variant is a specific machine for an exercise. "Lat Pulldown" is the exercise.
 
 ## What a set records
 
-Not every exercise is weight and reps. We want to progress on range of motion and on timed holds as well, so what a set records has to be flexible.
+Not every set is weight and reps. We want to progress on range of motion and on timed holds as well, so what a set records has to be flexible.
 
-- Every exercise has a tracking scheme, which is the list of things each set records. The default is weight and reps.
-- A timed scheme records weight and a duration. This is for isometrics, where a set is one hold, for example 50 seconds at a given weight.
-- You can add your own numeric fields to a scheme. Each one is a name and a number, such as "Notch" for the range-of-motion setting on an adductor machine.
-- Your own fields are logged on every set and filled in from last time. A seat setting that never changes costs nothing to keep, and one you are working on shows up in your history. Going from a dead stop at notch 7 to notch 8 is progress the app can show.
-- A scheme belongs to an exercise and can be different for a variant. The same exercise can be reps on one variant and a timed hold at a set notch on another.
-- The free-text note stays for anything that is not a number.
+Take an adductor machine. One set might be a timed hold at notch 8 for 50 seconds. The next might be 55 kg for 8 reps to a dead stop at notch 7. Both belong to the same exercise in the same workout.
 
-Two things are still open here.
-
-- Whether the app detects records on your own fields. It does not know if a higher notch is better or worse unless you tell it.
-- Whether one exercise in a workout can mix rep sets and timed sets, or whether that always means two variants.
+- Each set is either a rep set or a timed hold. A rep set records weight and reps. A timed hold records weight and a duration.
+- One exercise can mix rep sets and timed holds in the same workout.
+- You can add your own fields to an exercise. A field is either a number, such as "Notch", or a yes or no, such as "Dead stop".
+- Your own fields are logged on every set and filled in from last time. A seat setting that never changes costs nothing to keep, and one you are working on shows up in your history.
+- Fields belong to a machine variant, because notch 7 on one machine means nothing on another.
+- When you create a number field you say whether a higher or a lower number counts as a record, or that it should not be tracked. The app then detects records on it the same way it does for weight.
+- A field can have its own progress for each value. With this on for "Notch", notch 7 and notch 8 each get their own records and their own line on the graph, because the same weight at a deeper notch is a different lift. It is off unless you turn it on, so a seat height that never changes does not split your history.
+- We do not combine fields into one score. Nothing honest says how many kilograms a deeper notch is worth, so the app keeps the numbers apart and lets you compare them.
+- Records for timed holds are kept apart from records for rep sets.
+- The free-text note stays for anything that does not fit a field.
 
 ## Routines
 
@@ -63,11 +64,13 @@ Two things are still open here.
 
 - You can see a list of past workouts and open any of them.
 - Each exercise has a page with its best set, an estimated one-rep max, a progression line and recent sessions.
+- The page can be narrowed to one machine, and then to one value of a field that has its own progress, such as notch 7.
+- The progression line plots one thing at a time. That can be top set weight, estimated one-rep max, hold time or a number field such as notch.
 - Records are detected when a workout is saved and marked on the session where they happened.
 
 ## Account and sync
 
-- Signing in is required before you can use the app.
+- Signing in with an email and password is required before you can use the app.
 - Everything you log is saved on the phone first, then synced to the server in the background.
 - The app works without a connection. Changes made offline sync when the connection returns.
 - Signing in on a second device brings down all of your data.
