@@ -17,7 +17,7 @@ A movement, such as "Hip Adduction", either built in or created by the user.
 _Avoid_: Movement, lift
 
 **Machine**:
-A specific piece of equipment an exercise is done on, identified by brand and an optional label such as the model or gym. An exercise done without one is done on "no machine".
+A brand on one exercise, with an optional label such as the model or gym. Technogym + Adductors and Technogym + Pulldown are different machines. An exercise done without a brand, such as barbell bench, is done on "no machine".
 _Avoid_: Variant, equipment, station
 
 ## Sets
