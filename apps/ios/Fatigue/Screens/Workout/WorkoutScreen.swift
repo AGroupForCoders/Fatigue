@@ -15,6 +15,8 @@ struct WorkoutScreen: View {
     @State var session: WorkoutSession
     /// Running now, or a finished workout opened from history to fix.
     var mode: Mode = .live
+    /// Your finished workouts, for spotting records. Only the ones started before this workout count.
+    var history: [FinishedWorkout] = []
     /// Hides the screen and leaves the workout running in the bar above the bottom nav.
     var onMinimise: () -> Void = {}
     var onFinish: () -> Void = {}
@@ -45,9 +47,10 @@ struct WorkoutScreen: View {
             header
             Hairline()
             ScrollView {
+                let records = RecordBook.marks(for: session.exercises, after: history.filter { $0.startedAt < session.startedAt })
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(session.exercises.indices, id: \.self) { index in
-                        ExerciseSection(session: session, exerciseIndex: index, focus: $focused)
+                        ExerciseSection(session: session, exerciseIndex: index, records: records, focus: $focused)
                         Hairline()
                     }
                     if session.exercises.isEmpty {
@@ -188,6 +191,8 @@ private struct ExerciseSection: View {
     @Environment(ExerciseCatalog.self) private var catalog
     @Bindable var session: WorkoutSession
     let exerciseIndex: Int
+    /// The records each ticked set sets, keyed by set id.
+    let records: [UUID: Set<RecordKind>]
     var focus: FocusState<FocusedCell?>.Binding
     @State private var editingExercise = false
     /// Whether the settings line is opened up into editable rows.
@@ -297,7 +302,7 @@ private struct ExerciseSection: View {
                         SwipeToDelete(accessibilityName: "set \(setIndex + 1)") {
                             session.deleteSet(setID)
                         } content: {
-                            SetRow(session: session, setID: setID, number: setIndex + 1, focus: focus)
+                            SetRow(session: session, setID: setID, number: setIndex + 1, isRecord: records[setID] != nil, focus: focus)
                         }
                     }
                     .transition(.opacity)
@@ -571,6 +576,8 @@ private struct SetRow: View {
     let setID: UUID
     /// The set's number within its exercise, starting at 1.
     let number: Int
+    /// Whether this ticked set beat your best for its shape, shown as a small arrow by its number.
+    var isRecord = false
     var focus: FocusState<FocusedCell?>.Binding
 
     var body: some View {
@@ -584,10 +591,20 @@ private struct SetRow: View {
 
     private func row(_ set: WorkoutSet, exercise e: Int, index i: Int) -> some View {
         HStack(spacing: Tokens.Space.s) {
-            Text("\(number)")
-                .foregroundStyle(palette.foregroundFaint)
-                .contentTransition(.numericText(value: Double(number)))
-                .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
+            HStack(spacing: 1) {
+                Text("\(number)")
+                    .contentTransition(.numericText(value: Double(number)))
+                if isRecord {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 9, weight: .bold))
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .foregroundStyle(isRecord ? palette.accent : palette.foregroundFaint)
+            .animation(.standard, value: isRecord)
+            .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(isRecord ? "Set \(number), record" : "Set \(number)")
             Text(set.previous.isEmpty ? "-" : set.previous)
                 .foregroundStyle(palette.foregroundMuted)
                 .lineLimit(1)

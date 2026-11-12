@@ -28,6 +28,7 @@ struct WorkoutDetailScreen: View {
                 WorkoutScreen(
                     session: session,
                     mode: .editing,
+                    history: store.history,
                     onMinimise: { editing = nil },
                     onFinish: {
                         if let workout { withAnimation(.standard) { store.replace(workout.updated(from: session)) } }
