@@ -1,0 +1,65 @@
+---
+title: API structure
+description: How the backend code is organised.
+---
+
+The API is organised by feature. Each feature is one folder with a small, fixed set of files.
+
+Feature-based is the common way to lay out an API of this size. The other common layout groups files by type, with one `routes` folder, one `services` folder and so on. That works for a handful of endpoints, but adding a feature means editing four folders.
+
+## Layout
+
+One folder per feature, with the endpoints for that feature in one routes file:
+
+```
+apps/api/src/
+├── index.ts                  Workers entry point
+├── app.ts                    builds the Hono app and mounts each module
+├── modules/
+│   ├── auth/
+│   ├── sync/
+│   ├── exercises/
+│   ├── import/
+│   └── account/
+│       ├── account.routes.ts
+│       ├── account.service.ts
+│       └── account.service.test.ts
+├── db/
+│   ├── client.ts
+│   ├── schema/
+│   └── migrations/
+├── middleware/
+└── lib/
+```
+
+A feature stays at three files until one of them gets big enough to split. We do not create a folder per endpoint, because a feature with six endpoints would then be six folders and eighteen files.
+
+## What goes in each file
+
+- **Routes** read the request, validate it, call a service and shape the response. They hold no business logic. Each route declares its request and response schemas, and the OpenAPI document described in [repository layout](/docs/repository-layout) is generated from them.
+- **Services** hold the logic and the database queries. They know nothing about HTTP, which is what makes them easy to test.
+- **Tests** sit next to the service they cover.
+
+There is no separate repository layer for database access. Services call Drizzle directly. We can add a layer to a module if its queries grow enough to need one.
+
+## Rules that keep it tidy
+
+- A module does not import another module's files. Code that two modules need moves to `lib`.
+- The database schema lives in `db/schema`, not inside modules, because the sync module touches every table.
+- Cloudflare-specific code stays in `index.ts` and `db/client.ts`. Everything else is plain Hono, so changing host means changing those two files.
+
+## Why there are so few modules
+
+Most of what the app does never reaches a dedicated endpoint. Workouts, sets, routines and custom exercises are written to SQLite on the phone and reach the server through the sync module, which has one endpoint to push changes and one to pull them.
+
+That leaves five modules:
+
+| Module | What it does |
+| --- | --- |
+| `auth` | Sign-up, sign-in and sessions, through Better Auth. |
+| `sync` | Accepts changed rows from a device and returns rows changed since its last sync. |
+| `exercises` | Serves the built-in exercise and brand lists. |
+| `import` | Takes a Hevy CSV export and turns it into workouts. |
+| `account` | Deletes an account and its data. |
+
+The website will need read endpoints for history later. Those would be new modules, added when the website starts.

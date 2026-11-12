@@ -1,0 +1,62 @@
+---
+title: Tech stack
+description: What we chose and why.
+---
+
+| Part | Choice |
+| --- | --- |
+| iOS app | Swift and SwiftUI, with SQLite on the phone |
+| Android app, later | Kotlin and Jetpack Compose |
+| Website, later | Next.js |
+| API | Hono in TypeScript, with Drizzle and Better Auth |
+| Database | Postgres on Neon |
+| API hosting | Cloudflare Workers to start |
+| Docs | Fumadocs |
+
+Nothing here is built yet apart from the docs, so treat it as the plan we agreed on.
+
+## Native apps, not React Native
+
+We considered Expo, which would give us iOS and Android from one codebase and share TypeScript with the website.
+
+We chose native because the app's main job is to feel fast, and a native app launches faster and uses less memory than one that ships a JavaScript runtime. The features we want next, a rest timer on the lock screen and an Apple Watch app, have to be written in Swift either way.
+
+The cost is that every feature gets built once per platform. We accepted that because the app is small and there are three of us. A finished iOS app is also a clear specification for the Android port.
+
+## SQLite on the phone, Postgres on the server
+
+The app reads and writes a local SQLite database. It never waits on the network to show or save a set. That is what keeps logging instant in a gym with no signal.
+
+Postgres holds the copy on the server. It is the source for a second device, for the website later, and for anything else that needs the data.
+
+## Our own sync
+
+Something has to move changes between SQLite and Postgres in both directions. We plan to write that ourselves instead of paying for a sync service.
+
+It is manageable here because each person only edits their own data. The plan is:
+
+- Every row gets an ID created on the phone, an updated time and a deleted marker. Rows are marked deleted and not removed, so a deletion can sync like any other change.
+- The phone keeps a queue of changed rows and pushes them when it has a connection. If the same row changed in two places, the latest change wins.
+- The phone pulls everything that changed on the server since its last sync.
+
+Sync bugs lose data without any error, so this part needs thorough tests before anyone relies on it.
+
+## Our own API, not Supabase
+
+Supabase would have given us auth and an API without writing a backend. We decided against it for two reasons. Its free projects pause after a period of inactivity and need a manual restore, and its auth and access rules tie the app to Supabase.
+
+The API is small because of sync. It handles sign-in, sync, the Hevy import, account deletion and the built-in exercise list. We picked Hono and TypeScript because the website can share types with the API.
+
+Neon was chosen for Postgres because it sleeps when idle and wakes on the next request without anyone stepping in.
+
+## Hosting on Workers, kept portable
+
+The API starts on Cloudflare Workers. There is no server to manage and it scales without configuration.
+
+We do not want to be stuck there, so the API avoids Cloudflare's own storage products and keeps Cloudflare-specific code in two files. The [API structure](/docs/api-structure) page shows which. Moving to a normal Node server on Railway or Fly.io should then be a small change.
+
+## Not checked yet
+
+- Whether Better Auth's password hashing fits inside the CPU limit on the Workers free plan. If it does not, the paid plan is 5 USD a month.
+- Which SQLite library to use on iOS. GRDB is the current candidate.
+- The licence on the images in `free-exercise-db`, which we plan to use for exercise names and muscles. The first version ships without exercise images either way.

@@ -1,0 +1,68 @@
+---
+title: Design system
+description: Tokens that let us change the look in one place.
+---
+
+The look of the app is going to change while we build it. We want a change of accent colour or corner radius to be an edit to one file, not a search through every screen.
+
+This page is a plan. No tokens exist in the repository yet, and the visual design itself is not final.
+
+## Tokens
+
+A token is a named design value. Screens and components use the name and never the raw value.
+
+Tokens are named by what they are for, not by what they look like. A screen asks for `color.text.muted`, not `grey500`. If muted text later becomes a warmer grey, the name still makes sense and no screen has to change.
+
+| Group | Examples |
+| --- | --- |
+| Colour | `color.background`, `color.surface`, `color.border`, `color.text`, `color.text.muted`, `color.accent` |
+| Type | `type.title`, `type.body`, `type.caption`, `type.number.large` |
+| Spacing | `space.1` up to `space.6` |
+| Radius | `radius.control`, `radius.panel` |
+| Motion | `motion.quick`, `motion.standard` |
+
+## One source for every app
+
+The tokens live in one file, `packages/tokens/tokens.json`. A build step turns that file into what each platform needs.
+
+| App | Generated output |
+| --- | --- |
+| iOS | Swift constants |
+| Android | Kotlin constants |
+| Website and docs | CSS variables |
+
+Only the iOS output is needed to start. The others get added when those apps begin. We have not picked the tool that does the generating.
+
+## Components sit on top of tokens
+
+Each app has a small set of shared components, such as a button, a set row and a rest bar. Components are the only place tokens get used directly. Screens are built from components.
+
+That gives three layers, and each one only knows about the layer below it.
+
+1. Tokens hold the values.
+2. Components use tokens.
+3. Screens use components.
+
+## Rules
+
+- No raw colours, font sizes, spacing values or radii in a screen or a component. If the value you need does not exist, add a token.
+- A token is added in `tokens.json` first, then used. Nobody edits generated files by hand.
+- If two components need the same new value, that is a sign it should be a token and not a one-off.
+
+## Starting values
+
+These are the values in the current mock-ups. They are here so the first build has something to use, and we expect them to change.
+
+| Token | Value |
+| --- | --- |
+| `color.background` | `#0A0A0A` |
+| `color.surface` | `#151515` |
+| `color.border` | `#262626` |
+| `color.text` | `#F2F1EE` |
+| `color.text.muted` | `#8E8E8A` |
+| `color.accent` | `#C8B698` |
+| `radius.control` | 8 |
+| `radius.panel` | 12 |
+| `space.1` to `space.6` | 4, 8, 12, 16, 20, 24 |
+
+The app uses one typeface in light, regular and medium weights. Which typeface is still open. The choice is between the iOS system font and one we bundle with the app.

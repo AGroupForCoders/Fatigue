@@ -1,0 +1,85 @@
+---
+title: Requirements
+description: What the app has to do, area by area.
+---
+
+These are the requirements for the [first version](/docs/mvp). They describe behaviour, not screens, so they stay true while the design changes.
+
+## Logging a workout
+
+This is the screen people spend their time on, so it gets the most detail.
+
+- A workout is one scrolling list of exercises. There is no separate "up next" panel.
+- You can start a workout empty or from a routine, and add exercises at any point.
+- You can reorder exercises by holding an exercise name and dragging it.
+- Each exercise has three controls under its name. They are the rest time, a note and the machine variant.
+- By default each set records weight and reps. [What a set records](#what-a-set-records) covers timed holds and your own fields.
+- RPE is optional on any set and runs from 6 to 10 in half steps.
+- Each set shows what you did last time on the same machine, so you can see what to beat without leaving the screen.
+- Ticking a set as done starts the rest timer for that exercise. You can add or remove 15 seconds, or skip it.
+- Finishing a workout saves it to your history.
+
+## Exercises
+
+- The app ships with a built-in list of exercises, each with a primary muscle and an equipment type.
+- If a search finds nothing, the first result offers to create an exercise with the text you typed.
+- A custom exercise needs a name, a primary muscle and an equipment type. Secondary muscles are optional.
+- There is no limit on custom exercises. They are private to your account.
+- Custom exercises behave exactly like built-in ones. They get variants, history and records.
+
+## Machine variants
+
+A variant is a specific machine for an exercise. "Lat Pulldown" is the exercise. "Hammer Strength" and "Technogym" are variants of it.
+
+- A variant has a brand and an optional free-text label, for example the model or which gym it is in.
+- Brands come from a built-in list, and you can type your own.
+- A variant is optional. Barbell and dumbbell exercises work without one.
+- When you add an exercise to a workout, it defaults to the variant you used last time.
+- History and records are kept per variant. The exercise page can also show all variants together.
+
+## What a set records
+
+Not every exercise is weight and reps. We want to progress on range of motion and on timed holds as well, so what a set records has to be flexible.
+
+- Every exercise has a tracking scheme, which is the list of things each set records. The default is weight and reps.
+- A timed scheme records weight and a duration. This is for isometrics, where a set is one hold, for example 50 seconds at a given weight.
+- You can add your own numeric fields to a scheme. Each one is a name and a number, such as "Notch" for the range-of-motion setting on an adductor machine.
+- Your own fields are logged on every set and filled in from last time. A seat setting that never changes costs nothing to keep, and one you are working on shows up in your history. Going from a dead stop at notch 7 to notch 8 is progress the app can show.
+- A scheme belongs to an exercise and can be different for a variant. The same exercise can be reps on one variant and a timed hold at a set notch on another.
+- The free-text note stays for anything that is not a number.
+
+Two things are still open here.
+
+- Whether the app detects records on your own fields. It does not know if a higher notch is better or worse unless you tell it.
+- Whether one exercise in a workout can mix rep sets and timed sets, or whether that always means two variants.
+
+## Routines
+
+- A routine is a named, ordered list of exercises, each with its variant, rest time and planned sets.
+- You can create, edit and delete routines.
+- Starting a workout from a routine copies it, so changes during the workout do not alter the routine.
+
+## History
+
+- You can see a list of past workouts and open any of them.
+- Each exercise has a page with its best set, an estimated one-rep max, a progression line and recent sessions.
+- Records are detected when a workout is saved and marked on the session where they happened.
+
+## Account and sync
+
+- Signing in is required before you can use the app.
+- Everything you log is saved on the phone first, then synced to the server in the background.
+- The app works without a connection. Changes made offline sync when the connection returns.
+- Signing in on a second device brings down all of your data.
+- You can delete your account from inside the app, which removes your data from the server.
+
+## Hevy import
+
+- You can import a Hevy CSV export.
+- Imported exercises are matched to the built-in list by name. Anything unmatched becomes a custom exercise.
+- Imported workouts have no machine variant, because Hevy does not record one.
+
+## How it should feel
+
+- Logging a set never waits on the network.
+- The app opens straight into your current workout if one is running.

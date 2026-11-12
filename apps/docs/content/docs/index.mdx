@@ -1,0 +1,29 @@
+---
+title: Fatigue
+description: A weightlifting tracker that knows which machine you used.
+---
+
+Fatigue is a workout tracker for people who lift. It works a lot like Hevy, with two changes we wanted badly enough to build our own app.
+
+## Why we are building it
+
+**Machines are not interchangeable.** 80 kg on a Hammer Strength lat pulldown is not 80 kg on a Technogym one. Most trackers treat them as the same exercise, so your history and records mix two different lifts. In Fatigue you pick the machine brand for an exercise, and history and records are kept per machine.
+
+**Custom exercises should be free.** Hevy limits how many custom exercises you can create without paying. Fatigue does not limit them.
+
+Beyond that, the goal is an app that feels fast. Logging a set should never wait on a network request, because gyms have bad signal.
+
+## Where the project is
+
+We are still planning. The only code in the repository today is this documentation site. The pages below describe what we intend to build, and each one says which parts are decided and which are still open.
+
+<Cards>
+  <Card title="MVP" href="/docs/mvp" description="What ships in the first version and what waits." />
+  <Card title="Requirements" href="/docs/requirements" description="What the app has to do, area by area." />
+  <Card title="Tech stack" href="/docs/tech-stack" description="What we chose and why." />
+  <Card title="Repository layout" href="/docs/repository-layout" description="Where each app lives in the monorepo." />
+  <Card title="API structure" href="/docs/api-structure" description="How the backend code is organised." />
+  <Card title="CI/CD" href="/docs/ci-cd" description="Running only the checks a change needs." />
+  <Card title="Design system" href="/docs/design-system" description="Tokens that let us change the look in one place." />
+  <Card title="Contributing" href="/docs/contributing" description="Branches, commits, pull requests and issues." />
+</Cards>
