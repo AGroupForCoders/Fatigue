@@ -85,6 +85,7 @@ final class AuthStore {
     }
 
     private func clear() {
+        ProfilePhoto.delete()
         tokens.delete()
         cachedAccount = nil
         state = .signedOut
