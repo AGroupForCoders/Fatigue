@@ -25,17 +25,20 @@ Some rows must be unique, and a random ID can't guarantee that. Two phones offli
 | --- | --- |
 | `user_setting` | The account ID |
 | `exercise_brand`, no-brand row only | The exercise ID |
-| `set_field_value` | The set ID and the field ID |
+| `workout_exercise_setting` | The workout exercise ID and the setting ID |
+| `workout_set_override` | The set ID and the setting ID |
+| `routine_exercise_setting` | The routine exercise ID and the setting ID |
+| `routine_set_override` | The routine set ID and the setting ID |
 
 - Weight is always stored in kilograms. A setting picks whether you see and type kg or lb.
 - Durations are stored in whole seconds.
 - Order within a list is a `position` number. When you drag an exercise between two others, it gets the number halfway between theirs, so a reorder changes one row and not the whole list. After many drags between the same two rows the gap gets too small to halve, so when that happens the app renumbers that one list.
-- Deleting a row also sets `deleted_at` on every row under it in the same transaction. Deleting a workout marks its exercises, sets and field values deleted too, so any table can be read without checking its parents.
+- Deleting a row also sets `deleted_at` on every row under it in the same transaction. Deleting a workout marks its exercises, setting values, sets and overrides deleted too, so any table can be read without checking its parents.
 
 ## Exercises and brands
 
 ```
-exercise ──< exercise_brand ──< field
+exercise ──< exercise_brand ──< setting
     └──< exercise_muscle
 ```
 
@@ -66,7 +69,7 @@ Which muscles an exercise works, and how much of the work each one does. A futur
 
 **`exercise_brand`**
 
-One row for each brand you have used for an exercise, plus one for no brand if you have logged it without one. Technogym chest press and Hammer Strength chest press are two rows. Fields, sets and records all hang off this row.
+One row for each brand you have used for an exercise, plus one for no brand if you have logged it without one. Technogym chest press and Hammer Strength chest press are two rows. Settings, sets and records all hang off this row.
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -79,23 +82,32 @@ One row for each brand you have used for an exercise, plus one for no brand if y
 - The built-in brand list only feeds the suggestions when you type one.
 - Renaming a brand edits this row, so the history comes with it. Adding a brand to the no-brand row works the same way.
 
-**`field`**
+**`setting`**
+
+Seat height, notch, dead stop and anything else you set up on this exercise and brand.
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `exercise_brand_id` | text | Fields never carry over between brands |
+| `exercise_brand_id` | text | Settings never carry over between brands |
 | `name` | text | Such as "Notch" or "Dead stop" |
-| `kind` | text | `number` or `yes_no` |
-| `direction` | text, nullable | `higher` or `lower`. Set only on a tracked field |
+| `kind` | text | `number`, `yes_no` or `text` |
+| `value` | real, nullable | The value filled in next time, for `number` and `yes_no`. A yes/no stores 1 or 0 |
+| `text_value` | text, nullable | The same, for `text` |
+| `direction` | text, nullable | `higher` or `lower`. Set only on a tracked setting, which must be a `number` |
 | `range_min` | real, nullable | Required when `direction` is set |
 | `range_max` | real, nullable | Required when `direction` is set, and above `range_min` |
 | `split_by_value` | integer | 1 gives each value its own progress |
-| `position` | real | |
+| `position` | real | The order on the settings line and in headings |
+
+- `value` and `text_value` are what the app fills in the next time you add this exercise on this brand. Finishing a workout copies the values it used back here, and so does editing them from Edit exercise.
+- These are only defaults. What a past workout used lives in `workout_exercise_setting`, so changing a setting's value never changes history.
+- Rows refer to a setting by its ID, never its name, so renaming a setting keeps every value and override.
 
 ## Workouts and sets
 
 ```
-workout ──< workout_exercise ──< workout_set ──< set_field_value
+workout ──< workout_exercise ──< workout_set ──< workout_set_override
+              └──< workout_exercise_setting
 ```
 
 **`workout`**
@@ -119,6 +131,21 @@ At most one workout has no `finished_at`. That is the one the app opens into. If
 | `rest_seconds` | integer | |
 | `note` | text, nullable | |
 
+**`workout_exercise_setting`**
+
+The value each setting had for the whole exercise in this workout: the line under the exercise's name.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `workout_exercise_id` | text | |
+| `setting_id` | text | Must belong to the same exercise and brand as the workout exercise. The app checks this before saving |
+| `value` | real, nullable | For `number` and `yes_no`. A yes/no stores 1 or 0 |
+| `text_value` | text, nullable | For `text` |
+
+- Adding an exercise to a workout copies the setting's current value into a row here, so the line is filled in from last time.
+- A row with no value means the setting was there but left empty in this workout.
+- A setting added after a workout was logged has no row in that workout.
+
 **`workout_set`**
 
 Not called `set`, because `SET` is a reserved word in SQLite and every query would have to quote it.
@@ -139,29 +166,37 @@ The values can be empty while you are still typing. Once a set is ticked, a rep 
 
 Warm-up sets never count toward records or scores. Drop sets and sets to failure count like normal sets, and the type is kept so a fatigue meter can weigh them differently later.
 
-**`set_field_value`**
+**`workout_set_override`**
+
+A value that a group of sets changes from the exercise's value, such as notch 8 on the holds while the rest of the sets use notch 7.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `workout_set_id` | text | |
-| `field_id` | text | Must belong to the same exercise and brand as the set. A foreign key cannot check this, so the app checks it before saving |
-| `value` | real | A yes/no field stores 1 or 0 |
+| `setting_id` | text | Must belong to the same exercise and brand as the set. The app checks this before saving |
+| `value` | real | A yes/no stores 1 or 0. Text settings can't be overridden |
 
-A set has at most one value per field. A field added after the set was logged has no value on it, and that is what gives older sets a different shape.
+- A set has at most one override per setting.
+- Every set in a group carries the same overrides. Groups aren't stored: the app draws a new heading wherever the kind or the overrides change from one set to the next.
+- A set's value for a setting is its override if it has one, otherwise the exercise's value in `workout_exercise_setting`. Scores and records read this value.
+- If neither has a value, the set has no value for that setting, and that is what gives it a different shape from sets that do.
 
 ## Routines
 
 ```
-routine ──< routine_exercise ──< routine_set
+routine ──< routine_exercise ──< routine_set ──< routine_set_override
+              └──< routine_exercise_setting
 ```
 
 | Table | Columns |
 | --- | --- |
 | `routine` | `name`, `position` |
 | `routine_exercise` | `routine_id`, `exercise_brand_id`, `position`, `rest_seconds`, `note` |
+| `routine_exercise_setting` | `routine_exercise_id`, `setting_id`, `value`, `text_value` |
 | `routine_set` | `routine_exercise_id`, `position`, `kind`, `set_type`, `weight_kg`, `reps`, `duration_seconds` |
+| `routine_set_override` | `routine_set_id`, `setting_id`, `value` |
 
-Starting a workout copies these rows into new `workout_exercise` and `workout_set` rows. Changes made during the workout never reach the routine.
+The setting tables work like their workout versions. Starting a workout copies these rows into new `workout_exercise`, `workout_exercise_setting`, `workout_set` and `workout_set_override` rows. A setting the routine has no row for takes the setting's current value. Changes made during the workout never reach the routine.
 
 ## Settings
 
@@ -179,13 +214,13 @@ These tables never sync.
 | --- | --- |
 | `sync_outbox` | Rows changed since the last push. Each row is the table name and the row ID. |
 | `sync_state` | The cursor from the last pull. |
-| `record` | The best weight, reps, time, tracked field value and score for each exercise, brand and shape, with the set it came from. For a field with its own progress per value, the value is part of the key, so notch 7 and notch 8 keep separate records. Rebuilt from the sets when a workout is saved, when a field's range, direction or split setting changes, and after a pull that brought in sets or fields. |
+| `record` | The best weight, reps, time, tracked setting value and score for each exercise, brand and shape, with the set it came from. For a setting with its own progress per value, the value is part of the key, so notch 7 and notch 8 keep separate records. Rebuilt from the sets when a workout is saved, when a setting's range, direction or own progress per value changes, and after a pull that brought in sets, setting values or overrides. |
 
 Records and scores are worked out from the sets, so they are never synced and two devices cannot disagree about them. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) explains the score.
 
 ## Still open
 
-- **Changing the brand mid-workout.** If you switch adductors from Technogym to Hammer Strength after logging two sets, the field values on those sets belong to the Technogym fields. One option is to move the logged sets to the new brand and drop the values that don't match. The other is to only allow the switch before any set is ticked.
-- **Deleting a field.** Proposed: the field is marked deleted and its values stay, so history and records don't change. It also stops showing on new sets.
+- **Changing the brand mid-workout.** The app swaps in the new brand's settings and keeps the logged sets. In the database, that means replacing the `workout_exercise_setting` rows and dropping overrides whose setting isn't on the new brand, even on sets already ticked. The other option is to only allow the switch before any set is ticked.
+- **Deleting a setting.** Proposed: the setting is marked deleted and its values and overrides in past workouts stay, so history and records don't change. It stops showing on new workouts. During a running workout the app already drops its overrides, which matches.
 - **Splitting shoulders.** The muscle list has one `shoulders`, which mixes front delts (pressing) with rear delts (pulling). A fatigue meter would want them apart. Splitting later means deciding the split for every exercise that uses `shoulders`, so it is cheaper to decide before the built-in list is seeded.
 - **Merging duplicates.** Two phones could each add Technogym to adductors while offline, giving the same exercise and brand twice. Proposed: allow it in v1, and add a merge later.
