@@ -93,10 +93,11 @@ Seat height, notch, dead stop and anything else you set up on this exercise and 
 | `kind` | text | `number`, `yes_no` or `text` |
 | `value` | real, nullable | The value filled in next time, for `number` and `yes_no`. A yes/no stores 1 or 0 |
 | `text_value` | text, nullable | The same, for `text` |
-| `direction` | text, nullable | `higher` or `lower`. Set only on a tracked setting, which must be a `number` |
+| `direction` | text, nullable | `higher` or `lower`. Set only on a tracked `number` setting |
 | `range_min` | real, nullable | Required when `direction` is set |
 | `range_max` | real, nullable | Required when `direction` is set, and above `range_min` |
 | `split_by_value` | integer | 1 gives each value its own progress |
+| `factor` | real, nullable | For `yes_no` only: how much harder the set is when it's on, above 1 and at most 2, such as 1.5 for a dead stop. Null means it doesn't count (ADR 0002) |
 | `position` | real | The order on the settings line and in headings |
 
 - `value` and `text_value` are what the app fills in the next time you add this exercise on this brand. Finishing a workout copies the values it used back here, and so does editing them from Edit exercise.

@@ -40,11 +40,22 @@ struct ExerciseSetting: Identifiable, Hashable {
     var rangeMax: Double? = nil
     /// Gives each value its own progress, so notch 8 is compared with notch 8 and never with notch 7.
     var splitByValue = false
+    /// How much harder a yes/no setting makes a set when it's on, ×1 to ×2, such as ×1.5 for a dead stop.
+    /// Nil until you say it makes the set harder. See ADR 0002.
+    var factor: Double? = nil
 
-    /// Whether this setting counts towards the set's score: a number with a direction and a range.
+    /// Whether this setting counts towards the set's score: a number with a direction and a range,
+    /// or a yes/no setting with a factor above ×1.
     var isTracked: Bool {
-        guard kind == .number, direction != nil, let rangeMin, let rangeMax else { return false }
-        return rangeMax > rangeMin
+        switch kind {
+        case .number:
+            guard direction != nil, let rangeMin, let rangeMax else { return false }
+            return rangeMax > rangeMin
+        case .yesNo:
+            return (factor ?? 1) > 1
+        case .text:
+            return false
+        }
     }
 
     /// The exercise-wide value as a number, for comparing with a group's override. Yes is 1 and no is 0.

@@ -354,7 +354,12 @@ struct SettingEditor: View {
     @State private var setting: ExerciseSetting
     @State private var lowest: String
     @State private var highest: String
+    /// A factor you typed, for when ×1.25 and ×1.5 aren't right.
+    @State private var ownFactor: String
     @FocusState private var focusedName: Bool
+
+    /// The factors offered for a yes/no setting, as in "Scores and stats".
+    private static let presetFactors: [Double] = [1.25, 1.5]
 
     init(setting: ExerciseSetting, takenNames: [String], isNew: Bool, onSave: @escaping (ExerciseSetting) -> Void, onDelete: @escaping () -> Void) {
         self.takenNames = takenNames
@@ -364,13 +369,16 @@ struct SettingEditor: View {
         _setting = State(initialValue: setting)
         _lowest = State(initialValue: setting.rangeMin.map(PlainNumber.string) ?? "")
         _highest = State(initialValue: setting.rangeMax.map(PlainNumber.string) ?? "")
+        _ownFactor = State(initialValue: setting.factor.flatMap { Self.presetFactors.contains($0) ? nil : PlainNumber.string($0) } ?? "")
     }
 
     /// Such as "Number · higher is better, 1 to 10 · own progress per value", or "Yes or no".
     static func describe(_ setting: ExerciseSetting) -> String {
         switch setting.kind {
         case .text: return "Text"
-        case .yesNo: return "Yes or no"
+        case .yesNo:
+            guard setting.isTracked, let factor = setting.factor else { return "Yes or no" }
+            return "Yes or no · counts ×\(PlainNumber.string(factor)) when on"
         case .number:
             guard setting.isTracked, let direction = setting.direction, let min = setting.rangeMin, let max = setting.rangeMax else {
                 return "Number"
@@ -393,6 +401,9 @@ struct SettingEditor: View {
         if name.isEmpty { return "Give the setting a name." }
         if takenNames.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { return "This exercise already has a setting called \(name)." }
         if setting.kind == .number, !setting.value.isEmpty, Double(setting.value) == nil { return "The value has to be a number." }
+        if setting.kind == .yesNo, !ownFactor.isEmpty, setting.factor == nil || !Self.presetFactors.contains(setting.factor!) {
+            guard let factor = Double(ownFactor), factor > 1, factor <= 2 else { return "The factor has to be above 1 and at most 2." }
+        }
         if setting.kind == .number, setting.direction != nil {
             guard let min = Double(lowest), let max = Double(highest) else { return "Set the lowest and highest values." }
             if max <= min { return "The highest value has to be above the lowest." }
@@ -441,6 +452,29 @@ struct SettingEditor: View {
                         .frame(width: setting.kind == .number ? Tokens.Size.amountColumn : Tokens.Size.weightColumn * 2, height: Tokens.Size.cell)
                         .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
                 }
+            }
+            if setting.kind == .yesNo {
+                Hairline(soft: true)
+                VStack(alignment: .leading, spacing: Tokens.Space.m) {
+                    Text("Makes it harder")
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.foreground)
+                    HStack(spacing: Tokens.Space.s) {
+                        choices([("No", Double?.none)] + Self.presetFactors.map { ("×\(PlainNumber.string($0))", Double?.some($0)) },
+                                selected: ownFactor.isEmpty ? setting.factor : nil) { factor in
+                            ownFactor = ""
+                            setting.factor = factor
+                        }
+                        numberCell($ownFactor, label: "Own factor")
+                            .onChange(of: ownFactor) { _, text in if !text.isEmpty { setting.factor = Double(text) } }
+                    }
+                }
+                .padding(.vertical, Tokens.Space.l)
+                Text("When it's on, a set's score is multiplied by this. All the settings together count up to ×3. Changing it rescores your history.")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, Tokens.Space.s)
             }
             if setting.kind == .number {
                 Hairline(soft: true)
@@ -502,6 +536,12 @@ struct SettingEditor: View {
                     saved.rangeMax = nil
                     saved.splitByValue = false
                 }
+                if saved.kind == .yesNo {
+                    if let own = Double(ownFactor) { saved.factor = own }
+                    if (saved.factor ?? 1) <= 1 { saved.factor = nil }
+                } else {
+                    saved.factor = nil
+                }
                 onSave(saved)
                 dismiss()
             }
@@ -516,6 +556,7 @@ struct SettingEditor: View {
         .presentationBackground(palette.background)
         .animation(.standard, value: setting.kind)
         .animation(.standard, value: setting.direction)
+        .animation(.quick, value: setting.factor)
         .sensoryFeedback(.selection, trigger: setting.kind)
         .onAppear { if isNew { focusedName = true } }
     }
