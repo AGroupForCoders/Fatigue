@@ -10,8 +10,19 @@ import * as schema from "./schema";
  * and this file is the only place that would change.
  */
 export function createDb(url: string) {
-  const client = postgres(url, { max: 1, prepare: false });
+  const client = postgres(withoutChannelBinding(url), { max: 1, prepare: false });
   return { db: drizzle(client, { schema }), close: () => client.end() };
 }
 
 export type Db = ReturnType<typeof createDb>["db"];
+
+/**
+ * Neon's copied connection strings end with `channel_binding=require`. postgres.js can't do channel
+ * binding inside Workers, so Neon closes the connection and every query fails with CONNECTION_CLOSED.
+ * The connection is still encrypted by `sslmode=require`.
+ */
+export function withoutChannelBinding(url: string) {
+  const parsed = new URL(url);
+  parsed.searchParams.delete("channel_binding");
+  return parsed.toString();
+}
