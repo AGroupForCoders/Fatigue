@@ -7,7 +7,7 @@ import Testing
 struct SetGroupTests {
     @Test func groupsSplitWhereTheSetupChanges() {
         let adductors = WorkoutSession.sample().exercises[0]
-        #expect(adductors.groups.map(\.heading) == ["Hold · Notch 8", "Reps · Notch 7 · Dead stop"])
+        #expect(adductors.groups.map(\.heading) == ["Hold · Notch 8", "Reps"])
         #expect(adductors.groups.map(\.setIndices) == [[0], [1, 2]])
     }
 
@@ -51,7 +51,7 @@ struct WorkoutSessionTests {
         let added = session.exercises[0].sets[3]
         #expect(added.kind == .reps)
         #expect(added.weight == "55")
-        #expect(session.exercises[0].labels(for: added.setup) == ["Notch 7", "Dead stop"])
+        #expect(added.setup == SetSetup(kind: .reps))
         #expect(added.isDone == false)
     }
 

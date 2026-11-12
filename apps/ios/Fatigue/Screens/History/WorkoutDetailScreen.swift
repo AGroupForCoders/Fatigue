@@ -108,6 +108,11 @@ private struct ExerciseRecord: View {
                         .foregroundStyle(palette.foregroundMuted)
                 }
             }
+            if !exercise.settings.isEmpty {
+                Text(exercise.settings.map { "\($0.name) \(SettingEditor.displayValue($0))" }.joined(separator: " · "))
+                    .textStyle(Tokens.Typography.control)
+                    .foregroundStyle(palette.foregroundMuted)
+            }
             ForEach(exercise.notes) { note in
                 Text(note.text)
                     .textStyle(Tokens.Typography.control)

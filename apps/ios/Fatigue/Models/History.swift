@@ -48,7 +48,7 @@ struct FinishedWorkout: Identifiable {
                 name: exercise.name,
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
-                fields: exercise.fields,
+                settings: exercise.settings,
                 sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
             )
         })
@@ -78,10 +78,9 @@ extension FinishedWorkout {
         func reps(_ weight: String, _ reps: String, rpe: [Double]) -> [WorkoutSet] {
             rpe.map { WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: reps, rpe: $0, previous: "", isDone: true) }
         }
-        func exercise(_ name: String, brand: String? = nil, _ sets: [WorkoutSet], fields: [SetField] = []) -> WorkoutExercise {
-            WorkoutExercise(name: name, brand: brand, restSeconds: 90, fields: fields, sets: sets)
+        func exercise(_ name: String, brand: String? = nil, _ sets: [WorkoutSet], settings: [ExerciseSetting] = []) -> WorkoutExercise {
+            WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: settings, sets: sets)
         }
-        let adductorFields = [SetField(name: "Notch", kind: .number), SetField(name: "Dead stop", kind: .yesNo)]
         return [
             FinishedWorkout(title: "Pull", startedAt: day(2), duration: 52 * 60, exercises: [
                 exercise("Lat Pulldown", reps("65", "10", rpe: [8, 8.5, 9])),
@@ -96,9 +95,9 @@ extension FinishedWorkout {
             FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 74 * 60, exercises: [
                 exercise("Adductors", brand: "Technogym", [
                     WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, previous: "", isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "8", rpe: 8.5, previous: "", isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7, "Dead stop": 1]), weight: "55", amount: "7", rpe: 9, previous: "", isDone: true),
-                ], fields: adductorFields),
+                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: "", isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "7", rpe: 9, previous: "", isDone: true),
+                ], settings: ExerciseCatalog.sampleAdductorSettings),
                 exercise("Leg Press", reps("160", "10", rpe: [8, 8.5, 9])),
                 exercise("Leg Extension", reps("50", "12", rpe: [8, 9])),
                 exercise("Leg Curl", reps("45", "12", rpe: [8, 9])),

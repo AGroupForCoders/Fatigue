@@ -5,6 +5,7 @@ import SwiftUI
 struct RoutineEditor: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(ExerciseCatalog.self) private var catalog
     let onSave: (Routine) -> Void
 
     @State private var name = ""
@@ -98,7 +99,7 @@ struct RoutineEditor: View {
         .onAppear { editingName = true }
         .sheet(isPresented: $picking) {
             ExercisePicker { names in
-                withAnimation(.standard) { exercises += names.map(RoutineExercise.new(named:)) }
+                withAnimation(.standard) { exercises += names.map { RoutineExercise.new(named: $0, settings: catalog.setup(for: $0, brand: nil).settings) } }
             }
             .environment(\.palette, palette)
         }

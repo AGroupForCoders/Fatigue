@@ -285,7 +285,8 @@ struct RestSheet: View {
     }
 }
 
-/// A sheet for how a set is done: reps or a hold, and the exercise's fields such as notch or dead stop.
+/// A sheet for how a group of sets is done: reps or a hold, and any settings this group changes
+/// from the exercise's values, such as notch 8 for a hold while the rest use notch 7.
 /// Opened from a group heading to change that whole group, or from Add set to start a new one.
 struct SetupSheet: View {
     @Environment(\.palette) private var palette
@@ -326,23 +327,25 @@ struct SetupSheet: View {
                     }
                 }
             }
-            ForEach(exercise.fields) { field in
+            ForEach(exercise.settings.filter { $0.kind != .text }) { setting in
                 Hairline(soft: true)
-                row(field.name) {
-                    switch field.kind {
-                    case .number: stepper(field.name)
+                row(setting.name) {
+                    switch setting.kind {
+                    case .number: stepper(setting)
                     case .yesNo:
+                        let isOn = exercise.value(of: setting, in: setup) == 1
                         HStack(spacing: Tokens.Space.s) {
-                            choice("No", isSelected: setup.values[field.name] != 1) { setup.values[field.name] = nil }
-                            choice("Yes", isSelected: setup.values[field.name] == 1) { setup.values[field.name] = 1 }
+                            choice("No", isSelected: !isOn) { override(setting, with: 0) }
+                            choice("Yes", isSelected: isOn) { override(setting, with: 1) }
                         }
+                    case .text: EmptyView()
                     }
                 }
             }
             Hairline()
 
-            if exercise.fields.isEmpty {
-                Text("Fields like notch or seat height are added when you edit the exercise.")
+            if exercise.settings.allSatisfy({ $0.kind == .text }) {
+                Text("Add settings like notch with Setting under the exercise name, then change them here for this group.")
                     .textStyle(Tokens.Typography.caption)
                     .foregroundStyle(palette.foregroundMuted)
                     .padding(.top, Tokens.Space.m)
@@ -391,13 +394,20 @@ struct SetupSheet: View {
         .buttonStyle(.press)
     }
 
-    /// Minus, the value, plus. Going below 1 clears the field, which drops it from the heading.
-    private func stepper(_ name: String) -> some View {
-        let value = setup.values[name]
+    /// Sets this group's value for a setting. Matching the exercise's value clears the override,
+    /// so the group goes back to following the exercise.
+    private func override(_ setting: ExerciseSetting, with value: Double?) {
+        setup.values[setting.name] = value == setting.numberValue ? nil : value
+    }
+
+    /// Minus, the value, plus. Starts from the exercise's value.
+    private func stepper(_ setting: ExerciseSetting) -> some View {
+        let value = exercise.value(of: setting, in: setup)
+        let name = setting.name
         return HStack(spacing: 0) {
             stepButton("minus", label: "Less \(name)") {
                 guard let value else { return }
-                setup.values[name] = value <= 1 ? nil : value - 1
+                override(setting, with: value - 1)
             }
             Text(value.map(PlainNumber.string) ?? "-")
                 .textStyle(Tokens.Typography.number)
@@ -407,7 +417,7 @@ struct SetupSheet: View {
                 .foregroundStyle(value == nil ? palette.foregroundFaint : palette.foreground)
                 .frame(width: Tokens.Size.weightColumn, height: Tokens.Size.cell)
                 .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
-            stepButton("plus", label: "More \(name)") { setup.values[name] = (value ?? 0) + 1 }
+            stepButton("plus", label: "More \(name)") { override(setting, with: (value ?? 0) + 1) }
         }
     }
 
