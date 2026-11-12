@@ -39,12 +39,12 @@ Changing a factor re-scores all of history. Later, the app could suggest a facto
 
 Brands are never mixed on one line, because two brands' machines aren't comparable. A switcher at the top picks the brand.
 
-Four metrics:
+Four metrics. The first two are what Hevy calls set volume and session volume, weighted by settings:
 
 | Metric | What it is | Mixes settings? |
 | --- | --- | --- |
-| Score | Your best set that day, weighted | Yes, that's what the weighting is for |
-| Volume | Every set that day added up, each weighted | Yes |
+| Best set | Your best set that day: its score | Yes, that's what the weighting is for |
+| Session | Every set that day added up, each weighted | Yes |
 | Weight | Your heaviest set | No, so it splits by setting automatically |
 | Est. 1RM | Weight × (1 + reps ÷ 30) for rep sets | No, same as weight |
 
@@ -53,6 +53,17 @@ By default there's one line. **Split by** draws a line per value of one setting 
 Splitting is also how you check a factor. If the dead stop line runs well above the plain one at the same weights, your factor is too high.
 
 Under the graph are the lines with their best set and change, then records, then history.
+
+## Records
+
+Records come in two kinds, because the weighting is an interpretation and raw numbers aren't.
+
+- **Across all setups, weighted:** best set and best session. These are the ones that say "you've never worked harder on this machine". They move if you change a factor, since they're scored with it.
+- **Per exact setup, raw:** for each combination you've done, such as notch 8 with a dead stop, the heaviest set, the best estimated 1RM, and for holds the longest hold. These never move when a factor changes.
+
+A record only competes within one brand. With "own progress per value" on a setting, each of its values keeps its own records, so notch 8 is never beaten by notch 7.
+
+When you finish a workout, the summary lists what you beat: "Best set ever" for a weighted record, or "Heaviest at notch 8, dead stop" for a raw one.
 
 ## The Stats tab
 
