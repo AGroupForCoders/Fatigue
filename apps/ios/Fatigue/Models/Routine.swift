@@ -65,14 +65,17 @@ extension Routine {
 @Observable
 final class WorkoutStore {
     var routines: [Routine]
+    /// Finished workouts, newest first.
+    private(set) var history: [FinishedWorkout]
     /// The workout running now, if any. Only one runs at a time.
     private(set) var active: WorkoutSession?
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
     var isShowingActive = false
     private let now: () -> Date
 
-    init(routines: [Routine] = Routine.samples, now: @escaping () -> Date = Date.init) {
+    init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), now: @escaping () -> Date = Date.init) {
         self.routines = routines
+        self.history = history
         self.now = now
     }
 
@@ -86,8 +89,12 @@ final class WorkoutStore {
         isShowingActive = true
     }
 
-    /// Ends the workout. Saving it to history comes with the local database.
+    /// Ends the workout and puts it at the top of your history, if you ticked anything.
+    /// History only lives in memory until the local database exists.
     func finish() {
+        if let finished = active?.finished(at: now()), finished.setCount > 0 {
+            history.insert(finished, at: 0)
+        }
         isShowingActive = false
         active = nil
     }
