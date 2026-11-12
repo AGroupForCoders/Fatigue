@@ -1,0 +1,7 @@
+# Only the TypeScript projects are part of the pnpm workspace.
+# apps/ios and apps/android live in this repository but use their own build tools.
+packages:
+  - apps/docs
+  - apps/api
+  - apps/web
+  - packages/*
