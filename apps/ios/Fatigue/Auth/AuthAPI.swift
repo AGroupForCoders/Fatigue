@@ -18,7 +18,7 @@ protocol AuthAPI: Sendable {
 /// header, and the app sends it back as `Authorization: Bearer <token>`.
 nonisolated struct LiveAuthAPI: AuthAPI {
     var baseURL: URL = APIConfig.baseURL
-    var session: URLSession = .shared
+    var session: URLSession = .bearerOnly
 
     func signIn(email: String, password: String) async throws -> (Account, token: String) {
         let (data, response) = try await send("sign-in/email", body: ["email": email, "password": password])
@@ -91,4 +91,19 @@ nonisolated enum APIConfig {
     // Set once the API is deployed.
     static let baseURL = URL(string: "https://api.fatigue.invalid")!
     #endif
+}
+
+nonisolated extension URLSession {
+    /// A session that never stores or sends cookies.
+    ///
+    /// Better Auth sets a session cookie on sign-in as well as the bearer token. If the app kept that
+    /// cookie, later requests would carry it with no Origin header, and Better Auth rejects those with
+    /// 403 to stop cross-site requests. The app only ever uses the bearer token, so it ignores cookies.
+    static let bearerOnly: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
 }
