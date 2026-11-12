@@ -11,6 +11,11 @@ struct WorkoutScreen: View {
     var body: some View {
         ScrollViewReader { proxy in
             content
+                .onChange(of: focused) { old, new in
+                    if case .note = old, old != new {
+                        withAnimation(.standard) { session.removeEmptyNotes() }
+                    }
+                }
                 .onChange(of: session.openRPE) { _, id in
                     guard let id else { return }
                     focused = nil
@@ -131,9 +136,8 @@ private struct ExerciseSection: View {
     @Bindable var session: WorkoutSession
     let exerciseIndex: Int
     var focus: FocusState<FocusedCell?>.Binding
-    @State private var editingNote = false
-    @State private var noteDraft = ""
     @State private var pickingBrand = false
+    @State private var editingSetup: SetupEdit?
     @State private var pickingRest = false
 
     /// Debug builds can open a picker on launch with `-openBrand`, `-openRest` or `-openRPE`, for screenshots.
@@ -167,6 +171,8 @@ private struct ExerciseSection: View {
                 .accessibilityLabel("Exercise options")
             }
 
+            notes
+
             HStack(spacing: Tokens.Space.s) {
                 Button { pickingRest = true } label: {
                     OutlinedLabel(systemImage: "timer", text: WorkoutScreen.clock(TimeInterval(exercise.restSeconds)))
@@ -175,12 +181,13 @@ private struct ExerciseSection: View {
                 .accessibilityLabel("Rest time")
 
                 Button {
-                    noteDraft = exercise.note
-                    editingNote = true
+                    let id = withAnimation(.standard) { session.addNote(to: exerciseIndex) }
+                    focus.wrappedValue = .note(id)
                 } label: {
-                    OutlinedLabel(text: "Note", isMuted: exercise.note.isEmpty)
+                    OutlinedLabel(systemImage: "plus", text: "Note", isMuted: exercise.notes.isEmpty)
                 }
                 .buttonStyle(.press)
+                .accessibilityLabel("Add a note")
 
                 Button { pickingBrand = true } label: {
                     OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
@@ -190,13 +197,6 @@ private struct ExerciseSection: View {
             }
             .padding(.top, Tokens.Space.m)
 
-            if !exercise.note.isEmpty {
-                Text(exercise.note)
-                    .textStyle(Tokens.Typography.control)
-                    .foregroundStyle(palette.foregroundMuted)
-                    .padding(.top, Tokens.Space.m)
-            }
-
             columnHeadings
                 .padding(.top, Tokens.Space.xxl)
                 .padding(.bottom, Tokens.Space.s)
@@ -204,30 +204,47 @@ private struct ExerciseSection: View {
             ForEach(exercise.groups) { group in
                 if !group.heading.isEmpty {
                     Hairline(soft: true)
-                    Text(group.heading)
+                    Button {
+                        if let first = group.setIndices.first {
+                            editingSetup = .group(group.setIndices, exercise.sets[first].setup)
+                        }
+                    } label: {
+                        HStack(spacing: Tokens.Space.xs) {
+                            Text(group.heading)
+                            Image(systemName: "chevron.down")
+                                .imageScale(.small)
+                                .foregroundStyle(palette.foregroundFaint)
+                        }
                         .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
                         .padding(.leading, Tokens.Size.setNumberColumn + Tokens.Space.s)
                         .padding(.top, Tokens.Space.m)
-                }
-                ForEach(Array(group.setIndices.enumerated()), id: \.element) { position, setIndex in
-                    if group.heading.isEmpty || position > 0 {
-                        Hairline(soft: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    SetRow(session: session, exerciseIndex: exerciseIndex, setIndex: setIndex, focus: focus)
-                        .transition(.opacity)
+                    .buttonStyle(.pressRow)
+                    .accessibilityLabel("\(group.heading). Change setup")
+                    .transition(.opacity)
+                }
+                // Keyed by set id, not position, so a deleted row's swipe state never lands on the row that moves up.
+                ForEach(group.setIndices.map { exercise.sets[$0].id }, id: \.self) { setID in
+                    let setIndex = exercise.sets.firstIndex { $0.id == setID } ?? 0
+                    VStack(spacing: 0) {
+                        if group.heading.isEmpty || setIndex != group.setIndices.first {
+                            Hairline(soft: true)
+                        }
+                        SwipeToDelete(accessibilityName: "set \(setIndex + 1)") {
+                            session.deleteSet(setID)
+                        } content: {
+                            SetRow(session: session, setID: setID, number: setIndex + 1, focus: focus)
+                        }
+                    }
+                    .transition(.opacity)
                 }
             }
 
             Hairline(soft: true)
-            Button { withAnimation(.standard) { session.addSet(to: exerciseIndex) } } label: {
-                Text("Add set")
-                    .textStyle(Tokens.Typography.control)
-                    .foregroundStyle(palette.foregroundMuted)
-                    .frame(maxWidth: .infinity, minHeight: Tokens.Size.control, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.pressRow)
+            addSetMenu
         }
         .padding(.top, Tokens.Space.xxxl)
         .padding(.bottom, Tokens.Space.s)
@@ -242,11 +259,82 @@ private struct ExerciseSection: View {
             RestSheet(exerciseName: exercise.name, seconds: $session.exercises[exerciseIndex].restSeconds)
                 .environment(\.palette, palette)
         }
-        .alert("Note for \(exercise.name)", isPresented: $editingNote) {
-            TextField("Seat height, grip, anything", text: $noteDraft)
-            Button("Save") { session.exercises[exerciseIndex].note = noteDraft }
-            Button("Cancel", role: .cancel) {}
+        .sheet(item: $editingSetup) { edit in
+            SetupSheet(exercise: exercise, setup: edit.setup, actionTitle: edit.actionTitle) { setup in
+                withAnimation(.standard) {
+                    switch edit {
+                    case .group(let indices, _): session.changeSetup(of: indices, in: exerciseIndex, to: setup)
+                    case .new: session.addSet(to: exerciseIndex, setup: setup)
+                    }
+                }
+            }
+            .environment(\.palette, palette)
         }
+    }
+
+    /// The exercise's notes, each a free-form text box under the name. Note adds another one below.
+    /// A note left empty is removed when you leave it.
+    @ViewBuilder private var notes: some View {
+        if !exercise.notes.isEmpty {
+            VStack(alignment: .leading, spacing: Tokens.Space.s) {
+                ForEach(exercise.notes) { note in
+                    SwipeToDelete(accessibilityName: "note") {
+                        session.deleteNote(note.id)
+                    } content: {
+                        TextField("", text: noteText(note.id), prompt: Text("Seat height, grip, anything").foregroundStyle(palette.foregroundFaint), axis: .vertical)
+                            .textStyle(Tokens.Typography.control)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .focused(focus, equals: .note(note.id))
+                            .padding(.vertical, Tokens.Space.xs)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .padding(.top, Tokens.Space.s)
+        }
+    }
+
+    /// A note's text looked up by id, so a note deleted mid-edit never leaves a binding to a missing index.
+    private func noteText(_ id: UUID) -> Binding<String> {
+        Binding {
+            session.exercises[exerciseIndex].notes.first { $0.id == id }?.text ?? ""
+        } set: { text in
+            if let index = session.exercises[exerciseIndex].notes.firstIndex(where: { $0.id == id }) {
+                session.exercises[exerciseIndex].notes[index].text = text
+            }
+        }
+    }
+
+    /// Tap adds a set like the last one. Press and hold to pick another setup this exercise uses,
+    /// or start a new one, which gets its own heading.
+    private var addSetMenu: some View {
+        Menu {
+            ForEach(exercise.setups, id: \.self) { setup in
+                Button(exercise.heading(for: setup)) {
+                    withAnimation(.standard) { session.addSet(to: exerciseIndex, setup: setup) }
+                }
+            }
+            Divider()
+            Button("New setup", systemImage: "plus") {
+                editingSetup = .new(exercise.sets.last?.setup ?? SetSetup(kind: .reps))
+            }
+        } label: {
+            HStack {
+                Text("Add set")
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .imageScale(.small)
+                    .foregroundStyle(palette.foregroundFaint)
+            }
+            .textStyle(Tokens.Typography.control)
+            .foregroundStyle(palette.foregroundMuted)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Size.control, alignment: .leading)
+            .contentShape(Rectangle())
+        } primaryAction: {
+            withAnimation(.standard) { session.addSet(to: exerciseIndex) }
+        }
+        .accessibilityHint("Press and hold to pick a setup")
     }
 
     private var columnHeadings: some View {
@@ -267,29 +355,35 @@ private struct ExerciseSection: View {
 private struct SetRow: View {
     @Environment(\.palette) private var palette
     @Bindable var session: WorkoutSession
-    let exerciseIndex: Int
-    let setIndex: Int
+    let setID: UUID
+    /// The set's number within its exercise, starting at 1.
+    let number: Int
     var focus: FocusState<FocusedCell?>.Binding
 
     var body: some View {
-        let set = session.exercises[exerciseIndex].sets[setIndex]
-        row(set).id(set.id)
+        // Looked up by id on every render, so a row that is animating out after a delete draws nothing
+        // instead of reading an index that no longer exists.
+        if let place = session.place(of: setID) {
+            row(session.exercises[place.exercise].sets[place.set], exercise: place.exercise, index: place.set)
+                .id(setID)
+        }
     }
 
-    private func row(_ set: WorkoutSet) -> some View {
+    private func row(_ set: WorkoutSet, exercise e: Int, index i: Int) -> some View {
         HStack(spacing: Tokens.Space.s) {
-            Text("\(setIndex + 1)")
+            Text("\(number)")
                 .foregroundStyle(palette.foregroundFaint)
+                .contentTransition(.numericText(value: Double(number)))
                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
             Text(set.previous.isEmpty ? "-" : set.previous)
                 .foregroundStyle(palette.foregroundMuted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            NumberCell(text: $session.exercises[exerciseIndex].sets[setIndex].weight, isDone: set.isDone, accessibilityName: "Weight in kilograms", focus: focus, cell: .weight(set.id))
+            NumberCell(text: $session.exercises[e].sets[i].weight, isDone: set.isDone, accessibilityName: "Weight in kilograms", focus: focus, cell: .weight(set.id))
                 .frame(width: Tokens.Size.weightColumn)
             NumberCell(
-                text: $session.exercises[exerciseIndex].sets[setIndex].amount,
+                text: $session.exercises[e].sets[i].amount,
                 suffix: set.kind == .hold ? "s" : "",
                 isDone: set.isDone,
                 accessibilityName: set.kind == .hold ? "Seconds" : "Reps",
@@ -302,7 +396,7 @@ private struct SetRow: View {
                 session.openRPE = session.openRPE == set.id ? nil : set.id
             }
             .frame(width: Tokens.Size.rpeColumn)
-            TickBox(isDone: set.isDone) { session.toggle(set: setIndex, in: exerciseIndex) }
+            TickBox(isDone: set.isDone) { session.toggle(set: i, in: e) }
         }
         .textStyle(Tokens.Typography.control)
         .monospacedDigit()
@@ -378,4 +472,30 @@ private struct RestBar: View {
     WorkoutScreen(session: .sample())
         .environment(\.palette, .dark)
         .preferredColorScheme(.dark)
+}
+
+/// What the setup sheet is doing: changing a group's setup, or adding a set with a new one.
+private enum SetupEdit: Identifiable {
+    case group([Int], SetSetup)
+    case new(SetSetup)
+
+    var id: String {
+        switch self {
+        case .group(let indices, _): "group-\(indices.first ?? 0)"
+        case .new: "new"
+        }
+    }
+
+    var setup: SetSetup {
+        switch self {
+        case .group(_, let setup), .new(let setup): setup
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .group(let indices, _): indices.count == 1 ? "Change 1 set" : "Change \(indices.count) sets"
+        case .new: "Add set"
+        }
+    }
 }

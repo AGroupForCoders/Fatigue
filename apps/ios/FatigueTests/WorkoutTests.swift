@@ -51,8 +51,53 @@ struct WorkoutSessionTests {
         let added = session.exercises[0].sets[3]
         #expect(added.kind == .reps)
         #expect(added.weight == "55")
-        #expect(added.setup == ["Notch 7", "Dead stop"])
+        #expect(session.exercises[0].labels(for: added.setup) == ["Notch 7", "Dead stop"])
         #expect(added.isDone == false)
+    }
+
+    @Test func addingAnExistingSetupJoinsItsGroup() {
+        let session = WorkoutSession.sample()
+        let hold = session.exercises[0].sets[0].setup
+        session.addSet(to: 0, setup: hold)
+        #expect(session.exercises[0].sets[1].setup == hold)
+        #expect(session.exercises[0].groups.map(\.setIndices) == [[0, 1], [2, 3]])
+    }
+
+    @Test func aNewSetupStartsANewGroupAtTheEnd() {
+        let session = WorkoutSession.sample()
+        session.addSet(to: 0, setup: SetSetup(kind: .reps, values: ["Notch": 9]))
+        #expect(session.exercises[0].groups.map(\.heading).last == "Reps · Notch 9")
+    }
+
+    @Test func changingAGroupsSetupMergesItWithAMatchingNeighbour() {
+        let session = WorkoutSession.sample()
+        let reps = session.exercises[0].sets[1].setup
+        session.changeSetup(of: [0], in: 0, to: reps)
+        #expect(session.exercises[0].groups.map(\.setIndices) == [[0, 1, 2]])
+    }
+
+    @Test func deletingTheOpenSetClosesItsRPEPanel() {
+        let session = WorkoutSession.sample()
+        let set = session.exercises[0].sets[2]
+        session.openRPE = set.id
+        session.deleteSet(set.id)
+        #expect(session.exercises[0].sets.count == 2)
+        #expect(session.openRPE == nil)
+    }
+
+    @Test func anExerciseWithNoSetsGetsAPlainRepSet() {
+        let session = WorkoutSession.sample()
+        for set in session.exercises[1].sets { session.deleteSet(set.id) }
+        session.addSet(to: 1)
+        #expect(session.exercises[1].sets.map(\.kind) == [.reps])
+    }
+
+    @Test func emptyNotesAreDropped() {
+        let session = WorkoutSession.sample()
+        session.addNote(to: 0)
+        #expect(session.exercises[0].notes.count == 2)
+        session.removeEmptyNotes()
+        #expect(session.exercises[0].notes.map(\.text) == ["Pads on the widest setting."])
     }
 }
 

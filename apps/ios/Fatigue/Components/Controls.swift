@@ -131,9 +131,7 @@ struct RPECell: View {
         .accessibilityLabel("RPE \(rpe.map(Self.format) ?? "not set")")
     }
 
-    static func format(_ value: Double) -> String {
-        value.rounded() == value ? String(Int(value)) : String(value)
-    }
+    static func format(_ value: Double) -> String { PlainNumber.string(value) }
 }
 
 /// The box you tick when a set is done. Gives a light haptic when ticked.
