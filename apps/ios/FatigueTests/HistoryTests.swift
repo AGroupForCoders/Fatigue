@@ -40,7 +40,38 @@ struct HistoryTests {
         let now = Date(timeIntervalSince1970: 1_794_500_000)
         #expect(HistoryRow.when(now, now: now) == "Today")
         #expect(HistoryRow.when(now.addingTimeInterval(-86_400), now: now) == "Yesterday")
-        let workout = FinishedWorkout.samples(now: now)[0]
-        #expect(HistoryRow.summary(workout) == "52 min · 9 sets · \(Int(workout.volume).formatted()) kg")
+        var workout = FinishedWorkout.samples(now: now)[0]
+        workout.startedAt = now
+        #expect(HistoryRow.summary(workout, now: now) == "Today · 52 min · 9 sets · \(Int(workout.volume).formatted()) kg")
+        #expect(HistoryRow.duration(74) == "1 h 14 min")
+    }
+
+    @Test func rowsShowFiveExercisesThenSayHowManyMore() {
+        let samples = FinishedWorkout.samples()
+        #expect(HistoryRow.hiddenCount(samples[0]) == nil)
+        #expect(samples[2].exercises.count == 7)
+        #expect(HistoryRow.hiddenCount(samples[2]) == 2)
+    }
+
+    @Test func editingAPastWorkoutKeepsItsPlaceAndDate() {
+        let store = WorkoutStore()
+        let original = store.history[1]
+        let session = original.editingSession()
+        #expect(session.startsRestWhenTicked == false)
+        session.exercises[0].sets[0].weight = "75"
+        session.toggle(set: 1, in: 0)
+        #expect(session.rest == nil)
+        store.replace(original.updated(from: session))
+        let edited = store.history[1]
+        #expect(edited.id == original.id)
+        #expect(edited.startedAt == original.startedAt)
+        #expect(edited.exercises[0].sets.map(\.weight) == ["75", "70"])
+    }
+
+    @Test func savingAPastWorkoutAsAPrebuiltOne() {
+        let routine = FinishedWorkout.samples()[2].asRoutine()
+        #expect(routine.name == "Leg day")
+        #expect(routine.exercises.count == 7)
+        #expect(routine.exercises[0].sets[0].setup == SetSetup(kind: .hold, values: ["Notch": 8]))
     }
 }

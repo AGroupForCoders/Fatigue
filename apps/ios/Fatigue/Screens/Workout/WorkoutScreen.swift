@@ -2,9 +2,18 @@ import SwiftUI
 
 /// The screen you log a workout on: one scrolling list of exercises, with a rest bar at the bottom.
 struct WorkoutScreen: View {
+    enum Mode {
+        /// A workout happening now: elapsed time, rest timer, Finish.
+        case live
+        /// A finished workout opened from history: its date, no rest timer, Save, and × to drop the changes.
+        case editing
+    }
+
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var session: WorkoutSession
+    /// Running now, or a finished workout opened from history to fix.
+    var mode: Mode = .live
     /// Hides the screen and leaves the workout running in the bar above the bottom nav.
     var onMinimise: () -> Void = {}
     var onFinish: () -> Void = {}
@@ -116,16 +125,24 @@ struct WorkoutScreen: View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: Tokens.Space.s) {
                 Button(action: onMinimise) {
-                    Image(systemName: "chevron.down")
+                    Image(systemName: mode == .live ? "chevron.down" : "xmark")
                         .foregroundStyle(palette.foregroundMuted)
                         .frame(width: Tokens.Size.control, height: Tokens.Size.control, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.press)
-                .accessibilityLabel("Minimise workout")
-                Text(session.title)
+                .accessibilityLabel(mode == .live ? "Minimise workout" : "Close without saving")
+                TextField("", text: $session.title)
                     .textStyle(Tokens.Typography.title)
                     .foregroundStyle(palette.foreground)
+                    .submitLabel(.done)
+                    .accessibilityLabel("Workout name")
+                if mode == .editing {
+                    Text("\(session.startedAt.formatted(.dateTime.weekday(.wide).day().month(.wide)))  ·  \(session.doneCount) sets")
+                        .textStyle(Tokens.Typography.control)
+                        .monospacedDigit()
+                        .foregroundStyle(palette.foregroundMuted)
+                } else {
                 TimelineView(.periodic(from: session.startedAt, by: 1)) { context in
                     HStack(spacing: 0) {
                         Text("\(Self.clock(context.date.timeIntervalSince(session.startedAt)))  ·  ")
@@ -138,9 +155,10 @@ struct WorkoutScreen: View {
                     .monospacedDigit()
                     .foregroundStyle(palette.foregroundMuted)
                 }
+                }
             }
             Spacer()
-            PrimaryButton(title: "Finish", compact: true, action: onFinish)
+            PrimaryButton(title: mode == .live ? "Finish" : "Save", compact: true, action: onFinish)
         }
         .padding(.horizontal, Tokens.Space.xxl)
         .padding(.top, Tokens.Space.l)
