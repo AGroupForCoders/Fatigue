@@ -96,6 +96,10 @@ jobs:
             exit 1
           fi
           xcrun simctl list devices available | grep "$udid"
+          # Boot it now so the Keychain is ready before the tests touch it.
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
           echo "destination=platform=iOS Simulator,id=$udid" >> "$GITHUB_OUTPUT"
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -105,6 +109,8 @@ jobs:
           restore-keys: spm-${{ runner.os }}-
       - name: Build and test
         working-directory: apps/ios
+        # Parallel testing runs the tests on throwaway simulator clones, and the
+        # Keychain is not reliable on those, so the tests run on the booted device.
         run: |
           set -euo pipefail
           xcodebuild test \
@@ -112,10 +118,19 @@ jobs:
             -scheme Fatigue \
             -destination '${{ steps.simulator.outputs.destination }}' \
             -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RUNNER_TEMP/Fatigue.xcresult" \
+            -parallel-testing-enabled NO \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             | if command -v xcbeautify >/dev/null; then xcbeautify --renderer github-actions; else cat; fi
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: ${{ runner.temp }}/Fatigue.xcresult
+          if-no-files-found: ignore
 
   tokens:
     name: Tokens
