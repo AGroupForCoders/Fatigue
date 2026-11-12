@@ -23,17 +23,17 @@ On the server, every row also has a `user_id` and a sync cursor. The phone does 
 - Durations are stored in whole seconds.
 - Order within a list is a `position` number. When you drag an exercise between two others, it gets the number halfway between theirs, so a reorder changes one row and not the whole list.
 
-## Exercises and machines
+## Exercises and brands
 
 ```
-exercise ──< machine ──< field
+exercise ──< exercise_brand ──< field
 ```
 
 **`exercise`**
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `name` | text | |
+| `name` | text | Such as "Chest Press" or "Dumbbell Flies" |
 | `primary_muscle` | text | |
 | `secondary_muscles` | text | JSON list, can be empty |
 | `equipment` | text | |
@@ -41,25 +41,25 @@ exercise ──< machine ──< field
 
 Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. Custom exercises are ordinary rows.
 
-**`machine`**
+**`exercise_brand`**
 
-A machine is a brand on one exercise. Technogym + Adductors, Technogym + Pulldown and Hammer Strength + Pulldown are three machines.
+One row for each brand you have used for an exercise. Technogym chest press and Hammer Strength chest press are two rows. Fields, sets and records all hang off this row.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `exercise_id` | text | |
-| `brand` | text, nullable | Empty means "no machine" |
+| `brand` | text | Required. Plain text, so "Gym dumbbells" is fine |
 | `label` | text, nullable | The model, the gym, or anything else that tells two of the same brand apart |
 
-- An exercise done without a brand, such as barbell bench, still gets a machine row, with an empty brand. Fields, sets and records then always hang off a machine, and nothing needs a special case for "no machine".
-- That row is created the first time you log the exercise. Hevy imports use it as well.
-- Brand is plain text. The built-in brand list only feeds the suggestions when you type one.
+- Every logged exercise needs one, so the app asks for a brand the first time you add an exercise and defaults to the last one after that.
+- The built-in brand list only feeds the suggestions when you type one.
+- Renaming a brand edits this row, so the history comes with it.
 
 **`field`**
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `machine_id` | text | Fields never carry over between machines |
+| `exercise_brand_id` | text | Fields never carry over between brands |
 | `name` | text | Such as "Notch" or "Dead stop" |
 | `kind` | text | `number` or `yes_no` |
 | `direction` | text, nullable | `higher` or `lower`. Set only on a tracked field |
@@ -90,7 +90,7 @@ At most one workout has no `finished_at`. That is the one the app opens into.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `workout_id` | text | |
-| `machine_id` | text | The exercise comes from the machine |
+| `exercise_brand_id` | text | Gives both the exercise and the brand |
 | `position` | real | |
 | `rest_seconds` | integer | |
 | `note` | text, nullable | |
@@ -115,7 +115,7 @@ The values can be empty while you are still typing. Once a set is ticked, a rep 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `set_id` | text | |
-| `field_id` | text | Must belong to the same machine as the set |
+| `field_id` | text | Must belong to the same exercise and brand as the set |
 | `value` | real | A yes/no field stores 1 or 0 |
 
 A set has at most one value per field. A field added after the set was logged has no value on it, and that is what gives older sets a different shape.
@@ -129,7 +129,7 @@ routine ──< routine_exercise ──< routine_set
 | Table | Columns |
 | --- | --- |
 | `routine` | `name`, `position` |
-| `routine_exercise` | `routine_id`, `machine_id`, `position`, `rest_seconds`, `note` |
+| `routine_exercise` | `routine_id`, `exercise_brand_id`, `position`, `rest_seconds`, `note` |
 | `routine_set` | `routine_exercise_id`, `position`, `kind`, `weight_kg`, `reps`, `duration_seconds` |
 
 Starting a workout copies these rows into new `workout_exercise` and `set` rows. Changes made during the workout never reach the routine.
@@ -150,12 +150,12 @@ These tables never sync.
 | --- | --- |
 | `sync_outbox` | Rows changed since the last push. Each row is the table name and the row ID. |
 | `sync_state` | The cursor from the last pull. |
-| `record` | The best weight, reps, time, tracked field value and score for each machine and shape, with the set it came from. Rebuilt from the sets when a workout is saved or a field's range or direction changes. |
+| `record` | The best weight, reps, time, tracked field value and score for each exercise, brand and shape, with the set it came from. Rebuilt from the sets when a workout is saved or a field's range or direction changes. |
 
 Records and scores are worked out from the sets, so they are never synced and two devices cannot disagree about them. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) explains the score.
 
 ## Still open
 
-- **Changing the machine mid-workout.** If you switch adductors from Technogym to Hammer Strength after logging two sets, the field values on those sets belong to the old machine's fields. One option is to move the logged sets to the new machine and drop the values that don't match. The other is to only allow the switch before any set is ticked.
+- **Changing the brand mid-workout.** If you switch adductors from Technogym to Hammer Strength after logging two sets, the field values on those sets belong to the Technogym fields. One option is to move the logged sets to the new brand and drop the values that don't match. The other is to only allow the switch before any set is ticked.
 - **Deleting a field.** Proposed: the field is marked deleted and its values stay, so history and records don't change. It also stops showing on new sets.
-- **Merging duplicates.** Two phones could each create Technogym + Adductors while offline, giving the same machine twice. Proposed: allow it in v1, and add a merge later.
+- **Merging duplicates.** Two phones could each add Technogym to adductors while offline, giving the same exercise and brand twice. Proposed: allow it in v1, and add a merge later.
