@@ -1,222 +1,197 @@
+import PhotosUI
 import SwiftUI
 
-/// Your account: name, email, how long you've been here, theme, sign out and delete.
+/// You and your workouts: photo, name, how long you've been lifting, and your history.
+/// Export and settings sit at the top right.
 struct ProfileScreen: View {
     @Environment(\.palette) private var palette
-    @Environment(\.theme) private var theme
     @Environment(AuthStore.self) private var auth
-    @AppStorage("weightUnit") private var weightUnit = "kg"
-    @State private var name = ""
-    @State private var renameError: String?
-    @State private var deleting = false
-    @FocusState private var editingName: Bool
+    @Environment(WorkoutStore.self) private var store
+    /// Launch with `-openSettings` to open settings straight away, for screenshots.
+    @State private var showingSettings = ProcessInfo.processInfo.arguments.contains("-openSettings")
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photo: UIImage? = ProfilePhoto.load()
 
     var body: some View {
-        if let account = auth.account {
-            content(account)
-        }
-    }
-
-    private func content(_ account: Account) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: Tokens.Space.s) {
-                        Text("Profile")
-                            .textStyle(Tokens.Typography.title)
-                            .foregroundStyle(palette.foreground)
-                        Text("Lifting since \(account.createdAt.formatted(.dateTime.month(.wide).year()))")
-                            .textStyle(Tokens.Typography.body)
-                            .foregroundStyle(palette.foregroundMuted)
-                    }
+                HStack(spacing: 0) {
                     Spacer()
-                }
-                .padding(.bottom, Tokens.Space.xxxl)
-
-                VStack(alignment: .leading, spacing: Tokens.Space.xxl) {
-                    LineField(label: "Name", text: $name, kind: .name, isFocused: editingName)
-                        .focused($editingName)
-                        .submitLabel(.done)
-                        .onSubmit(saveName)
-                    VStack(alignment: .leading, spacing: Tokens.Space.s) {
-                        Text("Email")
-                            .textStyle(Tokens.Typography.caption)
-                            .foregroundStyle(palette.foregroundMuted)
-                        Text(account.email)
-                            .textStyle(Tokens.Typography.exerciseName)
-                            .foregroundStyle(palette.foregroundMuted)
-                            .frame(minHeight: Tokens.Size.control, alignment: .leading)
-                        Hairline(soft: true)
+                    // Export comes later. The button is here so the layout is settled.
+                    Button {} label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(palette.foregroundFaint)
+                            .frame(width: Tokens.Size.control, height: Tokens.Size.control)
                     }
+                    .buttonStyle(.press)
+                    .accessibilityLabel("Export your data, coming soon")
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(palette.foreground)
+                            .frame(width: Tokens.Size.control, height: Tokens.Size.control)
+                    }
+                    .buttonStyle(.press)
+                    .accessibilityLabel("Settings")
                 }
-                if let renameError {
-                    Text(renameError)
-                        .textStyle(Tokens.Typography.caption)
-                        .foregroundStyle(palette.accent)
-                        .padding(.top, Tokens.Space.m)
+                .padding(.top, Tokens.Space.s)
+
+                if let account = auth.account {
+                    header(account)
+                        .padding(.bottom, Tokens.Space.xxxl)
                 }
 
-                Text("Preferences")
+                Text("History")
                     .textStyle(Tokens.Typography.caption)
                     .foregroundStyle(palette.foregroundMuted)
-                    .padding(.top, Tokens.Space.xxxl + Tokens.Space.l)
                     .padding(.bottom, Tokens.Space.s)
                 Hairline()
-                settingRow("Weight") {
-                    choices(["kg", "lb"], selected: weightUnit) { weightUnit = $0 }
+                if store.history.isEmpty {
+                    Text("Workouts you finish show up here.")
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.foregroundMuted)
+                        .padding(.vertical, Tokens.Space.xxl)
                 }
-                Hairline(soft: true)
-                settingRow("Theme") {
-                    Menu {
-                        Picker("Theme", selection: Binding(get: { theme.theme }, set: theme.setTheme)) {
-                            ForEach(Theme.choices, id: \.self) { Text($0.capitalized).tag($0) }
-                        }
-                    } label: {
-                        OutlinedLabel(text: theme.theme.capitalized, showsChevron: true)
-                    }
+                ForEach(store.history) { workout in
+                    HistoryRow(workout: workout)
+                    Hairline(soft: true)
                 }
-                Hairline()
-
-                Button { Task { await auth.signOut() } } label: {
-                    rowLabel("Sign out", color: palette.foreground)
-                }
-                .buttonStyle(.pressRow)
-                .padding(.top, Tokens.Space.xxxl)
-                Hairline()
-                Button { deleting = true } label: {
-                    rowLabel("Delete account", color: palette.accent)
-                }
-                .buttonStyle(.pressRow)
-                Hairline()
             }
             .padding(.horizontal, Tokens.Space.xxl)
-            .padding(.top, Tokens.Space.l)
             .padding(.bottom, Tokens.Space.xxxl)
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(palette.background)
-        .onAppear { name = account.name }
-        .onChange(of: editingName) { _, editing in if !editing { saveName() } }
-        .sheet(isPresented: $deleting) {
-            DeleteAccountSheet()
+        .sheet(isPresented: $showingSettings) {
+            SettingsScreen()
                 .environment(\.palette, palette)
         }
-    }
-
-    private func saveName() {
-        Task {
-            do {
-                try await auth.rename(to: name)
-                renameError = nil
-            } catch {
-                renameError = error.localizedDescription
-                name = auth.account?.name ?? name
-            }
-        }
-    }
-
-    private func settingRow(_ title: String, @ViewBuilder control: () -> some View) -> some View {
-        HStack {
-            Text(title)
-                .textStyle(Tokens.Typography.body)
-                .foregroundStyle(palette.foreground)
-            Spacer()
-            control()
-        }
-        .frame(minHeight: Tokens.Size.setRow)
-    }
-
-    private func rowLabel(_ title: String, color: Color) -> some View {
-        Text(title)
-            .textStyle(Tokens.Typography.body)
-            .foregroundStyle(color)
-            .frame(maxWidth: .infinity, minHeight: Tokens.Size.setRow - Tokens.Space.s, alignment: .leading)
-            .contentShape(Rectangle())
-    }
-
-    private func choices(_ options: [String], selected: String, onPick: @escaping (String) -> Void) -> some View {
-        HStack(spacing: Tokens.Space.s) {
-            ForEach(options, id: \.self) { option in
-                let isSelected = option == selected
-                Button { onPick(option) } label: {
-                    Text(option)
-                        .textStyle(Tokens.Typography.control)
-                        .foregroundStyle(isSelected ? palette.background : palette.foreground)
-                        .frame(width: Tokens.Size.control + Tokens.Space.l, height: Tokens.Size.outlinedControl)
-                        .background(isSelected ? palette.foreground : Color.clear, in: .rect(cornerRadius: Tokens.Radius.control))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                                .strokeBorder(isSelected ? palette.foreground : palette.borderControl, lineWidth: Tokens.Size.line)
-                        )
-                        .animation(.quick, value: isSelected)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self), let saved = ProfilePhoto.save(data) {
+                    withAnimation(.standard) { photo = saved }
                 }
-                .buttonStyle(.press)
+                photoItem = nil
             }
         }
-        .sensoryFeedback(.selection, trigger: selected)
+    }
+
+    private func header(_ account: Account) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.l) {
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                Avatar(name: account.name, photo: photo)
+            }
+            .buttonStyle(.press)
+            .accessibilityLabel(photo == nil ? "Add a profile photo" : "Change profile photo")
+
+            VStack(alignment: .leading, spacing: Tokens.Space.s) {
+                Text(account.name)
+                    .textStyle(Tokens.Typography.title)
+                    .foregroundStyle(palette.foreground)
+                Text("Lifting since \(account.createdAt.formatted(.dateTime.month(.wide).year()))  ·  \(store.history.count) workout\(store.history.count == 1 ? "" : "s")")
+                    .textStyle(Tokens.Typography.body)
+                    .foregroundStyle(palette.foregroundMuted)
+            }
+        }
     }
 }
 
-/// Confirms deleting the account with the password, since it can't be undone.
-private struct DeleteAccountSheet: View {
+/// A round profile photo, or your first initial when there's no photo yet.
+struct Avatar: View {
     @Environment(\.palette) private var palette
-    @Environment(AuthStore.self) private var auth
-    @State private var password = ""
-    @State private var error: String?
-    @State private var isWorking = false
-    @FocusState private var focused: Bool
+    let name: String
+    let photo: UIImage?
+    var size: CGFloat = Tokens.Size.primaryButton + Tokens.Space.xxl
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Delete account")
-                .textStyle(Tokens.Typography.title)
-                .foregroundStyle(palette.foreground)
-                .padding(.top, Tokens.Space.xxl)
-            Text("Your account and every workout in it are deleted for good. This can't be undone.")
-                .textStyle(Tokens.Typography.body)
-                .foregroundStyle(palette.foregroundMuted)
-                .padding(.top, Tokens.Space.s)
-                .padding(.bottom, Tokens.Space.xxl)
-
-            LineField(label: "Password", text: $password, kind: .password, isFocused: focused)
-                .focused($focused)
-            if let error {
-                Text(error)
-                    .textStyle(Tokens.Typography.caption)
-                    .foregroundStyle(palette.accent)
-                    .padding(.top, Tokens.Space.m)
+        ZStack {
+            if let photo {
+                Image(uiImage: photo)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else {
+                palette.surface
+                Text(name.first.map { String($0).uppercased() } ?? "")
+                    .textStyle(Tokens.Typography.exerciseName)
+                    .foregroundStyle(palette.foregroundMuted)
             }
-
-            Spacer(minLength: Tokens.Space.xxl)
-            Button(action: delete) {
-                Text(isWorking ? "Deleting" : "Delete my account")
-                    .textStyle(Tokens.Typography.button)
-                    .foregroundStyle(palette.background)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: Tokens.Size.primaryButton)
-                    .background(palette.accent, in: .rect(cornerRadius: Tokens.Radius.control))
-            }
-            .buttonStyle(.press)
-            .opacity(password.isEmpty ? 0.4 : 1)
-            .disabled(password.isEmpty || isWorking)
-            .padding(.bottom, Tokens.Space.l)
         }
-        .padding(.horizontal, Tokens.Space.xxl)
-        .background(palette.background)
-        .presentationDetents([.medium])
-        .presentationBackground(palette.background)
-        .onAppear { focused = true }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().strokeBorder(palette.borderControl, lineWidth: Tokens.Size.line))
+    }
+}
+
+/// One finished workout in the history list: name, when, and how long, how many sets and how much weight.
+struct HistoryRow: View {
+    @Environment(\.palette) private var palette
+    let workout: FinishedWorkout
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(workout.title)
+                    .textStyle(Tokens.Typography.exerciseName)
+                    .foregroundStyle(palette.foreground)
+                Spacer()
+                Text(Self.when(workout.startedAt))
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundMuted)
+            }
+            Text(workout.exercises.map(\.name).joined(separator: ", "))
+                .textStyle(Tokens.Typography.caption)
+                .foregroundStyle(palette.foregroundMuted)
+                .lineLimit(1)
+            Text(Self.summary(workout))
+                .textStyle(Tokens.Typography.caption)
+                .monospacedDigit()
+                .foregroundStyle(palette.foregroundFaint)
+        }
+        .padding(.vertical, Tokens.Space.l)
+        .accessibilityElement(children: .combine)
     }
 
-    private func delete() {
-        isWorking = true
-        Task {
-            do {
-                try await auth.deleteAccount(password: password)
-            } catch {
-                self.error = error.localizedDescription
-            }
-            isWorking = false
-        }
+    /// "Today", "Yesterday", or the weekday and date, such as "Tue 10 Nov".
+    static func when(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
+
+    /// Such as "52 min · 9 sets · 4,170 kg".
+    static func summary(_ workout: FinishedWorkout) -> String {
+        let minutes = max(1, Int((workout.duration / 60).rounded()))
+        var parts = ["\(minutes) min", "\(workout.setCount) set\(workout.setCount == 1 ? "" : "s")"]
+        if workout.volume > 0 { parts.append("\(Int(workout.volume).formatted()) kg") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// The profile photo, kept as a small JPEG on this phone. Uploading it comes with sync.
+nonisolated enum ProfilePhoto {
+    private static var url: URL {
+        URL.applicationSupportDirectory.appending(path: "profile-photo.jpg")
+    }
+
+    static func load() -> UIImage? {
+        UIImage(contentsOfFile: url.path())
+    }
+
+    /// Shrinks the picked photo to 512 points across and saves it. Returns the saved image.
+    static func save(_ data: Data) -> UIImage? {
+        guard let image = UIImage(data: data) else { return nil }
+        let side: CGFloat = 512
+        let scale = side / min(image.size.width, image.size.height)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let resized = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        guard let jpeg = resized.jpegData(compressionQuality: 0.85) else { return nil }
+        try? FileManager.default.createDirectory(at: URL.applicationSupportDirectory, withIntermediateDirectories: true)
+        guard (try? jpeg.write(to: url, options: .atomic)) != nil else { return nil }
+        return resized
+    }
+
+    /// Removes the photo, such as when you sign out, so the next account on this phone doesn't get it.
+    static func delete() {
+        try? FileManager.default.removeItem(at: url)
     }
 }
