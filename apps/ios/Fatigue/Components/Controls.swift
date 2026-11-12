@@ -77,6 +77,8 @@ struct NumberCell: View {
     var suffix = ""
     var isDone: Bool
     var accessibilityName: String
+    var focus: FocusState<FocusedCell?>.Binding
+    let cell: FocusedCell
 
     var body: some View {
         HStack(spacing: 0) {
@@ -84,6 +86,7 @@ struct NumberCell: View {
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.center)
                 .fixedSize()
+                .focused(focus, equals: cell)
             if !suffix.isEmpty, !text.isEmpty {
                 Text(suffix)
             }
@@ -94,37 +97,33 @@ struct NumberCell: View {
         .frame(maxWidth: .infinity)
         .frame(height: Tokens.Size.cell)
         .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+        .contentShape(Rectangle())
+        .onTapGesture { focus.wrappedValue = cell }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityName)
     }
 }
 
-/// The RPE for a set, picked from 6 to 10 in half steps.
+/// The RPE for a set. Tapping it opens the RPE scale under the set.
 struct RPECell: View {
     @Environment(\.palette) private var palette
-    @Binding var rpe: Double?
-    var isDone: Bool
-
-    private static let scale = stride(from: 6.0, through: 10.0, by: 0.5).map { $0 }
+    let rpe: Double?
+    let isDone: Bool
+    let isOpen: Bool
+    let action: () -> Void
 
     var body: some View {
-        Menu {
-            Picker("RPE", selection: $rpe) {
-                Text("None").tag(Double?.none)
-                ForEach(Self.scale, id: \.self) { value in
-                    Text(Self.format(value)).tag(Double?.some(value))
-                }
-            }
-        } label: {
+        Button(action: action) {
             Text(rpe.map(Self.format) ?? "-")
                 .textStyle(Tokens.Typography.number)
                 .monospacedDigit()
-                .foregroundStyle(rpe != nil && isDone ? palette.foreground : palette.foregroundFaint)
+                .foregroundStyle(isOpen ? palette.background : (rpe != nil && isDone ? palette.foreground : palette.foregroundFaint))
                 .frame(maxWidth: .infinity)
                 .frame(height: Tokens.Size.cell)
-                .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+                .background(isOpen ? palette.foreground : palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
         }
-        .accessibilityLabel("RPE")
+        .buttonStyle(.plain)
+        .accessibilityLabel("RPE \(rpe.map(Self.format) ?? "not set")")
     }
 
     static func format(_ value: Double) -> String {

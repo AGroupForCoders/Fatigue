@@ -5,15 +5,51 @@ struct WorkoutScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @State var session: WorkoutSession
+    @FocusState private var focused: FocusedCell?
 
     var body: some View {
+        NavigationStack {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) { keyboardBar }
+                }
+        }
+    }
+
+    /// The bar above the number keyboard: step the value down or up, or move to the next field.
+    @ViewBuilder private var keyboardBar: some View {
+        if let cell = focused {
+            Button { session.step(cell, up: false) } label: { Text(stepLabel(cell, up: false)) }
+                .accessibilityLabel("Decrease")
+            Button { session.step(cell, up: true) } label: { Text(stepLabel(cell, up: true)) }
+                .accessibilityLabel("Increase")
+            Spacer()
+            Button(session.cell(after: cell) == nil ? "Done" : "Next") {
+                focused = session.cell(after: cell)
+            }
+            .fontWeight(.medium)
+        }
+    }
+
+    private func stepLabel(_ cell: FocusedCell, up: Bool) -> String {
+        let sign = up ? "+" : "-"
+        switch cell {
+        case .weight: return "\(sign)2.5 kg"
+        case .amount(let id):
+            let isHold = session.exercises.flatMap(\.sets).first { $0.id == id }?.kind == .hold
+            return isHold ? "\(sign)5 s" : "\(sign)1 rep"
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             header
             Hairline()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(session.exercises.indices, id: \.self) { index in
-                        ExerciseSection(session: session, exerciseIndex: index)
+                        ExerciseSection(session: session, exerciseIndex: index, focus: $focused)
                         Hairline()
                     }
                     Button {} label: {
@@ -86,11 +122,22 @@ private struct ExerciseSection: View {
     @Environment(\.palette) private var palette
     @Bindable var session: WorkoutSession
     let exerciseIndex: Int
+    var focus: FocusState<FocusedCell?>.Binding
     @State private var editingNote = false
     @State private var noteDraft = ""
+    @State private var pickingBrand = false
+    @State private var pickingRest = false
 
-    private static let brands = ["Technogym", "Hammer Strength", "Life Fitness", "Matrix", "Cybex"]
-    private static let rests = [60, 90, 120, 150, 180]
+    /// Debug builds can open a picker on launch with `-openBrand`, `-openRest` or `-openRPE`, for screenshots.
+    private func openForScreenshots() {
+        #if DEBUG
+        guard exerciseIndex == 0 else { return }
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-openBrand") { pickingBrand = true }
+        if args.contains("-openRest") { pickingRest = true }
+        if args.contains("-openRPE") { session.openRPE = exercise.sets.last?.id }
+        #endif
+    }
 
     private var exercise: WorkoutExercise { session.exercises[exerciseIndex] }
 
@@ -113,13 +160,10 @@ private struct ExerciseSection: View {
             }
 
             HStack(spacing: Tokens.Space.s) {
-                Menu {
-                    Picker("Rest", selection: $session.exercises[exerciseIndex].restSeconds) {
-                        ForEach(Self.rests, id: \.self) { Text(WorkoutScreen.clock(TimeInterval($0))).tag($0) }
-                    }
-                } label: {
+                Button { pickingRest = true } label: {
                     OutlinedLabel(systemImage: "timer", text: WorkoutScreen.clock(TimeInterval(exercise.restSeconds)))
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Rest time")
 
                 Button {
@@ -130,14 +174,10 @@ private struct ExerciseSection: View {
                 }
                 .buttonStyle(.plain)
 
-                Menu {
-                    Picker("Brand", selection: $session.exercises[exerciseIndex].brand) {
-                        Text("No brand").tag(String?.none)
-                        ForEach(Self.brands, id: \.self) { Text($0).tag(String?.some($0)) }
-                    }
-                } label: {
+                Button { pickingBrand = true } label: {
                     OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Brand")
             }
             .padding(.top, Tokens.Space.m)
@@ -166,7 +206,7 @@ private struct ExerciseSection: View {
                     if group.heading.isEmpty || position > 0 {
                         Hairline(soft: true)
                     }
-                    SetRow(session: session, exerciseIndex: exerciseIndex, setIndex: setIndex)
+                    SetRow(session: session, exerciseIndex: exerciseIndex, setIndex: setIndex, focus: focus)
                 }
             }
 
@@ -182,6 +222,17 @@ private struct ExerciseSection: View {
         }
         .padding(.top, Tokens.Space.xxxl)
         .padding(.bottom, Tokens.Space.s)
+        .onAppear(perform: openForScreenshots)
+        .sheet(isPresented: $pickingBrand) {
+            BrandSheet(exerciseName: exercise.name, known: exercise.knownBrands, current: exercise.brand) { brand in
+                session.exercises[exerciseIndex].brand = brand
+            }
+            .environment(\.palette, palette)
+        }
+        .sheet(isPresented: $pickingRest) {
+            RestSheet(exerciseName: exercise.name, seconds: $session.exercises[exerciseIndex].restSeconds)
+                .environment(\.palette, palette)
+        }
         .alert("Note for \(exercise.name)", isPresented: $editingNote) {
             TextField("Seat height, grip, anything", text: $noteDraft)
             Button("Save") { session.exercises[exerciseIndex].note = noteDraft }
@@ -209,9 +260,24 @@ private struct SetRow: View {
     @Bindable var session: WorkoutSession
     let exerciseIndex: Int
     let setIndex: Int
+    var focus: FocusState<FocusedCell?>.Binding
 
     var body: some View {
         let set = session.exercises[exerciseIndex].sets[setIndex]
+        VStack(spacing: 0) {
+            row(set)
+            if session.openRPE == set.id {
+                RPEScale(selected: set.rpe) { value in
+                    session.exercises[exerciseIndex].sets[setIndex].rpe = value
+                    session.openRPE = nil
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: Tokens.Motion.quick), value: session.openRPE)
+    }
+
+    private func row(_ set: WorkoutSet) -> some View {
         HStack(spacing: Tokens.Space.s) {
             Text("\(setIndex + 1)")
                 .foregroundStyle(palette.foregroundFaint)
@@ -221,17 +287,22 @@ private struct SetRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            NumberCell(text: $session.exercises[exerciseIndex].sets[setIndex].weight, isDone: set.isDone, accessibilityName: "Weight in kilograms")
+            NumberCell(text: $session.exercises[exerciseIndex].sets[setIndex].weight, isDone: set.isDone, accessibilityName: "Weight in kilograms", focus: focus, cell: .weight(set.id))
                 .frame(width: Tokens.Size.weightColumn)
             NumberCell(
                 text: $session.exercises[exerciseIndex].sets[setIndex].amount,
                 suffix: set.kind == .hold ? "s" : "",
                 isDone: set.isDone,
-                accessibilityName: set.kind == .hold ? "Seconds" : "Reps"
+                accessibilityName: set.kind == .hold ? "Seconds" : "Reps",
+                focus: focus,
+                cell: .amount(set.id)
             )
             .frame(width: Tokens.Size.amountColumn)
-            RPECell(rpe: $session.exercises[exerciseIndex].sets[setIndex].rpe, isDone: set.isDone)
-                .frame(width: Tokens.Size.rpeColumn)
+            RPECell(rpe: set.rpe, isDone: set.isDone, isOpen: session.openRPE == set.id) {
+                focus.wrappedValue = nil
+                session.openRPE = session.openRPE == set.id ? nil : set.id
+            }
+            .frame(width: Tokens.Size.rpeColumn)
             TickBox(isDone: set.isDone) { session.toggle(set: setIndex, in: exerciseIndex) }
         }
         .textStyle(Tokens.Typography.control)
