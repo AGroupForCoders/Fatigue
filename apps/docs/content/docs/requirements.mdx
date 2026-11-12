@@ -12,8 +12,8 @@ This is the screen people spend their time on, so it gets the most detail.
 - A workout is one scrolling list of exercises. There is no separate "up next" panel.
 - You can start a workout empty or from a routine, and add exercises at any point.
 - You can reorder exercises by holding an exercise name and dragging it.
-- Each exercise has three controls under its name. They are the rest time, a note and the machine variant.
-- By default each set records weight and reps. [What a set records](#what-a-set-records) covers timed holds and your own fields.
+- Each exercise has three controls under its name. They are the rest time, a note and the machine.
+- By default each set records weight and reps. [What a set records](#what-a-set-records) covers holds, unloaded sets and fields.
 - RPE is optional on any set and runs from 6 to 10 in half steps.
 - Each set shows what you did last time on the same machine, so you can see what to beat without leaving the screen.
 - Ticking a set as done starts the rest timer for that exercise. You can add or remove 15 seconds, or skip it.
@@ -25,38 +25,49 @@ This is the screen people spend their time on, so it gets the most detail.
 - If a search finds nothing, the first result offers to create an exercise with the text you typed.
 - A custom exercise needs a name, a primary muscle and an equipment type. Secondary muscles are optional.
 - There is no limit on custom exercises. They are private to your account.
-- Custom exercises behave exactly like built-in ones. They get variants, history and records.
+- Custom exercises behave exactly like built-in ones. They get machines, fields, history and records.
 
-## Machine variants
+## Machines
 
-A variant is a specific machine for an exercise. "Lat Pulldown" is the exercise. "Hammer Strength" and "Technogym" are variants of it.
+A machine is the specific piece of equipment you do an exercise on. "Lat Pulldown" is the exercise. "Hammer Strength" and "Technogym" are machines you can do it on.
 
-- A variant has a brand and an optional free-text label, for example the model or which gym it is in.
+- A machine has a brand and an optional free-text label, for example the model or which gym it is in.
 - Brands come from a built-in list, and you can type your own.
-- A variant is optional. Barbell and dumbbell exercises work without one.
-- When you add an exercise to a workout, it defaults to the variant you used last time.
-- History and records are kept per variant. The exercise page can also show all variants together.
+- A machine is optional. Barbell and dumbbell exercises are done on "no machine", which works like any other machine for fields, history and records.
+- When you add an exercise to a workout, it defaults to the machine you used last time.
+- History and records are kept per machine. The exercise page can also show all machines together.
 
 ## What a set records
 
-Not every set is weight and reps. We want to progress on range of motion and on timed holds as well, so what a set records has to be flexible.
+Not every set is weight and reps. We want to progress on range of motion and on time as well, so what a set records has to be flexible.
 
-Take an adductor machine. One set might be a timed hold at notch 8 for 50 seconds. The next might be 55 kg for 8 reps to a dead stop at notch 7. Both belong to the same exercise in the same workout.
+Take an adductor machine. One set might be a hold at notch 5 for 30 seconds with no weight. The next might be 50 kg for 5 reps at notch 4. Both belong to the same exercise in the same workout.
 
-- Each set is either a rep set or a timed hold. A rep set records weight and reps. A timed hold records weight and a duration.
-- One exercise can mix rep sets and timed holds in the same workout.
-- You can add your own fields to an exercise. A field is either a number, such as "Notch", or a yes or no, such as "Dead stop".
-- Your own fields are logged on every set and filled in from last time. A seat setting that never changes costs nothing to keep, and one you are working on shows up in your history.
-- Fields belong to a machine variant, because notch 7 on one machine means nothing on another.
-- When you create a number field you say whether a higher or a lower number counts as a record, or that it should not be tracked. The app then detects records on it the same way it does for weight.
-- A field can have its own progress for each value. With this on for "Notch", notch 7 and notch 8 each get their own records and their own line on the graph, because the same weight at a deeper notch is a different lift. It is off unless you turn it on, so a seat height that never changes does not split your history.
-- We do not combine fields into one score. Nothing honest says how many kilograms a deeper notch is worth, so the app keeps the numbers apart and lets you compare them.
-- Records for timed holds are kept apart from records for rep sets.
+- Each set is either a rep set or a hold. A rep set records reps. A hold records a duration.
+- Weight is optional on both. A set with no weight is unloaded, which is not the same as 0 kg and never counts toward a weight record.
+- One exercise can mix rep sets and holds in the same workout.
+- A new exercise has no fields. You add them as you go. A field is either a number, such as "Notch", or a yes or no, such as "Dead stop".
+- Fields are logged on every set and filled in from last time. A seat setting that never changes costs nothing to keep, and one you are working on shows up in your history.
+- Fields belong to the exercise on one machine. Notch 7 on the Technogym adductor means nothing on the Hammer Strength one, so they do not carry over.
+- A number field can be tracked. You say whether a higher or a lower number is better and give its lowest and highest value, such as notch 1 to 10. The app then detects records on it the same way it does for weight and gives it a line on the graph. Range of motion is almost always a tracked field.
+- A field can have its own progress for each value. With this on for "Notch", notch 7 and notch 8 each get their own records and their own line on the graph. It is off unless you turn it on, so a seat height that never changes does not split your history.
 - The free-text note stays for anything that does not fit a field.
+
+## Score
+
+Every set gets a score, so one number shows whether you beat last time even when the progress was a deeper notch rather than more weight. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) records why.
+
+- The load is weight times reps for a rep set and weight times seconds for a hold. An unloaded set counts its weight as 1.
+- Each tracked field multiplies the load by a factor from 1.0 at the worst end of its range to 2.0 at the best end. Yes or no fields and untracked numbers are left out.
+- For example, on a notch 1 to 10 field where lower is better, 50 kg for 5 reps scores 389 at notch 5 and 417 at notch 4.
+- Scores are only compared between sets of the same shape on the same machine. The shape is whether it is a rep set or a hold, whether it is loaded, and which tracked fields it has. A hold is never ranked against a rep set.
+- Adding a tracked field to an exercise you already have history for starts a new shape. Old sets keep their records and are not compared with the new ones.
+- Scores are worked out from the logged values whenever they are shown. Fixing a field's range or direction recalculates every past score.
+- The raw values and their own records are always shown next to the score.
 
 ## Routines
 
-- A routine is a named, ordered list of exercises, each with its variant, rest time and planned sets.
+- A routine is a named, ordered list of exercises, each with its machine, rest time and planned sets.
 - You can create, edit and delete routines.
 - Starting a workout from a routine copies it, so changes during the workout do not alter the routine.
 
@@ -65,7 +76,7 @@ Take an adductor machine. One set might be a timed hold at notch 8 for 50 second
 - You can see a list of past workouts and open any of them.
 - Each exercise has a page with its best set, an estimated one-rep max, a progression line and recent sessions.
 - The page can be narrowed to one machine, and then to one value of a field that has its own progress, such as notch 7.
-- The progression line plots one thing at a time. That can be top set weight, estimated one-rep max, hold time or a number field such as notch.
+- The progression line plots one thing at a time. That can be top set weight, estimated one-rep max, hold time, score or a tracked field such as notch.
 - Records are detected when a workout is saved and marked on the session where they happened.
 
 ## Account and sync
@@ -80,7 +91,7 @@ Take an adductor machine. One set might be a timed hold at notch 8 for 50 second
 
 - You can import a Hevy CSV export.
 - Imported exercises are matched to the built-in list by name. Anything unmatched becomes a custom exercise.
-- Imported workouts have no machine variant, because Hevy does not record one.
+- Imported workouts are on "no machine", because Hevy does not record one.
 
 ## How it should feel
 
