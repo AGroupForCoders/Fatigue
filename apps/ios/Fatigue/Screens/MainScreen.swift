@@ -3,24 +3,41 @@ import SwiftUI
 /// The signed-in app: a tab for each area, the bottom nav, and the running workout's bar above it.
 struct MainScreen: View {
     enum Tab: CaseIterable {
-        case workout, profile
+        case workout, stats, profile
 
-        var title: String { self == .workout ? "Workout" : "Profile" }
-        var icon: String { self == .workout ? "dumbbell" : "person" }
+        var title: String {
+            switch self {
+            case .workout: "Workout"
+            case .stats: "Stats"
+            case .profile: "Profile"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .workout: "dumbbell"
+            case .stats: "chart.bar"
+            case .profile: "person"
+            }
+        }
     }
 
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkoutStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
-    /// Launch with `-openProfile` to start on the Profile tab, for screenshots.
-    @State private var tab: Tab = ProcessInfo.processInfo.arguments.contains("-openProfile") ? .profile : .workout
+    /// Launch with `-openProfile` or `-openStats` to start on that tab, for screenshots.
+    @State private var tab: Tab = {
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("-openProfile") ? .profile : args.contains("-openStats") ? .stats : .workout
+    }()
 
     var body: some View {
         @Bindable var store = store
         ZStack {
-            // Both tabs stay alive, so switching keeps each one's scroll position.
+            // Every tab stays alive, so switching keeps each one's scroll position.
             WorkoutsScreen().opacity(tab == .workout ? 1 : 0).allowsHitTesting(tab == .workout)
+            StatsScreen().opacity(tab == .stats ? 1 : 0).allowsHitTesting(tab == .stats)
             ProfileScreen().opacity(tab == .profile ? 1 : 0).allowsHitTesting(tab == .profile)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
