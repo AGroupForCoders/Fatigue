@@ -5,20 +5,21 @@ description: Tokens that let us change the look in one place.
 
 The look of the app is going to change while we build it. We want a change of accent colour or corner radius to be an edit to one file, not a search through every screen.
 
-This page is a plan. No tokens exist in the repository yet, and the visual design itself is not final.
+The tokens live in `packages/tokens/tokens.json`. The visual design itself is not final.
 
 ## Tokens
 
 A token is a named design value. Screens and components use the name and never the raw value.
 
-Tokens are named by what they are for, not by what they look like. A screen asks for `color.text.muted`, not `grey500`. If muted text later becomes a warmer grey, the name still makes sense and no screen has to change.
+Tokens are named by what they are for, not by what they look like. A screen asks for `colors.textMuted`, not `grey500`. If muted text later becomes a warmer grey, the name still makes sense and no screen has to change.
 
 | Group | Examples |
 | --- | --- |
-| Colour | `color.background`, `color.surface`, `color.border`, `color.text`, `color.text.muted`, `color.accent` |
-| Type | `type.title`, `type.body`, `type.caption`, `type.number.large` |
-| Spacing | `space.1` up to `space.6` |
+| Colour | `colors.background`, `colors.surface`, `colors.border`, `colors.text`, `colors.textMuted`, `colors.accent` |
+| Type | `typography.title`, `typography.heading`, `typography.body`, `typography.button`, `typography.caption`, `typography.numberLarge` |
+| Spacing | `space.xs`, `space.s`, `space.m`, `space.l`, `space.xl`, `space.xxl` |
 | Radius | `radius.control`, `radius.panel` |
+| Size | `size.control` |
 | Motion | `motion.quick`, `motion.standard` |
 
 ## One source for every app
@@ -31,7 +32,7 @@ The tokens live in one file, `packages/tokens/tokens.json`. A build step turns t
 | Android | Kotlin constants |
 | Website and docs | CSS variables |
 
-Only the iOS output is needed to start. The others get added when those apps begin. We have not picked the tool that does the generating.
+Only the iOS output is needed to start. The others get added when those apps begin. `pnpm tokens:build` runs `packages/tokens/build.mjs` to write the output, and `pnpm tokens:check` fails if a generated file is out of date.
 
 ## Components sit on top of tokens
 
@@ -55,14 +56,15 @@ These are the values in the current mock-ups. They are here so the first build h
 
 | Token | Value |
 | --- | --- |
-| `color.background` | `#0A0A0A` |
-| `color.surface` | `#151515` |
-| `color.border` | `#262626` |
-| `color.text` | `#F2F1EE` |
-| `color.text.muted` | `#8E8E8A` |
-| `color.accent` | `#C8B698` |
+| `colors.background` | `#0A0A0A` |
+| `colors.surface` | `#151515` |
+| `colors.border` | `#262626` |
+| `colors.text` | `#F2F1EE` |
+| `colors.textMuted` | `#8E8E8A` |
+| `colors.accent` | `#C8B698` |
 | `radius.control` | 8 |
 | `radius.panel` | 12 |
-| `space.1` to `space.6` | 4, 8, 12, 16, 20, 24 |
+| `space.xs` to `space.xxl` | 4, 8, 12, 16, 20, 24 |
+| `size.control` | 52 |
 
 The app uses one typeface in light, regular and medium weights. Which typeface is still open. The choice is between the iOS system font and one we bundle with the app.

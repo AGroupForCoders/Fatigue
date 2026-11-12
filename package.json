@@ -5,6 +5,8 @@
   "scripts": {
     "docs:dev": "pnpm --filter docs dev",
     "docs:build": "pnpm --filter docs build",
-    "docs:types": "pnpm --filter docs types:check"
+    "docs:types": "pnpm --filter docs types:check",
+    "tokens:build": "pnpm --filter @fatigue/tokens build",
+    "tokens:check": "pnpm --filter @fatigue/tokens check"
   }
 }
