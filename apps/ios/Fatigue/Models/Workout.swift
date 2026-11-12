@@ -103,9 +103,6 @@ struct WorkoutExercise: Identifiable {
     /// Settings like seat height or notch, in the order they show under the name and in headings.
     var settings: [ExerciseSetting] = []
     var sets: [WorkoutSet]
-    /// Brands you have used for this exercise before, with your last set on each.
-    /// Sample data for the spike. The real app reads this from history.
-    var knownBrands: [KnownBrand] = []
 }
 
 /// A brand you have used for an exercise, for the brand picker.
@@ -115,6 +112,24 @@ struct KnownBrand: Identifiable, Equatable {
     let lastSet: String
     let when: String
     var id: String { name ?? "" }
+
+    /// The brands you've used for an exercise, newest first, each with your last set on it.
+    /// Brands with saved settings but no sets yet come after, with no last set.
+    static func list(for exercise: String, history: [FinishedWorkout], saved: [String], now: Date = .now) -> [KnownBrand] {
+        var brands: [KnownBrand] = []
+        for workout in history.sorted(by: { $0.startedAt > $1.startedAt }) {
+            for done in workout.exercises where done.name == exercise && !brands.contains(where: { $0.name == done.brand }) {
+                guard let last = done.sets.last(where: \.isDone) else { continue }
+                let lastSet = "\(last.weight.isEmpty ? "-" : last.weight) × \(last.amount)\(last.kind == .hold ? "s" : "")"
+                let when = workout.startedAt.formatted(.relative(presentation: .named, unitsStyle: .wide))
+                brands.append(KnownBrand(name: done.brand, lastSet: lastSet, when: when))
+            }
+        }
+        for name in saved.sorted() where !brands.contains(where: { $0.name == name }) {
+            brands.append(KnownBrand(name: name, lastSet: "", when: ""))
+        }
+        return brands
+    }
 }
 
 /// Which text field has the keyboard.
@@ -364,11 +379,6 @@ extension WorkoutSession {
                         WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "50", rpe: 8, previous: "40 × 45s @8", isDone: true),
                         WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: "55 × 8 @8.5", isDone: true),
                         WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", previous: "55 × 7 @9"),
-                    ],
-                    knownBrands: [
-                        KnownBrand(name: "Technogym", lastSet: "55 × 8", when: "3 days ago"),
-                        KnownBrand(name: "Hammer Strength", lastSet: "50 × 10", when: "2 weeks ago"),
-                        KnownBrand(name: nil, lastSet: "45 × 12", when: "2 months ago"),
                     ]
                 ),
                 WorkoutExercise(

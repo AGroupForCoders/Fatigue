@@ -1,16 +1,19 @@
 import SwiftUI
 
 /// A sheet for picking exercises from the library: search, tick as many as you like, add them in one go.
-/// Ticked exercises are added in the order you ticked them. Create exercise makes a custom one and ticks it.
+/// Ticked exercises are added in the order you ticked them. Create exercise makes a custom one and ticks it,
+/// on the brand picked while creating it.
 struct ExercisePicker: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(ExerciseCatalog.self) private var catalog
-    let onAdd: ([String]) -> Void
+    /// The picked names, and the brand picked for any created here.
+    let onAdd: ([String], [String: String]) -> Void
 
     @State private var search = ""
     @State private var picked: [String] = []
     @State private var creating = false
+    @State private var createdBrands: [String: String] = [:]
 
     private var results: [String] {
         let query = search.trimmingCharacters(in: .whitespaces)
@@ -88,7 +91,7 @@ struct ExercisePicker: View {
             .scrollDismissesKeyboard(.interactively)
 
             PrimaryButton(title: picked.isEmpty ? "Pick exercises" : "Add \(picked.count) exercise\(picked.count == 1 ? "" : "s")") {
-                onAdd(picked)
+                onAdd(picked, createdBrands.filter { picked.contains($0.key) })
                 dismiss()
             }
             .opacity(picked.isEmpty ? 0.4 : 1)
@@ -103,7 +106,9 @@ struct ExercisePicker: View {
         .sensoryFeedback(.selection, trigger: picked)
         .sheet(isPresented: $creating) {
             ExerciseEditor(newNamed: search.trimmingCharacters(in: .whitespaces), existingNames: catalog.names) { edit in
-                catalog.save(edit.info, brand: nil, setup: edit.setup)
+                catalog.save(edit.info, brand: edit.brand, setup: edit.setup)
+                catalog.save(edit.otherSetups, for: edit.info.name)
+                if let brand = edit.brand { createdBrands[edit.info.name] = brand }
                 picked.append(edit.info.name)
                 search = ""
             }

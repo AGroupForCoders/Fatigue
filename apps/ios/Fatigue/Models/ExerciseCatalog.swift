@@ -69,6 +69,14 @@ final class ExerciseCatalog {
         exercises.first { $0.name == name }
     }
 
+    /// The brands with settings saved for an exercise.
+    func brands(for name: String) -> [String] {
+        setups.keys.compactMap { key in
+            let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            return parts.count == 2 && parts[0] == name && !parts[1].isEmpty ? String(parts[1]) : nil
+        }
+    }
+
     func setup(for name: String, brand: String?) -> BrandSetup {
         setups[Self.key(name, brand)] ?? BrandSetup()
     }
@@ -90,6 +98,13 @@ final class ExerciseCatalog {
             }
         }
         setups[Self.key(info.name, brand)] = setup
+        persist()
+    }
+
+    /// Saves settings for other brands of an exercise, edited alongside the one being used.
+    func save(_ setups: [String: BrandSetup], for name: String) {
+        guard !setups.isEmpty else { return }
+        for (brand, setup) in setups { self.setups[Self.key(name, brand.isEmpty ? nil : brand)] = setup }
         persist()
     }
 

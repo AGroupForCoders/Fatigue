@@ -3,24 +3,35 @@ import SwiftUI
 /// What the exercise editor hands back when you save.
 struct ExerciseEdit {
     var info: ExerciseInfo
+    /// The brand picked at the top, and its settings.
+    var brand: String?
     var setup: BrandSetup
     /// Old setting name to new, for settings renamed in this edit, so group overrides follow the rename.
     var renamedSettings: [String: String]
+    /// Settings edited on other brands before switching away from them, keyed by brand ("" for no brand).
+    var otherSetups: [String: BrandSetup] = [:]
 }
 
 /// Creates a custom exercise, or edits one: name, equipment and muscles, then the settings saved
-/// for the brand it's on. Each setting has a value for the whole exercise, and a number setting
+/// for the brand picked under the name. Switching brand switches which settings you're editing. Each setting has a value for the whole exercise, and a number setting
 /// can count towards the score with a direction and a range.
 struct ExerciseEditor: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
-    let brand: String?
     let isNew: Bool
     let existingNames: [String]
+    /// Brands you've used for this exercise, for the brand picker.
+    let knownBrands: [KnownBrand]
+    /// The settings saved for a brand, loaded when you switch to it.
+    let savedSetup: (String?) -> BrandSetup
     let onSave: (ExerciseEdit) -> Void
 
     @State private var info: ExerciseInfo
+    @State private var brand: String?
     @State private var settings: [EditableSetting]
+    /// Settings edited on brands you've switched away from, keyed by brand ("" for no brand).
+    @State private var drafts: [String: [EditableSetting]] = [:]
+    @State private var pickingBrand = false
     @State private var editingSetting: EditableSetting?
     @FocusState private var editingName: Bool
 
@@ -33,20 +44,27 @@ struct ExerciseEditor: View {
 
     /// For a new custom exercise. `name` prefills from what you searched for.
     init(newNamed name: String, existingNames: [String], onSave: @escaping (ExerciseEdit) -> Void) {
-        brand = nil
         isNew = true
         self.existingNames = existingNames
+        knownBrands = []
+        savedSetup = { _ in BrandSetup() }
         self.onSave = onSave
+        _brand = State(initialValue: nil)
         _info = State(initialValue: ExerciseInfo(name: name, equipment: .machine, primaryMuscle: .chest, isCustom: true))
         _settings = State(initialValue: [])
     }
 
     /// For an exercise you already have, on the brand it's being done on.
-    init(editing info: ExerciseInfo, brand: String?, setup: BrandSetup, existingNames: [String], onSave: @escaping (ExerciseEdit) -> Void) {
-        self.brand = brand
+    init(
+        editing info: ExerciseInfo, brand: String?, setup: BrandSetup, existingNames: [String],
+        knownBrands: [KnownBrand], savedSetup: @escaping (String?) -> BrandSetup, onSave: @escaping (ExerciseEdit) -> Void
+    ) {
         isNew = false
         self.existingNames = existingNames.filter { $0 != info.name }
+        self.knownBrands = knownBrands
+        self.savedSetup = savedSetup
         self.onSave = onSave
+        _brand = State(initialValue: brand)
         _info = State(initialValue: info)
         _settings = State(initialValue: setup.settings.map { EditableSetting(setting: $0, originalName: $0.name) })
     }
@@ -85,7 +103,12 @@ struct ExerciseEditor: View {
                     let renamed = Dictionary(uniqueKeysWithValues: settings.compactMap { editable in
                         editable.originalName.flatMap { $0 != editable.setting.name ? ($0, editable.setting.name) : nil }
                     })
-                    onSave(ExerciseEdit(info: saved, setup: BrandSetup(settings: settings.map(\.setting)), renamedSettings: renamed))
+                    var others = drafts.mapValues { BrandSetup(settings: $0.map(\.setting)) }
+                    others[brand ?? ""] = nil
+                    onSave(ExerciseEdit(
+                        info: saved, brand: brand, setup: BrandSetup(settings: settings.map(\.setting)),
+                        renamedSettings: renamed, otherSetups: others
+                    ))
                     dismiss()
                 }
                 .opacity(problem == nil ? 1 : 0.4)
@@ -99,6 +122,12 @@ struct ExerciseEditor: View {
         .presentationDetents([.large])
         .presentationBackground(palette.background)
         .onAppear { if isNew { editingName = true } }
+        .sheet(isPresented: $pickingBrand) {
+            BrandSheet(exerciseName: trimmedName.isEmpty ? "New exercise" : trimmedName, known: knownBrands, current: brand) { picked in
+                switchBrand(to: picked)
+            }
+            .environment(\.palette, palette)
+        }
         .sheet(item: $editingSetting) { editing in
             SettingEditor(
                 setting: editing.setting,
@@ -117,6 +146,27 @@ struct ExerciseEditor: View {
             )
             .environment(\.palette, palette)
         }
+    }
+
+    /// Keeps what you've edited on the current brand, then shows the settings for the picked one:
+    /// edited earlier in this sheet if you've been there, otherwise as saved.
+    private func switchBrand(to picked: String?) {
+        guard picked != brand else { return }
+        drafts[brand ?? ""] = settings
+        withAnimation(.standard) {
+            settings = drafts[picked ?? ""] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
+            brand = picked
+        }
+    }
+
+    /// The brand under the name. Tapping it picks another, or adds one.
+    private var brandButton: some View {
+        Button { pickingBrand = true } label: {
+            OutlinedLabel(text: brand ?? "No brand", showsChevron: true, isMuted: brand == nil)
+        }
+        .buttonStyle(.press)
+        .accessibilityLabel("Brand, \(brand ?? "no brand")")
+        .padding(.top, Tokens.Space.m)
     }
 
     private var header: some View {
@@ -143,6 +193,7 @@ struct ExerciseEditor: View {
                 LineField(label: "Name", text: $info.name, kind: .name, isFocused: editingName)
                     .focused($editingName)
                     .submitLabel(.done)
+                brandButton
             } else {
                 VStack(alignment: .leading, spacing: Tokens.Space.s) {
                     Text(info.name)
@@ -151,6 +202,7 @@ struct ExerciseEditor: View {
                     Text("Built in, so the name stays the same for everyone.")
                         .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
+                    brandButton
                 }
             }
 
@@ -198,11 +250,11 @@ struct ExerciseEditor: View {
         .onChange(of: info.primaryMuscle) { _, primary in info.secondaryMuscles.removeAll { $0 == primary } }
     }
 
-    /// The settings saved for this exercise on this brand.
+    /// The settings saved for this exercise on the brand picked at the top.
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                Text(brand.map { "Settings on \($0)" } ?? "Settings with no brand")
+                Text("Settings")
                     .textStyle(Tokens.Typography.exerciseName)
                     .foregroundStyle(palette.foreground)
                 Text("Like seat height or notch. Kept per brand, since every machine is set up differently. A group of sets can change a value from its heading.")

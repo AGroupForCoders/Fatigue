@@ -62,7 +62,7 @@ struct WorkoutScreen: View {
                 let records = RecordBook.marks(for: session.exercises, after: history.filter { $0.startedAt < session.startedAt })
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(session.exercises) { exercise in
-                        ExerciseSection(session: session, exerciseID: exercise.id, records: records, focus: $focused, onReorder: { reordering = true })
+                        ExerciseSection(session: session, exerciseID: exercise.id, records: records, history: history, focus: $focused, onReorder: { reordering = true })
                         Hairline()
                     }
                     if session.exercises.isEmpty {
@@ -136,8 +136,8 @@ struct WorkoutScreen: View {
                 .environment(\.palette, palette)
         }
         .sheet(isPresented: $addingExercises) {
-            ExercisePicker { names in
-                withAnimation(.standard) { session.addExercises(named: names, catalog: catalog) }
+            ExercisePicker { names, brands in
+                withAnimation(.standard) { session.addExercises(named: names, brands: brands, catalog: catalog) }
             }
             .environment(\.palette, palette)
         }
@@ -256,6 +256,8 @@ private struct ExerciseSection: View {
     let exerciseID: UUID
     /// The records each ticked set sets, keyed by set id.
     let records: [UUID: Set<RecordKind>]
+    /// Finished workouts, for the brands you've used on this exercise.
+    let history: [FinishedWorkout]
     var focus: FocusState<FocusedCell?>.Binding
     var onReorder: () -> Void = {}
 
@@ -282,6 +284,10 @@ private struct ExerciseSection: View {
     }
 
     private var exercise: WorkoutExercise { session.exercises[exerciseIndex] }
+
+    private var knownBrands: [KnownBrand] {
+        KnownBrand.list(for: exercise.name, history: history, saved: catalog.brands(for: exercise.name))
+    }
 
     var body: some View {
         // Draws nothing for an exercise that was just removed and is animating out.
@@ -394,7 +400,7 @@ private struct ExerciseSection: View {
         .padding(.bottom, Tokens.Space.s)
         .onAppear(perform: openForScreenshots)
         .sheet(isPresented: $pickingBrand) {
-            BrandSheet(exerciseName: exercise.name, known: exercise.knownBrands, current: exercise.brand) { brand in
+            BrandSheet(exerciseName: exercise.name, known: knownBrands, current: exercise.brand) { brand in
                 withAnimation(.standard) { session.changeBrand(of: exerciseIndex, to: brand, catalog: catalog) }
             }
             .environment(\.palette, palette)
@@ -418,11 +424,17 @@ private struct ExerciseSection: View {
                 editing: catalog.info(named: exercise.name) ?? ExerciseInfo(name: exercise.name, equipment: .other, primaryMuscle: .chest, isCustom: true),
                 brand: exercise.brand,
                 setup: BrandSetup(settings: exercise.settings),
-                existingNames: catalog.names
+                existingNames: catalog.names,
+                knownBrands: knownBrands,
+                savedSetup: { [name = exercise.name] brand in catalog.setup(for: name, brand: brand) }
             ) { edit in
-                catalog.save(edit.info, renamedFrom: exercise.name, brand: exercise.brand, setup: edit.setup)
+                let oldBrand = exercise.brand
+                catalog.save(edit.info, renamedFrom: exercise.name, brand: edit.brand, setup: edit.setup)
+                catalog.save(edit.otherSetups, for: edit.info.name)
                 withAnimation(.standard) {
                     session.applyEdit(to: exerciseIndex, name: edit.info.name, settings: edit.setup.settings, renamedSettings: edit.renamedSettings)
+                    // Picking another brand in the editor moves this exercise onto it.
+                    if edit.brand != oldBrand { session.changeBrand(of: exerciseIndex, to: edit.brand, catalog: catalog) }
                 }
             }
             .environment(\.palette, palette)
