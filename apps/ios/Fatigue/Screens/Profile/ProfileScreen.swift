@@ -4,7 +4,6 @@ import SwiftUI
 struct ProfileScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.theme) private var theme
-    @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
     @AppStorage("weightUnit") private var weightUnit = "kg"
     @State private var name = ""
@@ -31,13 +30,6 @@ struct ProfileScreen: View {
                             .foregroundStyle(palette.foregroundMuted)
                     }
                     Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(palette.foreground)
-                            .frame(width: Tokens.Size.control, height: Tokens.Size.control)
-                    }
-                    .buttonStyle(.press)
-                    .accessibilityLabel("Close")
                 }
                 .padding(.bottom, Tokens.Space.xxxl)
 
@@ -98,12 +90,11 @@ struct ProfileScreen: View {
                 Hairline()
             }
             .padding(.horizontal, Tokens.Space.xxl)
-            .padding(.top, Tokens.Space.xxl)
+            .padding(.top, Tokens.Space.l)
             .padding(.bottom, Tokens.Space.xxxl)
         }
         .scrollDismissesKeyboard(.interactively)
         .background(palette.background)
-        .overlay { GrainOverlay() }
         .onAppear { name = account.name }
         .onChange(of: editingName) { _, editing in if !editing { saveName() } }
         .sheet(isPresented: $deleting) {

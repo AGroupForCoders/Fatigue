@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct FatigueApp: App {
     @State private var auth = AuthStore()
+    @State private var workouts = WorkoutStore()
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -14,6 +15,7 @@ struct FatigueApp: App {
                 RootView()
             }
             .environment(auth)
+            .environment(workouts)
         }
     }
 }
@@ -32,7 +34,7 @@ struct RootView: View {
             case .signedOut:
                 SignInScreen().transition(.opacity)
             case .signedIn:
-                HomeScreen().transition(.opacity)
+                MainScreen().transition(.opacity)
             }
         }
         .animation(.standard, value: auth.state)

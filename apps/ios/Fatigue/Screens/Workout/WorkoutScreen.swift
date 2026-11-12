@@ -3,10 +3,13 @@ import SwiftUI
 /// The screen you log a workout on: one scrolling list of exercises, with a rest bar at the bottom.
 struct WorkoutScreen: View {
     @Environment(\.palette) private var palette
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var session: WorkoutSession
+    /// Hides the screen and leaves the workout running in the bar above the bottom nav.
+    var onMinimise: () -> Void = {}
+    var onFinish: () -> Void = {}
     @FocusState private var focused: FocusedCell?
+    @State private var addingExercises = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -34,7 +37,13 @@ struct WorkoutScreen: View {
                         ExerciseSection(session: session, exerciseIndex: index, focus: $focused)
                         Hairline()
                     }
-                    Button {} label: {
+                    if session.exercises.isEmpty {
+                        Text("No exercises yet. Add the first one to get going.")
+                            .textStyle(Tokens.Typography.body)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .padding(.vertical, Tokens.Space.xxxl)
+                    }
+                    Button { addingExercises = true } label: {
                         HStack {
                             Text("Add exercise")
                             Spacer()
@@ -63,6 +72,12 @@ struct WorkoutScreen: View {
             if !Task.isCancelled { restFinished = session.finishRestIfDue() }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: restFinished) { _, finished in finished }
+        .sheet(isPresented: $addingExercises) {
+            ExercisePicker { names in
+                withAnimation(.standard) { session.addExercises(named: names) }
+            }
+            .environment(\.palette, palette)
+        }
     }
 
     @State private var restFinished = false
@@ -100,6 +115,14 @@ struct WorkoutScreen: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: Tokens.Space.s) {
+                Button(action: onMinimise) {
+                    Image(systemName: "chevron.down")
+                        .foregroundStyle(palette.foregroundMuted)
+                        .frame(width: Tokens.Size.control, height: Tokens.Size.control, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.press)
+                .accessibilityLabel("Minimise workout")
                 Text(session.title)
                     .textStyle(Tokens.Typography.title)
                     .foregroundStyle(palette.foreground)
@@ -117,7 +140,7 @@ struct WorkoutScreen: View {
                 }
             }
             Spacer()
-            PrimaryButton(title: "Finish", compact: true) { dismiss() }
+            PrimaryButton(title: "Finish", compact: true, action: onFinish)
         }
         .padding(.horizontal, Tokens.Space.xxl)
         .padding(.top, Tokens.Space.l)
