@@ -145,6 +145,18 @@ extension WorkoutExercise {
         }
     }
 
+    /// The settings as one line for under the exercise name, such as "Seat 4 · Notch 7 · Dead stop".
+    /// A yes/no setting that's off reads "No dead stop". A setting with no value yet shows just its name.
+    var settingsSummary: String {
+        settings.filter { !$0.name.isEmpty }.map { setting in
+            switch setting.kind {
+            case .yesNo: setting.value == "yes" ? setting.name : "No \(setting.name.lowercased())"
+            case .number, .text: setting.value.isEmpty ? setting.name : "\(setting.name) \(setting.value)"
+            }
+        }
+        .joined(separator: " · ")
+    }
+
     /// The value a setting has for a set: the group's override, or the exercise's value.
     func value(of setting: ExerciseSetting, in setup: SetSetup) -> Double? {
         setup.values[setting.name] ?? setting.numberValue
