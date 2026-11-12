@@ -2,11 +2,15 @@ import SwiftUI
 
 @main
 struct FatigueApp: App {
+    init() {
+        FontRegistry.registerBundledFonts()
+    }
+
     var body: some Scene {
         WindowGroup {
-            HomeScreen()
-                .preferredColorScheme(.dark)
-                .tint(Tokens.Colors.accent)
+            ThemeProvider {
+                HomeScreen()
+            }
         }
     }
 }
