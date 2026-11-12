@@ -216,6 +216,8 @@ extension WorkoutExercise {
 struct RestTimer: Equatable {
     var endsAt: Date
     var total: TimeInterval
+    /// The exercise you're resting from, for the notification when rest ends.
+    var exerciseName = ""
 }
 
 /// The workout that is running. Holds everything the workout screen shows and changes.
@@ -252,7 +254,7 @@ final class WorkoutSession {
         exercises[exerciseIndex].sets[setIndex].isDone.toggle()
         if startsRestWhenTicked, exercises[exerciseIndex].sets[setIndex].isDone {
             let seconds = TimeInterval(exercises[exerciseIndex].restSeconds)
-            rest = RestTimer(endsAt: now().addingTimeInterval(seconds), total: seconds)
+            rest = RestTimer(endsAt: now().addingTimeInterval(seconds), total: seconds, exerciseName: exercises[exerciseIndex].name)
         }
     }
 
