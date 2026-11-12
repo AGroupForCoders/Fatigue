@@ -4,14 +4,17 @@ import Foundation
 struct FinishedWorkout: Identifiable {
     let id: UUID
     var title: String
+    /// What you want to remember about it, such as "Deload week, knee felt fine".
+    var description: String
     var startedAt: Date
     var duration: TimeInterval
     /// The exercises with the sets you ticked, in the order you did them.
     var exercises: [WorkoutExercise]
 
-    init(id: UUID = UUID(), title: String, startedAt: Date, duration: TimeInterval, exercises: [WorkoutExercise]) {
+    init(id: UUID = UUID(), title: String, description: String = "", startedAt: Date, duration: TimeInterval, exercises: [WorkoutExercise]) {
         self.id = id
         self.title = title
+        self.description = description
         self.startedAt = startedAt
         self.duration = duration
         self.exercises = exercises
@@ -37,7 +40,7 @@ struct FinishedWorkout: Identifiable {
     /// This workout with the edits from the workout screen. Sets you unticked while editing are dropped.
     func updated(from session: WorkoutSession) -> FinishedWorkout {
         var copy = session.finished(at: startedAt.addingTimeInterval(duration))
-        copy = FinishedWorkout(id: id, title: copy.title, startedAt: startedAt, duration: duration, exercises: copy.exercises)
+        copy = FinishedWorkout(id: id, title: copy.title, description: description, startedAt: startedAt, duration: duration, exercises: copy.exercises)
         return copy
     }
 
@@ -55,7 +58,33 @@ struct FinishedWorkout: Identifiable {
     }
 }
 
+/// What to do with sets you didn't tick when you finish.
+enum UntickedSets {
+    /// Leave them out of the saved workout.
+    case drop
+    /// Save them as done, as if you'd ticked them.
+    case count
+}
+
 extension WorkoutSession {
+    /// Sets that aren't ticked yet, which finishing will ask about.
+    var untickedCount: Int { setCount - doneCount }
+
+    /// Ticks every set, for when you finish and choose to count unticked sets as done.
+    func tickAll() {
+        for e in exercises.indices {
+            for s in exercises[e].sets.indices { exercises[e].sets[s].isDone = true }
+        }
+    }
+
+    /// What finishing would save, without changing the workout: the summary shows this before you confirm.
+    func preview(unticked: UntickedSets, at end: Date) -> FinishedWorkout {
+        guard unticked == .count else { return finished(at: end) }
+        let copy = WorkoutSession(title: title, exercises: exercises, startedAt: startedAt)
+        copy.tickAll()
+        return copy.finished(at: end)
+    }
+
     /// What gets saved when you finish: ticked sets only, and exercises with none ticked are dropped.
     func finished(at end: Date) -> FinishedWorkout {
         FinishedWorkout(
@@ -87,7 +116,7 @@ extension FinishedWorkout {
                 exercise("Seated Row", brand: "Life Fitness", reps("60", "10", rpe: [8, 8.5, 9])),
                 exercise("Bicep Curl", reps("14", "12", rpe: [8, 9, 9.5])),
             ]),
-            FinishedWorkout(title: "Push", startedAt: day(4), duration: 47 * 60, exercises: [
+            FinishedWorkout(title: "Push", description: "Shoulder felt tight, kept the press light.", startedAt: day(4), duration: 47 * 60, exercises: [
                 exercise("Chest Press", brand: "Technogym", reps("70", "8", rpe: [8, 8.5, 9])),
                 exercise("Shoulder Press", brand: "Hammer Strength", reps("40", "10", rpe: [8, 9, 9])),
                 exercise("Triceps Pushdown", reps("30", "12", rpe: [8.5, 9])),

@@ -13,6 +13,13 @@ struct Routine: Identifiable, Equatable {
 
 /// One exercise in a prebuilt workout.
 struct RoutineExercise: Identifiable, Equatable {
+    /// Everything about the exercise except its id, for telling whether a workout changed it.
+    var shape: [String] {
+        [name, brand ?? "", String(restSeconds)]
+            + settings.map { "\($0.name)=\($0.value)" }
+            + sets.map { "\($0.setup.kind.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
+    }
+
     let id = UUID()
     var name: String
     var brand: String?
@@ -38,7 +45,7 @@ extension Routine {
     /// A fresh running workout from this routine, with new ids so it shares nothing with the routine.
     /// Each set's target shows in Previous until real history exists.
     func start(now: @escaping () -> Date = Date.init) -> WorkoutSession {
-        WorkoutSession(
+        let session = WorkoutSession(
             title: name,
             exercises: exercises.map { exercise in
                 WorkoutExercise(
@@ -53,6 +60,30 @@ extension Routine {
             },
             now: now
         )
+        session.routineID = id
+        return session
+    }
+
+    /// This prebuilt workout rebuilt from a workout you did: same name, today's exercises,
+    /// settings, sets and weights as the new targets.
+    func updated(from session: WorkoutSession) -> Routine {
+        var routine = self
+        routine.exercises = session.exercises.map { exercise in
+            RoutineExercise(
+                name: exercise.name,
+                brand: exercise.brand,
+                restSeconds: exercise.restSeconds,
+                settings: exercise.settings,
+                sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
+            )
+        }
+        return routine
+    }
+
+    /// Whether a workout started from this one ended up different: exercises added, removed or
+    /// reordered, a brand or settings changed, or sets added, removed or changed.
+    func differs(from session: WorkoutSession) -> Bool {
+        updated(from: session).exercises.map(\.shape) != exercises.map(\.shape)
     }
 
     private static func target(_ set: RoutineSet) -> String {
@@ -90,14 +121,46 @@ final class WorkoutStore {
         isShowingActive = true
     }
 
-    /// Ends the workout and puts it at the top of your history, if you ticked anything.
+    /// Ends the workout and puts it at the top of your history, if it has any sets to keep.
+    ///
+    /// - Parameters:
+    ///   - title: The name it's saved under, which you can change on the summary.
+    ///   - description: Anything you wrote about it.
+    ///   - unticked: Whether sets you didn't tick are dropped or counted as done.
+    ///   - updateRoutine: Whether the prebuilt workout it came from takes today's exercises and sets.
     /// History only lives in memory until the local database exists.
-    func finish() {
-        if let finished = active?.finished(at: now()), finished.setCount > 0 {
-            history.insert(finished, at: 0)
+    func finish(title: String? = nil, description: String = "", unticked: UntickedSets = .drop, updateRoutine: Bool = false) {
+        guard let session = active else { return }
+        if unticked == .count { session.tickAll() }
+        if updateRoutine, let id = session.routineID, let index = routines.firstIndex(where: { $0.id == id }) {
+            routines[index] = routines[index].updated(from: session)
         }
+        var finished = session.finished(at: now())
+        if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { finished.title = title.trimmingCharacters(in: .whitespaces) }
+        finished.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if finished.setCount > 0 { history.insert(finished, at: 0) }
         isShowingActive = false
         active = nil
+    }
+
+    /// The prebuilt workout the running workout started from, if any and if it still exists.
+    var activeRoutine: Routine? {
+        guard let id = active?.routineID else { return nil }
+        return routines.first { $0.id == id }
+    }
+
+    /// Changes a finished workout's name and description.
+    func rename(_ workoutID: UUID, title: String, description: String) {
+        guard let index = history.firstIndex(where: { $0.id == workoutID }) else { return }
+        let title = title.trimmingCharacters(in: .whitespaces)
+        if !title.isEmpty { history[index].title = title }
+        history[index].description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Replaces a prebuilt workout with an edited copy.
+    func update(_ routine: Routine) {
+        guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
+        routines[index] = routine
     }
 
     /// Throws the running workout away without saving it.

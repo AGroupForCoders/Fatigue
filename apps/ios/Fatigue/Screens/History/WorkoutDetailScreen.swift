@@ -11,6 +11,7 @@ struct WorkoutDetailScreen: View {
     @State private var editing: WorkoutSession?
     @State private var confirmingDelete = false
     @State private var savedAsRoutine = false
+    @State private var editingDetails = false
 
     private var workout: FinishedWorkout? { store.history.first { $0.id == workoutID } }
 
@@ -29,12 +30,20 @@ struct WorkoutDetailScreen: View {
                     session: session,
                     mode: .editing,
                     onMinimise: { editing = nil },
-                    onFinish: {
+                    onFinish: { _ in
                         if let workout { withAnimation(.standard) { store.replace(workout.updated(from: session)) } }
                         editing = nil
                         if workout == nil { dismiss() }
                     }
                 )
+            }
+        }
+        .sheet(isPresented: $editingDetails) {
+            if let workout {
+                WorkoutDetailsSheet(title: workout.title, description: workout.description) { title, description in
+                    store.rename(workoutID, title: title, description: description)
+                }
+                .environment(\.palette, palette)
             }
         }
         .confirmationDialog("Delete \(workout?.title ?? "workout")?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -50,7 +59,8 @@ struct WorkoutDetailScreen: View {
 
     private var menu: some View {
         Menu {
-            Button("Edit workout", systemImage: "pencil") { editing = workout?.editingSession() }
+            Button("Edit name and description", systemImage: "text.cursor") { editingDetails = true }
+            Button("Edit sets", systemImage: "pencil") { editing = workout?.editingSession() }
             Button(savedAsRoutine ? "Saved to your workouts" : "Save as prebuilt workout", systemImage: savedAsRoutine ? "checkmark" : "plus") {
                 guard let workout, !savedAsRoutine else { return }
                 store.add(workout.asRoutine())
@@ -75,6 +85,12 @@ struct WorkoutDetailScreen: View {
                         .textStyle(Tokens.Typography.control)
                         .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
+                    if !workout.description.isEmpty {
+                        Text(workout.description)
+                            .textStyle(Tokens.Typography.body)
+                            .foregroundStyle(palette.foreground)
+                            .padding(.top, Tokens.Space.s)
+                    }
                 }
                 .padding(.bottom, Tokens.Space.xxl)
                 Hairline()
@@ -151,5 +167,54 @@ private struct ExerciseRecord: View {
         .textStyle(Tokens.Typography.number)
         .monospacedDigit()
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Changes a finished workout's name and description.
+private struct WorkoutDetailsSheet: View {
+    @Environment(\.palette) private var palette
+    @Environment(\.dismiss) private var dismiss
+    @State var title: String
+    @State var description: String
+    let onSave: (String, String) -> Void
+    @FocusState private var focus: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.xxl) {
+            HStack {
+                Text("Name and description")
+                    .textStyle(Tokens.Typography.title)
+                    .foregroundStyle(palette.foreground)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .foregroundStyle(palette.foreground)
+                        .frame(width: Tokens.Size.control, height: Tokens.Size.control)
+                }
+                .buttonStyle(.press)
+                .accessibilityLabel("Close")
+            }
+            LineField(label: "Name", text: $title, kind: .name, isFocused: focus)
+                .focused($focus)
+            VStack(alignment: .leading, spacing: Tokens.Space.s) {
+                Text("Description")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundMuted)
+                TextField("", text: $description, prompt: Text("How did it go?").foregroundStyle(palette.foregroundFaint), axis: .vertical)
+                    .textStyle(Tokens.Typography.body)
+                    .foregroundStyle(palette.foreground)
+                    .lineLimit(2...8)
+                Hairline()
+            }
+            Spacer()
+            PrimaryButton(title: "Save") {
+                onSave(title, description)
+                dismiss()
+            }
+        }
+        .padding(Tokens.Space.xxl)
+        .background(palette.background)
+        .presentationDetents([.medium, .large])
+        .presentationBackground(palette.background)
     }
 }

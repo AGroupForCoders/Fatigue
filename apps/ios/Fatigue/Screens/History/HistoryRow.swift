@@ -18,6 +18,13 @@ struct HistoryRow: View {
                     .textStyle(Tokens.Typography.caption)
                     .monospacedDigit()
                     .foregroundStyle(palette.foregroundMuted)
+                if !workout.description.isEmpty {
+                    Text(workout.description)
+                        .textStyle(Tokens.Typography.control)
+                        .foregroundStyle(palette.foregroundMuted)
+                        .lineLimit(2)
+                        .padding(.top, Tokens.Space.xs)
+                }
             }
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 ForEach(Array(workout.exercises.prefix(Self.exerciseLimit).enumerated()), id: \.offset) { _, exercise in

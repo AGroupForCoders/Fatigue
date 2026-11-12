@@ -17,7 +17,19 @@ struct WorkoutScreen: View {
     var mode: Mode = .live
     /// Hides the screen and leaves the workout running in the bar above the bottom nav.
     var onMinimise: () -> Void = {}
-    var onFinish: () -> Void = {}
+    /// The prebuilt workout this started from, so the finish summary can offer to update it.
+    var routine: Routine? = nil
+    /// Called from the finish summary when live, or from Save when editing a past workout.
+    var onFinish: (FinishDetails) -> Void = { _ in }
+    @State private var confirmingUnticked = false
+    @State private var reordering = false
+    @State private var finishing: Finishing?
+
+    /// The summary being shown, and what was chosen for unticked sets on the way there.
+    private struct Finishing: Identifiable {
+        let id = UUID()
+        let unticked: UntickedSets
+    }
     @FocusState private var focused: FocusedCell?
     @State private var addingExercises = false
 
@@ -46,8 +58,8 @@ struct WorkoutScreen: View {
             Hairline()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(session.exercises.indices, id: \.self) { index in
-                        ExerciseSection(session: session, exerciseIndex: index, focus: $focused)
+                    ForEach(session.exercises) { exercise in
+                        ExerciseSection(session: session, exerciseID: exercise.id, focus: $focused, onReorder: { reordering = true })
                         Hairline()
                     }
                     if session.exercises.isEmpty {
@@ -85,6 +97,41 @@ struct WorkoutScreen: View {
             if !Task.isCancelled { restFinished = session.finishRestIfDue() }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: restFinished) { _, finished in finished }
+        .confirmationDialog(
+            "\(session.untickedCount) set\(session.untickedCount == 1 ? " isn't" : "s aren't") ticked",
+            isPresented: $confirmingUnticked,
+            titleVisibility: .visible
+        ) {
+            Button("Count them as done") { finishing = Finishing(unticked: .count) }
+            Button("Leave them out") { finishing = Finishing(unticked: .drop) }
+            Button("Keep going", role: .cancel) {}
+        } message: {
+            Text("Only ticked sets are saved unless you count the rest as done.")
+        }
+        .sheet(item: $finishing) { choice in
+            FinishSummary(
+                session: session,
+                unticked: choice.unticked,
+                changedRoutine: routine.flatMap { $0.differs(from: session) ? $0 : nil }
+            ) { details in
+                finishing = nil
+                onFinish(details)
+            }
+            .environment(\.palette, palette)
+        }
+        .onAppear {
+            // Debug builds open the finish summary on launch with `-openFinish`, for screenshots.
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-openFinish"), mode == .live {
+                session.exercises[0].sets[2].weight = "57.5"
+                finishing = Finishing(unticked: .count)
+            }
+            #endif
+        }
+        .sheet(isPresented: $reordering) {
+            ReorderExercises(session: session)
+                .environment(\.palette, palette)
+        }
         .sheet(isPresented: $addingExercises) {
             ExercisePicker { names in
                 withAnimation(.standard) { session.addExercises(named: names, catalog: catalog) }
@@ -162,7 +209,7 @@ struct WorkoutScreen: View {
                 }
             }
             Spacer()
-            PrimaryButton(title: mode == .live ? "Finish" : "Save", compact: true, action: onFinish)
+            PrimaryButton(title: mode == .live ? "Finish" : "Save", compact: true, action: finish)
         }
         .padding(.horizontal, Tokens.Space.xxl)
         .padding(.top, Tokens.Space.l)
@@ -173,6 +220,21 @@ struct WorkoutScreen: View {
         switch cell {
         case .settingName, .settingValue: true
         default: false
+        }
+    }
+
+    /// Live: asks about unticked sets if there are any, then shows the summary.
+    /// Editing a past workout: saves straight away.
+    private func finish() {
+        focused = nil
+        guard mode == .live else {
+            onFinish(FinishDetails(title: session.title, description: "", unticked: .drop, updateRoutine: false))
+            return
+        }
+        if session.untickedCount > 0, session.setCount > 0 {
+            confirmingUnticked = true
+        } else {
+            finishing = Finishing(unticked: .drop)
         }
     }
 
@@ -187,9 +249,14 @@ private struct ExerciseSection: View {
     @Environment(\.palette) private var palette
     @Environment(ExerciseCatalog.self) private var catalog
     @Bindable var session: WorkoutSession
-    let exerciseIndex: Int
+    /// Keyed by id, not position, so removing or reordering exercises never points a section at the wrong one.
+    let exerciseID: UUID
     var focus: FocusState<FocusedCell?>.Binding
+    var onReorder: () -> Void = {}
+
+    private var exerciseIndex: Int { session.exercises.firstIndex { $0.id == exerciseID } ?? 0 }
     @State private var editingExercise = false
+    @State private var confirmingRemove = false
     /// Whether the settings line is opened up into editable rows.
     @State private var editingSettings = false
     @State private var pickingBrand = false
@@ -199,7 +266,7 @@ private struct ExerciseSection: View {
     /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE`, `-editExercise` or `-editSettings`, for screenshots.
     private func openForScreenshots() {
         #if DEBUG
-        guard exerciseIndex == 0 else { return }
+        guard session.exercises.first?.id == exerciseID else { return }
         let args = ProcessInfo.processInfo.arguments
         if args.contains("-openBrand") { pickingBrand = true }
         if args.contains("-openRest") { pickingRest = true }
@@ -212,6 +279,11 @@ private struct ExerciseSection: View {
     private var exercise: WorkoutExercise { session.exercises[exerciseIndex] }
 
     var body: some View {
+        // Draws nothing for an exercise that was just removed and is animating out.
+        if session.exercises.contains(where: { $0.id == exerciseID }) { content }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(exercise.name)
@@ -221,8 +293,14 @@ private struct ExerciseSection: View {
                 Menu {
                     Button("Add setting", systemImage: "plus") { addSetting() }
                     Button("Edit exercise", systemImage: "slider.horizontal.3") { editingExercise = true }
-                    Button("Reorder exercises") {}
-                    Button("Remove exercise", role: .destructive) {}
+                    Button("Reorder exercises", systemImage: "arrow.up.arrow.down", action: onReorder)
+                    Button("Remove exercise", systemImage: "trash", role: .destructive) {
+                        if exercise.sets.contains(where: \.isDone) {
+                            confirmingRemove = true
+                        } else {
+                            withAnimation(.standard) { session.removeExercise(at: exerciseIndex) }
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(palette.foregroundMuted)
@@ -319,6 +397,13 @@ private struct ExerciseSection: View {
         .sheet(isPresented: $pickingRest) {
             RestSheet(exerciseName: exercise.name, seconds: $session.exercises[exerciseIndex].restSeconds)
                 .environment(\.palette, palette)
+        }
+        .confirmationDialog("Remove \(exercise.name)?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+            Button("Remove exercise", role: .destructive) {
+                withAnimation(.standard) { session.removeExercise(at: exerciseIndex) }
+            }
+        } message: {
+            Text("The sets you've ticked on it are removed too.")
         }
         .onChange(of: exercise.settings) { _, settings in
             catalog.saveSettings(settings, for: exercise.name, brand: exercise.brand)
@@ -672,6 +757,56 @@ private struct RestBar: View {
         }
         .buttonStyle(.press)
         .accessibilityLabel(title == "+15" ? "Add 15 seconds" : "Remove 15 seconds")
+    }
+}
+
+/// Puts the exercises in a running workout in a new order: drag each one by its handle.
+private struct ReorderExercises: View {
+    @Environment(\.palette) private var palette
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var session: WorkoutSession
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Reorder exercises")
+                    .textStyle(Tokens.Typography.title)
+                    .foregroundStyle(palette.foreground)
+                Spacer()
+            }
+            .padding(.horizontal, Tokens.Space.xxl)
+            .padding(.top, Tokens.Space.xxl)
+            .padding(.bottom, Tokens.Space.l)
+
+            List {
+                ForEach(session.exercises) { exercise in
+                    HStack {
+                        Text(exercise.name)
+                            .textStyle(Tokens.Typography.body)
+                            .foregroundStyle(palette.foreground)
+                        Spacer()
+                        Text("\(exercise.sets.count) sets")
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                    }
+                    .frame(minHeight: Tokens.Size.control)
+                    .listRowBackground(palette.background)
+                    .listRowSeparatorTint(palette.borderSoft)
+                }
+                .onMove { session.moveExercises(from: $0, to: $1) }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, .constant(.active))
+
+            PrimaryButton(title: "Done") { dismiss() }
+                .padding(.horizontal, Tokens.Space.xxl)
+                .padding(.vertical, Tokens.Space.l)
+        }
+        .background(palette.background)
+        .presentationDetents([.medium, .large])
+        .presentationBackground(palette.background)
+        .sensoryFeedback(.selection, trigger: session.exercises.map(\.id))
     }
 }
 
