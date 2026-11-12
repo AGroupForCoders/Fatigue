@@ -176,6 +176,10 @@ nonisolated final class AppDatabase: Sendable {
                 t.primaryKey(["routine_set_id", "setting_id"])
             }
         }
+        // How much harder a yes/no setting makes a set when it's on (ADR 0002). Null until you say it does.
+        migrator.registerMigration("v2-setting-factor") { db in
+            try db.alter(table: "setting") { t in t.add(column: "factor", .double) }
+        }
         return migrator
     }
 }
@@ -193,6 +197,7 @@ nonisolated struct StoredSetting: Sendable, Equatable {
     var rangeMin: Double?
     var rangeMax: Double?
     var splitByValue: Bool
+    var factor: Double? = nil
 }
 
 nonisolated struct StoredSet: Sendable {
@@ -294,22 +299,23 @@ nonisolated extension AppDatabase {
     /// so saving an old workout never overwrites what's filled in next time.
     private static func upsert(_ setting: StoredSetting, exerciseBrandId: String, position: Int, withValue: Bool, in db: Database) throws {
         try db.execute(sql: """
-            INSERT INTO setting (id, exercise_brand_id, name, kind, value, text_value, direction, range_min, range_max, split_by_value, position, updated_at, deleted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            INSERT INTO setting (id, exercise_brand_id, name, kind, value, text_value, direction, range_min, range_max, split_by_value, factor, position, updated_at, deleted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
             ON CONFLICT(id) DO UPDATE SET
                 exercise_brand_id = excluded.exercise_brand_id, name = excluded.name, kind = excluded.kind,
                 direction = excluded.direction, range_min = excluded.range_min, range_max = excluded.range_max,
-                split_by_value = excluded.split_by_value, position = excluded.position, updated_at = excluded.updated_at,
+                split_by_value = excluded.split_by_value, factor = excluded.factor, position = excluded.position, updated_at = excluded.updated_at,
                 deleted_at = NULL\(withValue ? ", value = excluded.value, text_value = excluded.text_value" : "")
             """, arguments: [setting.id, exerciseBrandId, setting.name, setting.kind, setting.value, setting.textValue,
-                             setting.direction, setting.rangeMin, setting.rangeMax, setting.splitByValue, position, now])
+                             setting.direction, setting.rangeMin, setting.rangeMax, setting.splitByValue, setting.factor, position, now])
     }
 
     private static func settings(_ sql: String, owner: String, in db: Database) throws -> [StoredSetting] {
         try Row.fetchAll(db, sql: sql, arguments: [owner]).map { row in
             StoredSetting(
                 id: row["id"], name: row["name"], kind: row["kind"], value: row["value"], textValue: row["text_value"],
-                direction: row["direction"], rangeMin: row["range_min"], rangeMax: row["range_max"], splitByValue: row["split_by_value"]
+                direction: row["direction"], rangeMin: row["range_min"], rangeMax: row["range_max"], splitByValue: row["split_by_value"],
+                factor: row["factor"]
             )
         }
     }
@@ -356,7 +362,7 @@ nonisolated extension AppDatabase {
             return StoredExercise(
                 id: id, name: row["name"], brand: row["brand"], restSeconds: row["rest_seconds"],
                 settings: try settings("""
-                    SELECT s.id, s.name, s.kind, ws.value, ws.text_value, s.direction, s.range_min, s.range_max, s.split_by_value
+                    SELECT s.id, s.name, s.kind, ws.value, ws.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
                     FROM workout_exercise_setting ws JOIN setting s ON s.id = ws.setting_id
                     WHERE ws.workout_exercise_id = ? ORDER BY s.position
                     """, owner: id, in: db),
@@ -419,7 +425,7 @@ nonisolated extension AppDatabase {
                     return StoredExercise(
                         id: exerciseId, name: row["name"], brand: row["brand"], restSeconds: row["rest_seconds"],
                         settings: try Self.settings("""
-                            SELECT s.id, s.name, s.kind, rs.value, rs.text_value, s.direction, s.range_min, s.range_max, s.split_by_value
+                            SELECT s.id, s.name, s.kind, rs.value, rs.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
                             FROM routine_exercise_setting rs JOIN setting s ON s.id = rs.setting_id
                             WHERE rs.routine_exercise_id = ? ORDER BY s.position
                             """, owner: exerciseId, in: db),

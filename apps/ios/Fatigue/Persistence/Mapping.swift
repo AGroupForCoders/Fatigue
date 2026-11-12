@@ -27,7 +27,8 @@ extension ExerciseSetting {
         return StoredSetting(
             id: id.uuidString, name: name, kind: kindName, value: value, textValue: textValue,
             direction: direction.map { $0 == .higher ? "higher" : "lower" },
-            rangeMin: rangeMin, rangeMax: rangeMax, splitByValue: splitByValue
+            rangeMin: rangeMin, rangeMax: rangeMax, splitByValue: splitByValue,
+            factor: kind == .yesNo ? factor : nil
         )
     }
 
@@ -41,7 +42,8 @@ extension ExerciseSetting {
         self.init(
             id: uuid(stored.id), name: stored.name, kind: kind, value: value,
             direction: stored.direction.map { $0 == "lower" ? .lower : .higher },
-            rangeMin: stored.rangeMin, rangeMax: stored.rangeMax, splitByValue: stored.splitByValue
+            rangeMin: stored.rangeMin, rangeMax: stored.rangeMax, splitByValue: stored.splitByValue,
+            factor: stored.factor
         )
     }
 }

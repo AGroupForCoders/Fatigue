@@ -115,7 +115,8 @@ struct WorkoutScreen: View {
             FinishSummary(
                 session: session,
                 unticked: choice.unticked,
-                changedRoutine: routine.flatMap { $0.differs(from: session) ? $0 : nil }
+                changedRoutine: routine.flatMap { $0.differs(from: session) ? $0 : nil },
+                history: history.filter { $0.startedAt < session.startedAt }
             ) { details in
                 finishing = nil
                 onFinish(details)
