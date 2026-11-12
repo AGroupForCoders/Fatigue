@@ -269,6 +269,7 @@ private struct ExerciseSection: View {
     @State private var pickingBrand = false
     @State private var editingSetup: SetupEdit?
     @State private var pickingRest = false
+    @State private var showingStats = false
 
     /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE`, `-editExercise` or `-editSettings`, for screenshots.
     private func openForScreenshots() {
@@ -279,6 +280,7 @@ private struct ExerciseSection: View {
         if args.contains("-openRest") { pickingRest = true }
         if args.contains("-editExercise") { editingExercise = true }
         if args.contains("-editSettings") { editingSettings = true }
+        if args.contains("-openExercise") { showingStats = true }
         if args.contains("-openRPE") { session.openRPE = exercise.sets.last?.id }
         #endif
     }
@@ -297,9 +299,15 @@ private struct ExerciseSection: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(exercise.name)
-                    .textStyle(Tokens.Typography.exerciseName)
-                    .foregroundStyle(palette.foreground)
+                // The name opens the exercise page: its graph, records and past sets on this brand.
+                Button { showingStats = true } label: {
+                    Text(exercise.name)
+                        .textStyle(Tokens.Typography.exerciseName)
+                        .foregroundStyle(palette.foreground)
+                        .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.press)
+                .accessibilityHint("Shows your progress on this exercise")
                 Spacer()
                 Menu {
                     Button("Add setting", systemImage: "plus") { addSetting() }
@@ -404,6 +412,10 @@ private struct ExerciseSection: View {
                 withAnimation(.standard) { session.changeBrand(of: exerciseIndex, to: brand, catalog: catalog) }
             }
             .environment(\.palette, palette)
+        }
+        .sheet(isPresented: $showingStats) {
+            ExerciseScreen(name: exercise.name, brand: exercise.brand, history: history)
+                .environment(\.palette, palette)
         }
         .sheet(isPresented: $pickingRest) {
             RestSheet(exerciseName: exercise.name, seconds: $session.exercises[exerciseIndex].restSeconds)
