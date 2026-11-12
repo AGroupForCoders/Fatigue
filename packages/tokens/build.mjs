@@ -39,7 +39,7 @@ function swift() {
     if (!weights.has(weight)) throw new Error(`Unknown font weight "${weight}" on typography.${name}`);
     lines.push(`        static let ${name} = Font.system(size: ${size}, weight: .${weight})`);
   }
-  for (const group of ['space', 'radius']) {
+  for (const group of ['space', 'radius', 'size']) {
     lines.push('    }', '', `    enum ${group[0].toUpperCase()}${group.slice(1)} {`);
     for (const [name, value] of Object.entries(tokens[group])) {
       lines.push(`        static let ${name}: CGFloat = ${value}`);

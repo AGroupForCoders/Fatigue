@@ -42,6 +42,10 @@ nonisolated enum Tokens {
         static let panel: CGFloat = 12
     }
 
+    enum Size {
+        static let control: CGFloat = 52
+    }
+
     /// Durations in seconds.
     enum Motion {
         static let quick: Double = 0.15

@@ -11,7 +11,7 @@ struct PrimaryButton: View {
             Text(title)
                 .font(Tokens.Typography.button)
                 .foregroundStyle(Tokens.Colors.background)
-                .frame(maxWidth: .infinity, minHeight: 52)
+                .frame(maxWidth: .infinity, minHeight: Tokens.Size.control)
                 .background(Tokens.Colors.text, in: .rect(cornerRadius: Tokens.Radius.control))
         }
         .buttonStyle(.plain)

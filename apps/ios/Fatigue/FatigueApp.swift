@@ -6,6 +6,7 @@ struct FatigueApp: App {
         WindowGroup {
             HomeScreen()
                 .preferredColorScheme(.dark)
+                .tint(Tokens.Colors.accent)
         }
     }
 }
