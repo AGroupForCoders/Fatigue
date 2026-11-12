@@ -1,6 +1,15 @@
 // Turns tokens.json into the files each app reads its design values from.
 // Run `pnpm tokens:build` after editing tokens.json, and commit both files.
 // `node build.mjs --check` exits with an error if a generated file is out of date, for CI.
+//
+// tokens.json shape:
+// - fontFamily: the font every text style uses. The app bundles it as <family>-<Weight>.ttf.
+// - defaultThemes: which theme stands in for plain light and for plain dark when the choice is system.
+// - themes: each theme is a full palette with the same colour names, plus whether it is a light or dark
+//   base (so the keyboard and system menus match) and how strong the grain is. Add a theme by adding a block.
+// - typography: size in points, weight, and tracking in em (multiplied by the size).
+// - motion: durations in seconds.
+// - any other group is a set of plain numbers in points, such as space, radius or size.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -10,13 +19,28 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const tokens = JSON.parse(readFileSync(join(here, 'tokens.json'), 'utf8'));
 
-const weights = new Set(['ultraLight', 'thin', 'light', 'regular', 'medium', 'semibold', 'bold', 'heavy', 'black']);
+// Only the weights bundled with the app. Add the .ttf before adding a weight here.
+const weights = { light: 'Light', regular: 'Regular', medium: 'Medium' };
+const special = new Set(['fontFamily', 'themes', 'defaultThemes', 'typography', 'motion']);
 
 function hexToRgb(hex) {
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!match) throw new Error(`Colour ${hex} must be written as #RRGGBB`);
   const value = parseInt(match[1], 16);
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255].map((c) => (c / 255).toFixed(4));
+}
+
+function color(hex) {
+  const [r, g, b] = hexToRgb(hex);
+  return `Color(red: ${r}, green: ${g}, blue: ${b})`;
+}
+
+function camel(name) {
+  return name.replace(/[-_ ]+(.)/g, (_, c) => c.toUpperCase());
+}
+
+function round(n) {
+  return Math.round(n * 100) / 100;
 }
 
 function swift() {
@@ -26,22 +50,50 @@ function swift() {
     '',
     'import SwiftUI',
     '',
-    'nonisolated enum Tokens {',
-    '    enum Colors {',
+    '/// Every colour a screen can use. Each theme in tokens.json becomes one `Palette`.',
+    '/// Views read the current palette from the environment, so adding a theme needs no view changes.',
+    'nonisolated struct Palette: Sendable, Identifiable {',
+    '    let id: String',
+    '    let appearance: ColorScheme',
+    '    let grainOpacity: Double',
   ];
-  for (const [name, hex] of Object.entries(tokens.colors)) {
-    const [r, g, b] = hexToRgb(hex);
-    lines.push(`        /// ${hex}`);
-    lines.push(`        static let ${name} = Color(red: ${r}, green: ${g}, blue: ${b})`);
+  const themes = Object.entries(tokens.themes);
+  if (themes.length === 0) throw new Error('tokens.json needs at least one theme');
+  const names = Object.keys(themes[0][1].colors);
+  for (const name of names) lines.push(`    let ${name}: Color`);
+  lines.push('}', '', 'nonisolated extension Palette {');
+  for (const [id, theme] of themes) {
+    if (!['light', 'dark'].includes(theme.appearance)) throw new Error(`themes.${id}.appearance must be light or dark`);
+    const missing = names.filter((n) => !theme.colors[n]);
+    const extra = Object.keys(theme.colors).filter((n) => !names.includes(n));
+    if (missing.length || extra.length) {
+      throw new Error(`themes.${id} must define exactly the same colours as the first theme. Missing: ${missing.join(', ') || 'none'}. Extra: ${extra.join(', ') || 'none'}`);
+    }
+    lines.push(`    static let ${camel(id)} = Palette(`);
+    lines.push(`        id: "${id}",`, `        appearance: .${theme.appearance},`, `        grainOpacity: ${theme.grainOpacity ?? 0},`);
+    names.forEach((n, i) => lines.push(`        ${n}: ${color(theme.colors[n])}${i === names.length - 1 ? '' : ','} // ${theme.colors[n]}`));
+    lines.push('    )', '');
   }
-  lines.push('    }', '', '    enum Typography {');
-  for (const [name, { size, weight }] of Object.entries(tokens.typography)) {
-    if (!weights.has(weight)) throw new Error(`Unknown font weight "${weight}" on typography.${name}`);
-    lines.push(`        static let ${name} = Font.system(size: ${size}, weight: .${weight})`);
+  lines.push(`    static let all: [Palette] = [${themes.map(([id]) => '.' + camel(id)).join(', ')}]`);
+  for (const scheme of ['light', 'dark']) {
+    const id = tokens.defaultThemes?.[scheme];
+    const theme = tokens.themes[id];
+    if (!theme || theme.appearance !== scheme) throw new Error(`defaultThemes.${scheme} must name a ${scheme} theme`);
+    const label = scheme === 'light' ? 'Light' : 'Dark';
+    lines.push('', `    /// The theme that stands in for plain ${scheme}, used when the choice is system.`, `    static let default${label} = Palette.${camel(id)}`);
   }
-  for (const group of ['space', 'radius', 'size']) {
+  lines.push('}', '', 'nonisolated enum Tokens {', `    static let fontFamily = "${tokens.fontFamily}"`, '', '    enum Typography {');
+
+  for (const [name, { size, weight, tracking = 0 }] of Object.entries(tokens.typography)) {
+    if (!weights[weight]) throw new Error(`typography.${name} uses weight "${weight}", which the app does not bundle`);
+    const font = `${tokens.fontFamily}-${weights[weight]}`;
+    lines.push(`        static let ${name} = TextStyle(fontName: "${font}", size: ${size}, tracking: ${round(tracking * size)})`);
+  }
+  for (const [group, values] of Object.entries(tokens)) {
+    if (special.has(group)) continue;
     lines.push('    }', '', `    enum ${group[0].toUpperCase()}${group.slice(1)} {`);
-    for (const [name, value] of Object.entries(tokens[group])) {
+    for (const [name, value] of Object.entries(values)) {
+      if (typeof value !== 'number') throw new Error(`${group}.${name} must be a number`);
       lines.push(`        static let ${name}: CGFloat = ${value}`);
     }
   }

@@ -3,29 +3,80 @@
 
 import SwiftUI
 
+/// Every colour a screen can use. Each theme in tokens.json becomes one `Palette`.
+/// Views read the current palette from the environment, so adding a theme needs no view changes.
+nonisolated struct Palette: Sendable, Identifiable {
+    let id: String
+    let appearance: ColorScheme
+    let grainOpacity: Double
+    let background: Color
+    let foreground: Color
+    let foregroundMuted: Color
+    let foregroundFaint: Color
+    let border: Color
+    let borderSoft: Color
+    let borderControl: Color
+    let surface: Color
+    let borderStrong: Color
+    let accent: Color
+}
+
+nonisolated extension Palette {
+    static let light = Palette(
+        id: "light",
+        appearance: .light,
+        grainOpacity: 0.06,
+        background: Color(red: 0.9255, green: 0.9098, blue: 0.8824), // #ECE8E1
+        foreground: Color(red: 0.1098, green: 0.1059, blue: 0.0980), // #1C1B19
+        foregroundMuted: Color(red: 0.3843, green: 0.3686, blue: 0.3451), // #625E58
+        foregroundFaint: Color(red: 0.5412, green: 0.5216, blue: 0.4902), // #8A857D
+        border: Color(red: 0.8275, green: 0.8078, blue: 0.7725), // #D3CEC5
+        borderSoft: Color(red: 0.8667, green: 0.8471, blue: 0.8157), // #DDD8D0
+        borderControl: Color(red: 0.8118, green: 0.7882, blue: 0.7490), // #CFC9BF
+        surface: Color(red: 0.8863, green: 0.8667, blue: 0.8275), // #E2DDD3
+        borderStrong: Color(red: 0.6627, green: 0.6392, blue: 0.6000), // #A9A399
+        accent: Color(red: 0.5412, green: 0.3098, blue: 0.2078) // #8A4F35
+    )
+
+    static let dark = Palette(
+        id: "dark",
+        appearance: .dark,
+        grainOpacity: 0.05,
+        background: Color(red: 0.0588, green: 0.0549, blue: 0.0510), // #0F0E0D
+        foreground: Color(red: 0.9255, green: 0.9098, blue: 0.8824), // #ECE8E1
+        foregroundMuted: Color(red: 0.6039, green: 0.5843, blue: 0.5490), // #9A958C
+        foregroundFaint: Color(red: 0.5176, green: 0.4980, blue: 0.4667), // #847F77
+        border: Color(red: 0.1608, green: 0.1490, blue: 0.1373), // #292623
+        borderSoft: Color(red: 0.1255, green: 0.1176, blue: 0.1059), // #201E1B
+        borderControl: Color(red: 0.2118, green: 0.1961, blue: 0.1804), // #36322E
+        surface: Color(red: 0.1176, green: 0.1098, blue: 0.0980), // #1E1C19
+        borderStrong: Color(red: 0.3020, green: 0.2863, blue: 0.2627), // #4D4943
+        accent: Color(red: 0.7882, green: 0.5412, blue: 0.4196) // #C98A6B
+    )
+
+    static let all: [Palette] = [.light, .dark]
+
+    /// The theme that stands in for plain light, used when the choice is system.
+    static let defaultLight = Palette.light
+
+    /// The theme that stands in for plain dark, used when the choice is system.
+    static let defaultDark = Palette.dark
+}
+
 nonisolated enum Tokens {
-    enum Colors {
-        /// #0A0A0A
-        static let background = Color(red: 0.0392, green: 0.0392, blue: 0.0392)
-        /// #151515
-        static let surface = Color(red: 0.0824, green: 0.0824, blue: 0.0824)
-        /// #262626
-        static let border = Color(red: 0.1490, green: 0.1490, blue: 0.1490)
-        /// #F2F1EE
-        static let text = Color(red: 0.9490, green: 0.9451, blue: 0.9333)
-        /// #8E8E8A
-        static let textMuted = Color(red: 0.5569, green: 0.5569, blue: 0.5412)
-        /// #C8B698
-        static let accent = Color(red: 0.7843, green: 0.7137, blue: 0.5961)
-    }
+    static let fontFamily = "Inter"
 
     enum Typography {
-        static let title = Font.system(size: 26, weight: .regular)
-        static let heading = Font.system(size: 20, weight: .regular)
-        static let body = Font.system(size: 15, weight: .regular)
-        static let button = Font.system(size: 16, weight: .medium)
-        static let caption = Font.system(size: 13, weight: .regular)
-        static let numberLarge = Font.system(size: 72, weight: .light)
+        static let title = TextStyle(fontName: "Inter-Regular", size: 30, tracking: -0.9)
+        static let exerciseName = TextStyle(fontName: "Inter-Regular", size: 24, tracking: -0.6)
+        static let number = TextStyle(fontName: "Inter-Regular", size: 18, tracking: -0.18)
+        static let numberLarge = TextStyle(fontName: "Inter-Light", size: 84, tracking: -5.04)
+        static let timer = TextStyle(fontName: "Inter-Light", size: 30, tracking: -0.9)
+        static let body = TextStyle(fontName: "Inter-Regular", size: 15, tracking: -0.15)
+        static let control = TextStyle(fontName: "Inter-Regular", size: 14, tracking: -0.14)
+        static let button = TextStyle(fontName: "Inter-Medium", size: 15, tracking: -0.15)
+        static let caption = TextStyle(fontName: "Inter-Regular", size: 13, tracking: -0.13)
+        static let label = TextStyle(fontName: "Inter-Regular", size: 12, tracking: 0)
     }
 
     enum Space {
@@ -35,15 +86,28 @@ nonisolated enum Tokens {
         static let l: CGFloat = 16
         static let xl: CGFloat = 20
         static let xxl: CGFloat = 24
+        static let xxxl: CGFloat = 32
     }
 
     enum Radius {
         static let control: CGFloat = 8
+        static let tick: CGFloat = 7
         static let panel: CGFloat = 12
     }
 
     enum Size {
-        static let control: CGFloat = 52
+        static let control: CGFloat = 44
+        static let outlinedControl: CGFloat = 40
+        static let primaryButton: CGFloat = 52
+        static let setRow: CGFloat = 60
+        static let cell: CGFloat = 38
+        static let tick: CGFloat = 24
+        static let line: CGFloat = 1
+        static let setNumberColumn: CGFloat = 18
+        static let weightColumn: CGFloat = 58
+        static let amountColumn: CGFloat = 52
+        static let rpeColumn: CGFloat = 46
+        static let tickColumn: CGFloat = 34
     }
 
     /// Durations in seconds.
