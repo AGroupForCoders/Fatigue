@@ -9,8 +9,8 @@ struct DatabaseTests {
     @Test func aFinishedWorkoutComesBackExactly() throws {
         let database = try AppDatabase.inMemory()
         let original = FinishedWorkout.samples()[2]
-        try database.saveWorkout(original.rows)
-        let loaded = try #require(try database.workoutRows().history.first)
+        try database.save(original.stored)
+        let loaded = FinishedWorkout(stored: try #require(try database.workouts().first))
         #expect(loaded.id == original.id)
         #expect(loaded.title == original.title)
         #expect(loaded.exercises.map(\.name) == original.exercises.map(\.name))
@@ -106,5 +106,29 @@ struct DatabaseTests {
         // The sample Pull history has Seated Row on Life Fitness at 60 × 10 @8, 8.5 and 9.
         let row = try #require(workouts.active?.exercises.first { $0.name == "Seated Row" })
         #expect(row.sets.map(\.previous) == ["60 × 10 @8", "60 × 10 @8.5", "60 × 10 @9"])
+    }
+
+    @Test func renamingASettingKeepsItsHistory() throws {
+        let database = try AppDatabase.inMemory()
+        let workouts = store(database)
+        let catalog = ExerciseCatalog.load(from: database)
+        var settings = catalog.setup(for: "Adductors", brand: "Technogym").settings
+        settings[1].name = "Range"
+        catalog.save(ExerciseInfo(name: "Adductors", equipment: .machine, primaryMuscle: .adductors), brand: "Technogym", setup: BrandSetup(settings: settings))
+
+        // The sample Leg day's hold group overrides Notch to 8. It's stored by setting id, so it follows the rename.
+        let legDay = try #require(store(database).history.first { $0.title == "Leg day" })
+        #expect(legDay.exercises[0].settings.map(\.name) == ["Seat", "Range", "Dead stop"])
+        #expect(legDay.exercises[0].groups.first?.heading == "Hold · Range 8")
+        _ = workouts
+    }
+
+    @Test func savingAnOldWorkoutDoesNotChangeNextTimesValues() throws {
+        let database = try AppDatabase.inMemory()
+        let workouts = store(database)
+        var old = try #require(workouts.history.first { $0.title == "Leg day" })
+        old.exercises[0].settings[0].value = "9"
+        workouts.replace(old)
+        #expect(ExerciseCatalog.load(from: database).setup(for: "Adductors", brand: "Technogym").settings[0].value == "4")
     }
 }

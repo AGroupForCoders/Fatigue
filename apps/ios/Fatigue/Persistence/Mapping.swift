@@ -1,224 +1,223 @@
 import Foundation
 
-// Turns the app's model into database rows and back. Runs on the main actor, where the model lives.
+// Turns the app's model into what the database stores, and back. Runs on the main actor, where the model lives.
 
 private func number(_ text: String) -> Double? { Double(text.trimmingCharacters(in: .whitespaces)) }
-private func text(_ number: Double?) -> String { number.map(PlainNumber.string) ?? "" }
+private func whole(_ text: String) -> Int? { number(text).map { Int($0.rounded()) } }
 private func uuid(_ text: String) -> UUID { UUID(uuidString: text) ?? UUID() }
 
 // MARK: Settings
 
 extension ExerciseSetting {
-    /// How the kind is written in the database, matching the data model's `number` and `yes_no`.
-    var kindName: String {
+    var stored: StoredSetting {
+        let kindName: String
+        var value: Double?
+        var textValue: String?
         switch kind {
-        case .number: "number"
-        case .yesNo: "yes_no"
-        case .text: "text"
+        case .number:
+            kindName = "number"
+            value = number(self.value)
+        case .yesNo:
+            kindName = "yes_no"
+            value = self.value == "yes" ? 1 : 0
+        case .text:
+            kindName = "text"
+            textValue = self.value.isEmpty ? nil : self.value
         }
-    }
-
-    func row(owner: String, position: Int) -> SettingRow {
-        SettingRow(
-            id: id.uuidString, ownerId: owner, position: position, name: name,
-            kind: kindName,
-            value: value,
+        return StoredSetting(
+            id: id.uuidString, name: name, kind: kindName, value: value, textValue: textValue,
             direction: direction.map { $0 == .higher ? "higher" : "lower" },
             rangeMin: rangeMin, rangeMax: rangeMax, splitByValue: splitByValue
         )
     }
 
-    init(row: SettingRow) {
+    init(stored: StoredSetting) {
+        let kind: Kind = stored.kind == "yes_no" ? .yesNo : stored.kind == "text" ? .text : .number
+        let value: String = switch kind {
+        case .number: stored.value.map(PlainNumber.string) ?? ""
+        case .yesNo: stored.value == 1 ? "yes" : "no"
+        case .text: stored.textValue ?? ""
+        }
         self.init(
-            id: uuid(row.id), name: row.name,
-            kind: row.kind == "yes_no" ? .yesNo : row.kind == "text" ? .text : .number,
-            value: row.value,
-            direction: row.direction.map { $0 == "lower" ? .lower : .higher },
-            rangeMin: row.rangeMin, rangeMax: row.rangeMax, splitByValue: row.splitByValue
+            id: uuid(stored.id), name: stored.name, kind: kind, value: value,
+            direction: stored.direction.map { $0 == "lower" ? .lower : .higher },
+            rangeMin: stored.rangeMin, rangeMax: stored.rangeMax, splitByValue: stored.splitByValue
         )
     }
 }
 
-private func settingRows(_ settings: [ExerciseSetting], owner: String) -> [SettingRow] {
-    settings.enumerated().map { $1.row(owner: owner, position: $0) }
+// MARK: Sets and exercises
+
+/// A group's overrides, from setting names (how the app keys them) to setting ids (how they're stored).
+private func overrides(_ setup: SetSetup, settings: [ExerciseSetting]) -> [String: Double] {
+    var byId: [String: Double] = [:]
+    for (name, value) in setup.values {
+        if let setting = settings.first(where: { $0.name == name && $0.kind != .text }) { byId[setting.id.uuidString] = value }
+    }
+    return byId
 }
 
-private func valueRows(_ setup: SetSetup, setId: String) -> [SetValueRow] {
-    setup.values.map { SetValueRow(setId: setId, settingName: $0.key, value: $0.value) }
+private func setup(kind: String, overrides: [String: Double], settings: [StoredSetting]) -> SetSetup {
+    var values: [String: Double] = [:]
+    for (id, value) in overrides {
+        if let setting = settings.first(where: { $0.id == id }) { values[setting.name] = value }
+    }
+    return SetSetup(kind: SetKind(rawValue: kind) ?? .reps, values: values)
 }
 
-private func setup(kind: String, values: [SetValueRow]) -> SetSetup {
-    SetSetup(kind: SetKind(rawValue: kind) ?? .reps, values: Dictionary(values.map { ($0.settingName, $0.value) }, uniquingKeysWith: { a, _ in a }))
+private func storedSet(id: String, kind: SetKind, weight: String, amount: String, rpe: Double?, completedAt: Int64?, overrides: [String: Double]) -> StoredSet {
+    StoredSet(
+        id: id, kind: kind.rawValue, weightKg: number(weight),
+        reps: kind == .reps ? whole(amount) : nil, durationSeconds: kind == .hold ? whole(amount) : nil,
+        rpe: rpe, completedAt: completedAt, overrides: overrides
+    )
+}
+
+private func amount(of set: StoredSet) -> String {
+    (set.reps ?? set.durationSeconds).map(String.init) ?? ""
+}
+
+extension WorkoutExercise {
+    /// `completedAt` stamps ticked sets; the app doesn't track when each one was ticked yet.
+    func stored(completedAt: Int64) -> StoredExercise {
+        StoredExercise(
+            id: id.uuidString, name: name, brand: brand, restSeconds: restSeconds,
+            settings: settings.map(\.stored),
+            notes: notes.map { StoredNote(id: $0.id.uuidString, text: $0.text) },
+            sets: sets.map { set in
+                storedSet(id: set.id.uuidString, kind: set.kind, weight: set.weight, amount: set.amount, rpe: set.rpe,
+                          completedAt: set.isDone ? completedAt : nil, overrides: overrides(set.setup, settings: settings))
+            }
+        )
+    }
+
+    init(stored: StoredExercise) {
+        self.init(
+            id: uuid(stored.id), name: stored.name, brand: stored.brand, restSeconds: stored.restSeconds,
+            notes: stored.notes.map { ExerciseNote(id: uuid($0.id), text: $0.text) },
+            settings: stored.settings.map(ExerciseSetting.init(stored:)),
+            sets: stored.sets.map { set in
+                WorkoutSet(
+                    id: uuid(set.id), setup: setup(kind: set.kind, overrides: set.overrides, settings: stored.settings),
+                    weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set), rpe: set.rpe,
+                    previous: "", isDone: set.completedAt != nil
+                )
+            }
+        )
+    }
 }
 
 // MARK: Workouts
 
-extension WorkoutRows {
-    /// Rows for one workout, finished or running.
-    init(id: UUID, title: String, description: String, startedAt: Date, duration: TimeInterval, routineID: UUID?, isActive: Bool, exercises: [WorkoutExercise]) {
-        self.init()
-        workouts = [WorkoutRow(
-            id: id.uuidString, title: title, description: description, startedAt: startedAt,
-            durationSeconds: duration, routineId: routineID?.uuidString, isActive: isActive, updatedAt: 0, deletedAt: nil
-        )]
-        for (position, exercise) in exercises.enumerated() {
-            let exerciseId = exercise.id.uuidString
-            self.exercises.append(WorkoutExerciseRow(
-                id: exerciseId, workoutId: id.uuidString, position: position, name: exercise.name,
-                brand: exercise.brand, restSeconds: exercise.restSeconds, updatedAt: 0, deletedAt: nil
-            ))
-            settings += settingRows(exercise.settings, owner: exerciseId)
-            notes += exercise.notes.enumerated().map { NoteRow(id: $1.id.uuidString, workoutExerciseId: exerciseId, position: $0, text: $1.text) }
-            for (setPosition, set) in exercise.sets.enumerated() {
-                let setId = set.id.uuidString
-                sets.append(WorkoutSetRow(
-                    id: setId, workoutExerciseId: exerciseId, position: setPosition, kind: set.kind.rawValue,
-                    weightKg: number(set.weight), amount: number(set.amount), rpe: set.rpe,
-                    isDone: set.isDone, previous: set.previous, updatedAt: 0, deletedAt: nil
-                ))
-                values += valueRows(set.setup, setId: setId)
-            }
-        }
-    }
-
-    /// The exercises under one workout row, rebuilt.
-    func exercises(of workoutId: String) -> [WorkoutExercise] {
-        let setsByExercise = Dictionary(grouping: sets, by: \.workoutExerciseId)
-        let valuesBySet = Dictionary(grouping: values, by: \.setId)
-        let settingsByOwner = Dictionary(grouping: settings, by: \.ownerId)
-        let notesByExercise = Dictionary(grouping: notes, by: \.workoutExerciseId)
-        return exercises.filter { $0.workoutId == workoutId }.sorted { $0.position < $1.position }.map { row in
-            WorkoutExercise(
-                id: uuid(row.id), name: row.name, brand: row.brand, restSeconds: row.restSeconds,
-                notes: (notesByExercise[row.id] ?? []).sorted { $0.position < $1.position }.map { ExerciseNote(id: uuid($0.id), text: $0.text) },
-                settings: (settingsByOwner[row.id] ?? []).sorted { $0.position < $1.position }.map(ExerciseSetting.init(row:)),
-                sets: (setsByExercise[row.id] ?? []).sorted { $0.position < $1.position }.map { set in
-                    WorkoutSet(
-                        id: uuid(set.id), setup: setup(kind: set.kind, values: valuesBySet[set.id] ?? []),
-                        weight: text(set.weightKg), amount: text(set.amount), rpe: set.rpe,
-                        previous: set.previous, isDone: set.isDone
-                    )
-                }
-            )
-        }
-    }
-
-    /// Finished workouts, newest first.
-    var history: [FinishedWorkout] {
-        workouts.filter { !$0.isActive }.sorted { $0.startedAt > $1.startedAt }.map { row in
-            FinishedWorkout(
-                id: uuid(row.id), title: row.title, description: row.description,
-                startedAt: row.startedAt, duration: row.durationSeconds, exercises: exercises(of: row.id)
-            )
-        }
-    }
-
-    /// The workout that was running when the app last closed, if any.
-    var active: WorkoutSession? {
-        guard let row = workouts.first(where: \.isActive) else { return nil }
-        let session = WorkoutSession(title: row.title, exercises: exercises(of: row.id), startedAt: row.startedAt)
-        session.id = uuid(row.id)
-        session.routineID = row.routineId.map(uuid)
-        return session
-    }
-}
+private func millis(_ date: Date) -> Int64 { Int64((date.timeIntervalSince1970 * 1000).rounded()) }
 
 extension FinishedWorkout {
-    var rows: WorkoutRows {
-        WorkoutRows(id: id, title: title, description: description, startedAt: startedAt, duration: duration, routineID: nil, isActive: false, exercises: exercises)
+    var stored: StoredWorkout {
+        let end = startedAt.addingTimeInterval(duration)
+        return StoredWorkout(
+            id: id.uuidString, title: title, note: description.isEmpty ? nil : description,
+            startedAt: startedAt, finishedAt: end, routineId: nil,
+            exercises: exercises.map { $0.stored(completedAt: millis(end)) }
+        )
+    }
+
+    init(stored: StoredWorkout) {
+        let end = stored.finishedAt ?? stored.startedAt
+        self.init(
+            id: uuid(stored.id), title: stored.title, description: stored.note ?? "",
+            startedAt: stored.startedAt, duration: end.timeIntervalSince(stored.startedAt),
+            exercises: stored.exercises.map(WorkoutExercise.init(stored:))
+        )
     }
 }
 
 extension WorkoutSession {
-    var rows: WorkoutRows {
-        WorkoutRows(id: id, title: title, description: "", startedAt: startedAt, duration: Date.now.timeIntervalSince(startedAt), routineID: routineID, isActive: true, exercises: exercises)
+    /// The running workout, with no finish time.
+    var stored: StoredWorkout {
+        StoredWorkout(
+            id: id.uuidString, title: title, note: nil, startedAt: startedAt, finishedAt: nil,
+            routineId: routineID?.uuidString, exercises: exercises.map { $0.stored(completedAt: millis(.now)) }
+        )
+    }
+
+    convenience init(stored: StoredWorkout) {
+        self.init(title: stored.title, exercises: stored.exercises.map(WorkoutExercise.init(stored:)), startedAt: stored.startedAt)
+        id = uuid(stored.id)
+        routineID = stored.routineId.map(uuid)
     }
 }
 
 // MARK: Prebuilt workouts
 
-extension RoutineRows {
-    init(_ routines: [Routine]) {
-        self.init()
-        for (position, routine) in routines.enumerated() {
-            let routineId = routine.id.uuidString
-            self.routines.append(RoutineRow(id: routineId, name: routine.name, position: position, updatedAt: 0, deletedAt: nil))
-            for (exercisePosition, exercise) in routine.exercises.enumerated() {
-                let exerciseId = exercise.id.uuidString
-                exercises.append(RoutineExerciseRow(
-                    id: exerciseId, routineId: routineId, position: exercisePosition,
-                    name: exercise.name, brand: exercise.brand, restSeconds: exercise.restSeconds
-                ))
-                settings += settingRows(exercise.settings, owner: exerciseId)
-                for (setPosition, set) in exercise.sets.enumerated() {
-                    // Planned sets have no id of their own in the app, so one is made per save.
-                    let setId = UUID().uuidString
-                    sets.append(RoutineSetRow(
-                        id: setId, routineExerciseId: exerciseId, position: setPosition,
-                        kind: set.setup.kind.rawValue, weightKg: number(set.weight), amount: number(set.amount)
-                    ))
-                    values += valueRows(set.setup, setId: setId)
+extension Routine {
+    var stored: StoredRoutine {
+        StoredRoutine(id: id.uuidString, name: name, exercises: exercises.map { exercise in
+            StoredExercise(
+                id: exercise.id.uuidString, name: exercise.name, brand: exercise.brand, restSeconds: exercise.restSeconds,
+                settings: exercise.settings.map(\.stored), notes: [],
+                sets: exercise.sets.map { set in
+                    // Planned sets have no id in the app, so each save gives them a new one.
+                    storedSet(id: UUID().uuidString, kind: set.setup.kind, weight: set.weight, amount: set.amount, rpe: nil,
+                              completedAt: nil, overrides: overrides(set.setup, settings: exercise.settings))
                 }
-            }
-        }
+            )
+        })
     }
 
-    var routinesInOrder: [Routine] {
-        let exercisesByRoutine = Dictionary(grouping: exercises, by: \.routineId)
-        let setsByExercise = Dictionary(grouping: sets, by: \.routineExerciseId)
-        let valuesBySet = Dictionary(grouping: values, by: \.setId)
-        let settingsByOwner = Dictionary(grouping: settings, by: \.ownerId)
-        return routines.sorted { $0.position < $1.position }.map { row in
-            Routine(
-                id: uuid(row.id), name: row.name,
-                exercises: (exercisesByRoutine[row.id] ?? []).sorted { $0.position < $1.position }.map { exercise in
-                    RoutineExercise(
-                        id: uuid(exercise.id), name: exercise.name, brand: exercise.brand, restSeconds: exercise.restSeconds,
-                        settings: (settingsByOwner[exercise.id] ?? []).sorted { $0.position < $1.position }.map(ExerciseSetting.init(row:)),
-                        sets: (setsByExercise[exercise.id] ?? []).sorted { $0.position < $1.position }.map { set in
-                            RoutineSet(setup: setup(kind: set.kind, values: valuesBySet[set.id] ?? []), weight: text(set.weightKg), amount: text(set.amount))
-                        }
+    init(stored: StoredRoutine) {
+        self.init(id: uuid(stored.id), name: stored.name, exercises: stored.exercises.map { exercise in
+            RoutineExercise(
+                id: uuid(exercise.id), name: exercise.name, brand: exercise.brand, restSeconds: exercise.restSeconds,
+                settings: exercise.settings.map(ExerciseSetting.init(stored:)),
+                sets: exercise.sets.map { set in
+                    RoutineSet(
+                        setup: setup(kind: set.kind, overrides: set.overrides, settings: exercise.settings),
+                        weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set)
                     )
                 }
             )
-        }
+        })
     }
 }
 
 // MARK: Library
 
 extension ExerciseCatalog {
-    /// Rows for every exercise and every exercise-and-brand's settings.
-    var rows: LibraryRows {
-        var rows = LibraryRows()
-        for info in exercises {
-            rows.exercises.append(ExerciseRow(name: info.name, equipment: info.equipment.rawValue, isBuiltin: !info.isCustom))
-            rows.muscles.append(ExerciseMuscleRow(exerciseName: info.name, muscle: info.primaryMuscle.rawValue, share: 1))
-            rows.muscles += info.secondaryMuscles.map { ExerciseMuscleRow(exerciseName: info.name, muscle: $0.rawValue, share: 0.5) }
-        }
-        for (key, setup) in savedSetups {
-            rows.settings += settingRows(setup.settings, owner: "library:\(key)")
-        }
-        return rows
+    var stored: StoredLibrary {
+        StoredLibrary(
+            exercises: exercises.map { info in
+                StoredExerciseInfo(
+                    name: info.name, equipment: info.equipment.rawValue, isBuiltin: !info.isCustom,
+                    muscles: [StoredMuscle(muscle: info.primaryMuscle.rawValue, share: 1)]
+                        + info.secondaryMuscles.map { StoredMuscle(muscle: $0.rawValue, share: 0.5) }
+                )
+            },
+            setups: savedSetups.map { key, setup in
+                let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+                let brand = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
+                return StoredSetup(name: String(parts[0]), brand: brand, settings: setup.settings.map(\.stored))
+            }
+        )
     }
 
-    /// The library from saved rows, on top of the built-in exercises.
-    convenience init(rows: LibraryRows) {
-        let musclesByExercise = Dictionary(grouping: rows.muscles, by: \.exerciseName)
+    /// The library from what's saved, on top of the built-in exercises. An empty database
+    /// starts from the sample settings, so debug builds have something to show.
+    convenience init(stored: StoredLibrary) {
         var exercises = Dictionary(ExerciseCatalog.builtIn.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        for row in rows.exercises {
-            let muscles = musclesByExercise[row.name] ?? []
-            let primary = muscles.first { $0.share == 1 }.flatMap { Muscle(rawValue: $0.muscle) } ?? exercises[row.name]?.primaryMuscle ?? .chest
+        for row in stored.exercises where !row.muscles.isEmpty || !row.isBuiltin {
+            let primary = row.muscles.first { $0.share == 1 }.flatMap { Muscle(rawValue: $0.muscle) } ?? exercises[row.name]?.primaryMuscle ?? .chest
             exercises[row.name] = ExerciseInfo(
                 name: row.name,
-                equipment: Equipment(rawValue: row.equipment) ?? .other,
+                equipment: Equipment(rawValue: row.equipment) ?? exercises[row.name]?.equipment ?? .other,
                 primaryMuscle: primary,
-                secondaryMuscles: muscles.filter { $0.share < 1 }.compactMap { Muscle(rawValue: $0.muscle) },
+                secondaryMuscles: row.muscles.filter { $0.share < 1 }.compactMap { Muscle(rawValue: $0.muscle) },
                 isCustom: !row.isBuiltin
             )
         }
-        let settingsByKey = Dictionary(grouping: rows.settings) { String($0.ownerId.dropFirst("library:".count)) }
-        let setups = settingsByKey.mapValues { BrandSetup(settings: $0.sorted { $0.position < $1.position }.map(ExerciseSetting.init(row:))) }
-        self.init(exercises: Array(exercises.values), setups: rows.exercises.isEmpty && rows.settings.isEmpty ? ExerciseCatalog.sampleSetups : setups)
+        var setups: [String: BrandSetup] = [:]
+        for setup in stored.setups {
+            setups["\(setup.name)|\(setup.brand ?? "")"] = BrandSetup(settings: setup.settings.map(ExerciseSetting.init(stored:)))
+        }
+        self.init(exercises: Array(exercises.values), setups: stored.exercises.isEmpty && stored.setups.isEmpty ? ExerciseCatalog.sampleSetups : setups)
     }
 }

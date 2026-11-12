@@ -47,15 +47,15 @@ final class ExerciseCatalog {
 
     /// The library as saved on the phone.
     static func load(from database: AppDatabase) -> ExerciseCatalog {
-        let catalog = ExerciseCatalog(rows: (try? database.libraryRows()) ?? LibraryRows())
+        let catalog = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary())
         catalog.database = database
         return catalog
     }
 
     private func persist() {
         guard let database else { return }
-        let rows = rows
-        try? database.saveLibrary(rows)
+        let stored = stored
+        try? database.save(stored)
     }
 
     init(exercises: [ExerciseInfo] = ExerciseCatalog.builtIn, setups: [String: BrandSetup] = ExerciseCatalog.sampleSetups) {
