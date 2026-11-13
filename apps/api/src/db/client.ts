@@ -1,3 +1,4 @@
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
@@ -15,6 +16,12 @@ export function createDb(url: string) {
 }
 
 export type Db = ReturnType<typeof createDb>["db"];
+
+/**
+ * Any Drizzle Postgres database with our schema. Services take this instead of `Db`, so tests can hand
+ * them PGlite (Postgres in memory) and the app hands them postgres.js.
+ */
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 /**
  * Neon's copied connection strings end with `channel_binding=require`. postgres.js can't do channel
