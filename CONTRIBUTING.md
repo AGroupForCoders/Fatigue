@@ -59,9 +59,16 @@ chore(repo): add issue templates
 
 ## Local development
 
-Only the docs site exists so far. You need Node 22 or newer and pnpm.
+You need Node 22 or newer and pnpm for the TypeScript projects, and Xcode for the iOS app.
 
 ```bash
 pnpm install
-pnpm docs:dev    # docs at http://localhost:3000
+pnpm docs:dev        # docs at http://localhost:3000
+pnpm docs:build      # check the docs build, with pnpm docs:types for the types
+pnpm api:dev         # API at http://localhost:8787, see apps/api/README.md for Postgres and .env
+pnpm api:test        # API tests
+pnpm tokens:build    # regenerate apps/ios/Fatigue/DesignSystem/Tokens.swift from tokens.json
+pnpm tokens:check    # fails if the generated file is out of date
 ```
+
+The iOS app is not part of the pnpm workspace. Open `apps/ios/Fatigue.xcodeproj` in Xcode and run the Fatigue scheme, or run the tests with ⌘U.
