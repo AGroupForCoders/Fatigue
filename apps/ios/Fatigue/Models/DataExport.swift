@@ -28,6 +28,8 @@ nonisolated struct ExportRow: Sendable, Equatable {
     var exerciseTitle: String
     var exerciseNotes: String
     var setIndex: Int
+    /// Hevy's name for the set type: normal, warmup, dropset or failure.
+    var setType: String = "normal"
     var weightKg: String
     var reps: String
     var durationSeconds: String
@@ -45,11 +47,11 @@ nonisolated struct ExportRow: Sendable, Equatable {
         "brand", "brand_label", "settings", "weighted_score",
     ]
 
-    /// Fatigue has no supersets, set types or distances, so those columns stay empty or read "normal".
+    /// Fatigue has no supersets or distances, so those columns stay empty.
     var fields: [String] {
         [
             title, startTime, endTime, description, exerciseTitle, "", exerciseNotes,
-            String(setIndex), "normal", weightKg, reps, "", durationSeconds, rpe,
+            String(setIndex), setType, weightKg, reps, "", durationSeconds, rpe,
             brand, brandLabel, settings, weightedScore,
         ]
     }
@@ -95,8 +97,7 @@ nonisolated enum DataExport {
 
 extension FinishedWorkout {
     /// This workout as export rows, one per set, in the order you did them.
-    /// `brandLabels` gives each exercise-and-brand's label, keyed like `ExerciseCatalog` keys setups: "Name|Brand".
-    func exportRows(brandLabels: [String: String] = [:], timeZone: TimeZone = .current) -> [ExportRow] {
+    func exportRows(timeZone: TimeZone = .current) -> [ExportRow] {
         let formatter = DataExport.dateFormatter(timeZone: timeZone)
         let start = formatter.string(from: startedAt)
         let end = formatter.string(from: startedAt.addingTimeInterval(duration))
@@ -110,12 +111,13 @@ extension FinishedWorkout {
                     exerciseTitle: exercise.name,
                     exerciseNotes: exercise.notes.map(\.text).joined(separator: "\n"),
                     setIndex: index,
+                    setType: set.type.hevyName,
                     weightKg: set.weight.trimmingCharacters(in: .whitespaces),
                     reps: set.kind == .reps ? set.amount.trimmingCharacters(in: .whitespaces) : "",
                     durationSeconds: set.kind == .hold ? set.amount.trimmingCharacters(in: .whitespaces) : "",
                     rpe: set.rpe.map(PlainNumber.string) ?? "",
-                    brand: exercise.brand ?? "",
-                    brandLabel: brandLabels["\(exercise.name)|\(exercise.brand ?? "")"] ?? "",
+                    brand: exercise.brand?.name ?? "",
+                    brandLabel: exercise.brand?.label ?? "",
                     settings: exercise.settingsExport(for: set),
                     weightedScore: SetScore.score(of: set, in: exercise).map(DataExport.number) ?? ""
                 )
@@ -146,5 +148,17 @@ extension WorkoutExercise {
             return "\(name)=\(text)"
         }
         .joined(separator: "; ")
+    }
+}
+
+extension SetType {
+    /// The name Hevy uses in its `set_type` column, so an export reads back into Hevy or the Hevy import.
+    nonisolated var hevyName: String {
+        switch self {
+        case .normal: "normal"
+        case .warmup: "warmup"
+        case .drop: "dropset"
+        case .failure: "failure"
+        }
     }
 }

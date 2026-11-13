@@ -91,11 +91,23 @@ struct DataExportTests {
         #expect(rows[1].settings == "Seat=4; Notch=7; Dead stop=yes")
     }
 
-    @Test func brandAndLabelComeFromTheExerciseAndTheLookup() {
-        let rows = workout.exportRows(brandLabels: ["Adductors|Technogym": "Selection 700"], timeZone: utc)
+    @Test func brandAndLabelComeFromTheExercisesBrand() {
+        var labelled = workout
+        labelled.exercises[0].brand = Brand(name: "Technogym", label: "Selection 700")
+        let rows = labelled.exportRows(timeZone: utc)
         #expect(rows[0].brand == "Technogym")
         #expect(rows[0].brandLabel == "Selection 700")
         #expect(rows[2].brandLabel == "")
+    }
+
+    @Test func setTypesUseHevysNames() {
+        var typed = workout
+        typed.exercises[0].sets[0].type = .warmup
+        typed.exercises[0].sets[1].type = .drop
+        let rows = typed.exportRows(timeZone: utc)
+        #expect(rows[0].fields[8] == "warmup")
+        #expect(rows[1].fields[8] == "dropset")
+        #expect(rows[2].fields[8] == "normal")
     }
 
     @Test func weightedScoreMatchesTheSetScore() {
@@ -127,14 +139,5 @@ struct DataExportTests {
         #expect(contents.hasPrefix("title,start_time"))
         #expect(contents.hasSuffix("\n"))
         #expect(contents.components(separatedBy: "\n").count == 6) // header, 3 rows (one with a line break in the notes), trailing LF
-    }
-
-    @Test func brandLabelsComeOutOfTheDatabase() throws {
-        let database = try AppDatabase.inMemory()
-        try database.save(workout.stored)
-        try database.writer.write { db in
-            try db.execute(sql: "UPDATE exercise_brand SET label = 'Selection 700' WHERE brand = 'Technogym'")
-        }
-        #expect(try database.brandLabels() == ["Adductors|Technogym": "Selection 700"])
     }
 }

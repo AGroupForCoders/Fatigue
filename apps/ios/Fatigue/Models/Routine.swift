@@ -175,10 +175,9 @@ final class WorkoutStore {
         return []
     }
 
-    /// Every finished workout as export rows, one per set, newest workout first, with brand labels filled in.
+    /// Every finished workout as export rows, one per set, newest workout first.
     func exportRows() -> [ExportRow] {
-        let labels = (try? database?.brandLabels()) ?? [:]
-        return history.flatMap { $0.exportRows(brandLabels: labels) }
+        history.flatMap { $0.exportRows() }
     }
 
     /// Saves the running workout as it is now. Called after every change, and when the app goes to the background.
