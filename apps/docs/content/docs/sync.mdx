@@ -36,9 +36,12 @@ The cost is that two edits to different parts of one item can't both survive. Th
 ## On the phone
 
 - Every top row has an `id`, an `updated_at` and a `deleted_at`. The [data model](/docs/data-model#rules-every-table-follows) page has the detail.
-- `sync_outbox` lists the items waiting to be pushed. Each entry is the kind, the ID and whether the item was deleted.
-- A save adds an item to the outbox only when its content changed. The app compares a hash of the item with the hash from its last save. Saving all routines, which the app does when one changes, then queues only the one that changed.
-- A pull writes each item through the same save the app uses, without adding it to the outbox.
+- There is no queue of changes. At sync time the phone builds every item from the database, takes a hash of what it holds, and compares it with the hash in `sync_item`, kept from the last time the phone and the server agreed on that item. An item whose hash differs gets pushed.
+- We chose the scan over a queue because a queue has to be filled by every piece of code that saves, and one that forgets loses a change without any error. The scan can't miss one. It reads the whole database on every sync, which takes well under a tenth of a second for years of workouts and runs off the main thread.
+- The hash covers what the item holds and whether it is deleted, not when it changed. Saving all routines, which the app does when one changes, gives every routine a new time and leaves the others' hashes alone, so only the one that changed is pushed.
+- Some saves change what is under an item without touching its `updated_at`. Deleting an exercise takes it out of every routine, for one. When the scan finds such an item, it stamps it with the current time before pushing.
+- An item deleted before it was ever pushed is not pushed. The server never knew it.
+- A pull writes items straight into the tables. The hash of each one as the database then holds it becomes the agreed hash.
 - `sync_state` holds the cursor from the last pull and the ID of the account the database belongs to.
 
 ## On the server
@@ -81,14 +84,14 @@ Nothing syncs while the app is closed. A second phone sees new workouts the next
 
 ## When it fails
 
-An item leaves the outbox only when the server confirms it. Pushing the same item twice changes nothing, so every failure can be retried.
+An item counts as pushed only when the server confirms it. Pushing the same item twice changes nothing, so every failure can be retried.
 
 | What went wrong | What the app does |
 | --- | --- |
 | No connection | Waits. The connection coming back starts a sync |
 | Server error or timeout | Tries again after 2 seconds, 8 seconds, 30 seconds and 2 minutes, then every 5 minutes while the app is open |
-| Session expired | Stops and asks you to sign in again. The data and the outbox stay on the phone |
-| The build is too old for an item | Keeps the item in the outbox and shows "Update the app to keep syncing" |
+| Session expired | Stops and asks you to sign in again. The data stays on the phone, unsent changes included |
+| The build is too old for an item | Remembers the refusal, shows "Update the app to keep syncing", and offers the item again once it changes or the app is updated |
 | The server rejects one item | Marks that item failed and carries on with the rest, so one bad workout can't block the ones behind it |
 | The app is killed during a pull | Nothing was written, so the next sync pulls again from the old cursor |
 
@@ -96,7 +99,7 @@ An item leaves the outbox only when the server confirms it. Pushing the same ite
 
 The later `updated_at` wins, for the whole item.
 
-- A pull that brings an item with an unsent edit on this phone keeps whichever is later. If the phone's edit wins it stays in the outbox and goes up on the next push.
+- A pull that brings an item this phone has not changed since they last agreed always replaces it, whatever the times say. Times are only compared when the phone has an unsent edit of its own. Then the later one stays, and if that is the phone's, it goes up on the next push.
 - A delete is a change like any other. Deleting a workout on one phone and then editing it on another brings it back, because the edit is later.
 - Deleting a workout or a routine removes the rows under it and keeps the top row with `deleted_at` set. The server keeps that row for good, so a phone that was off for a year still learns about the deletion.
 - A deleted exercise or brand keeps the rows under it, because finished workouts still show them.
@@ -106,7 +109,7 @@ The later `updated_at` wins, for the whole item.
 
 A build that doesn't know a newer column would pull an item, lose that column when saving it, and push the item back without it.
 
-Every push says which schema the build has, and the server remembers the schema each item was last written with. The server refuses an item from a build older than the one that last wrote it. The item waits in the outbox and goes up after the update.
+Every push says which schema the build has, and the server remembers the schema each item was last written with. The server refuses an item from a build older than the one that last wrote it. The item waits on the phone and goes up after the update.
 
 A phone migration that adds a synced column needs a Drizzle migration and an API deploy first. That is the price of real tables on the server, and we accepted it so the website can read history with plain SQL.
 
@@ -114,8 +117,8 @@ A phone migration that adds a synced column needs a Drizzle migration and an API
 
 Signing out wipes the database on the phone. Signing in again pulls everything back down.
 
-1. The app pushes what is in the outbox.
-2. If the outbox is then empty, it wipes and signs out.
+1. The app pushes what is waiting.
+2. If nothing is then waiting, it wipes and signs out.
 3. If something is still waiting, because the phone is offline or the server is down, it asks first: "3 workouts aren't backed up yet. Sign out anyway and lose them?"
 
 An expired session is not a sign-out and wipes nothing. If a different account then signs in on that phone, the app shows the same warning when anything is waiting, and wipes before the new account's first pull. Without this, one person's workouts would be pushed to another person's account.
@@ -131,7 +134,7 @@ Settings has one line that says where sync is, such as "Backed up just now" or "
 Sync bugs lose data without any error, so it gets three layers of tests.
 
 - **API.** The push and pull rules against a real Postgres. The later edit wins, the cursor never skips an item, and one account can't read or write another's rows.
-- **iOS.** The outbox and the pull against a fake server. Retries, the failed item, and a pull cut short.
+- **iOS.** The scan and the pull against a fake server. Retries, the failed item, and a pull cut short.
 - **Both together.** Two in-memory phone databases and one server in a single test, running scripted cases such as offline edits on both phones, a delete on one and an edit on the other, and a sign-out with items waiting.
 
 ## What has to change first
@@ -140,7 +143,7 @@ Sync bugs lose data without any error, so it gets three layers of tests.
 - Deleting a workout or a routine keeps the top row with `deleted_at`. Today both are removed outright.
 - Items refer to exercises, brands and settings by ID. The save code finds them by name today.
 - The weight unit moves from `UserDefaults` into `user_setting`.
-- A migration queues everything already on the phone, so the first push sends it.
+- Planned sets in a routine get an ID built from their exercise and their place in it. A new random one on every save made every routine look changed.
 
 ## Media comes later
 
