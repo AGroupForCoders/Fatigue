@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Everything about your account and the app, opened from the gear on the profile:
-/// name and email, weight unit, theme, importing from Hevy, sign out and delete account.
+/// name and email, weight unit, theme, backup, importing from Hevy, sign out and delete account.
 struct SettingsScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +10,7 @@ struct SettingsScreen: View {
     @Environment(AuthStore.self) private var auth
     @Environment(WorkoutStore.self) private var store
     @Environment(ExerciseCatalog.self) private var catalog
+    @Environment(SyncEngine.self) private var sync
     @AppStorage(WeightUnit.storageKey) private var weightUnit: WeightUnit = .kg
     @State private var name = ""
     @State private var renameError: String?
@@ -20,6 +21,9 @@ struct SettingsScreen: View {
     @State private var importResult: HevyImportResult?
     @State private var showingImportResult = false
     @State private var importError: String?
+    @State private var signingOut = false
+    /// What's still waiting when you sign out, for the warning. Non-nil shows it.
+    @State private var unsent: SignOutWarning?
     @FocusState private var editingName: Bool
 
     var body: some View {
@@ -82,7 +86,10 @@ struct SettingsScreen: View {
                     .padding(.bottom, Tokens.Space.s)
                 Hairline()
                 settingRow("Weight") {
-                    choices(WeightUnit.allCases.map(\.rawValue), selected: weightUnit.rawValue) { weightUnit = WeightUnit(rawValue: $0) ?? .kg }
+                    choices(WeightUnit.allCases.map(\.rawValue), selected: weightUnit.rawValue) {
+                        weightUnit = WeightUnit(rawValue: $0) ?? .kg
+                        sync.saveWeightUnit(weightUnit.rawValue)
+                    }
                 }
                 Hairline(soft: true)
                 settingRow("Theme") {
@@ -102,6 +109,10 @@ struct SettingsScreen: View {
                     .padding(.top, Tokens.Space.xxxl + Tokens.Space.l)
                     .padding(.bottom, Tokens.Space.s)
                 Hairline()
+                settingRow("Backup") {
+                    SyncStatusLine()
+                }
+                Hairline(soft: true)
                 Button { pickingHevyFile = true } label: {
                     rowLabel("Import from Hevy", color: palette.foreground)
                 }
@@ -112,10 +123,11 @@ struct SettingsScreen: View {
                     .foregroundStyle(importError == nil ? palette.foregroundMuted : palette.accent)
                     .padding(.top, Tokens.Space.m)
 
-                Button { Task { await auth.signOut() } } label: {
-                    rowLabel("Sign out", color: palette.foreground)
+                Button(action: signOut) {
+                    rowLabel(signingOut ? "Backing up…" : "Sign out", color: palette.foreground)
                 }
                 .buttonStyle(.pressRow)
+                .disabled(signingOut)
                 .padding(.top, Tokens.Space.xxxl)
                 Hairline()
                 Button { deleting = true } label: {
@@ -132,7 +144,19 @@ struct SettingsScreen: View {
         .background(palette.background)
         .presentationDetents([.large])
         .presentationBackground(palette.background)
-        .onAppear { name = account.name }
+        .onAppear {
+            name = account.name
+            sync.refreshCounts()
+        }
+        .confirmationDialog(unsent?.title ?? "", isPresented: Binding(get: { unsent != nil }, set: { if !$0 { unsent = nil } }), titleVisibility: .visible) {
+            Button("Sign out and lose them", role: .destructive) {
+                sync.wipe()
+                Task { await auth.signOut() }
+            }
+            Button("Stay signed in", role: .cancel) {}
+        } message: {
+            Text(unsent?.message ?? "")
+        }
         .task {
             // The link in the verification email may have been opened on another device.
             if !account.emailVerified { await auth.restore() }
@@ -141,6 +165,7 @@ struct SettingsScreen: View {
         .sheet(isPresented: $deleting) {
             DeleteAccountSheet()
                 .environment(\.palette, palette)
+                .environment(sync)
         }
         .fileImporter(isPresented: $pickingHevyFile, allowedContentTypes: [.commaSeparatedText, .plainText]) { picked in
             switch picked {
@@ -152,6 +177,23 @@ struct SettingsScreen: View {
             if let importResult {
                 HevyImportResultSheet(result: importResult)
                     .environment(\.palette, palette)
+            }
+        }
+    }
+
+    /// Backs up what's waiting, then signs out and empties the phone. Asks first if something couldn't go up.
+    private func signOut() {
+        signingOut = true
+        // The running workout is saved a moment after each change. Save it now so it's counted.
+        store.saveActive()
+        Task {
+            let unsaved = await sync.prepareSignOut()
+            signingOut = false
+            if unsaved.isEmpty {
+                sync.wipe()
+                await auth.signOut()
+            } else {
+                unsent = SignOutWarning(unsaved: unsaved)
             }
         }
     }
@@ -270,6 +312,7 @@ struct SettingsScreen: View {
 private struct DeleteAccountSheet: View {
     @Environment(\.palette) private var palette
     @Environment(AuthStore.self) private var auth
+    @Environment(SyncEngine.self) private var sync
     @State private var password = ""
     @State private var error: String?
     @State private var isWorking = false
@@ -322,6 +365,8 @@ private struct DeleteAccountSheet: View {
         Task {
             do {
                 try await auth.deleteAccount(password: password)
+                // The server's copy is gone with the account, so the phone's goes too, without asking.
+                sync.wipe()
             } catch {
                 self.error = error.localizedDescription
             }

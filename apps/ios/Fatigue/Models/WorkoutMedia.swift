@@ -122,6 +122,14 @@ final class MediaStore {
         removeFiles(of: media)
     }
 
+    /// Forgets every photo and video and deletes their files, after the database was wiped.
+    func forgetAll() {
+        byWorkout = [:]
+        thumbnails = [:]
+        let folder = folder
+        Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: folder) }
+    }
+
     /// Removes everything on a workout, for when the workout is deleted or thrown away.
     func deleteAll(for workoutID: UUID) {
         guard let items = byWorkout.removeValue(forKey: workoutID) else { return }

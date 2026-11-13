@@ -41,6 +41,12 @@ final class SyncEngine {
     private(set) var lastSynced: Date?
     /// Some items were last written by a newer build. They wait until this app is updated.
     private(set) var updateNeeded = false
+    /// What's waiting to go up, counted after each sync, for Settings.
+    private(set) var waiting: (items: Int, workouts: Int) = (0, 0)
+    /// Items the server refused, for Settings.
+    private(set) var failedCount = 0
+    /// When the phone's data belongs to another account: what of theirs would be lost by taking over.
+    private(set) var otherAccountUnsaved = UnsavedOnPhone()
 
     /// The signed-in account, set by the app. Nil while signed out, when nothing syncs.
     var account: String? {
@@ -52,6 +58,8 @@ final class SyncEngine {
 
     /// Called after a pull wrote something, so the app can reload what it shows.
     var onPulled: (PullOutcome) -> Void = { _ in }
+    /// Called after the phone was wiped, so the app can forget what it holds in memory.
+    var onWiped: () -> Void = {}
 
     private enum Mode: Comparable {
         /// Only push, and only if something is waiting. What a change asks for.
@@ -166,10 +174,18 @@ final class SyncEngine {
         guard let database, let account, let token = token() else { return }
 
         // The data on this phone belongs to whoever first synced it. The first run adopts the signed-in account.
+        // Another account gets the phone once nothing of the first one's would be lost; otherwise it asks first.
         do {
-            if let owner = try database.syncOwner() {
-                guard owner == account else { status = .otherAccount; return }
-            } else {
+            if let owner = try database.syncOwner(), owner != account {
+                let unsaved = try database.unsavedOnPhone()
+                guard unsaved.isEmpty else {
+                    otherAccountUnsaved = unsaved
+                    status = .otherAccount
+                    return
+                }
+                wipe()
+                try database.setSyncOwner(account)
+            } else if try database.syncOwner() == nil {
                 try database.setSyncOwner(account)
             }
         } catch {
@@ -185,6 +201,7 @@ final class SyncEngine {
             if mode == .full { try await pull(into: database, token: token) }
             status = .idle
             lastSynced = now()
+            refreshCounts()
             retryAttempt = 0
             retry?.cancel()
             retry = nil
@@ -195,6 +212,58 @@ final class SyncEngine {
             case .server: scheduleRetry()
             }
         }
+    }
+
+    // MARK: Signing out and wiping
+
+    /// Pushes what's waiting, then says what a wipe would still lose, for the sign-out warning. Nothing
+    /// means it's safe to wipe without asking.
+    ///
+    /// On top of what's waiting, that's items the server refused, a running workout and photos and videos,
+    /// none of which the server has.
+    func prepareSignOut() async -> UnsavedOnPhone {
+        await pushNow()
+        refreshCounts()
+        guard let database else { return UnsavedOnPhone() }
+        // If the count can't be read, assume the worst rather than wipe without asking.
+        return (try? database.unsavedOnPhone()) ?? UnsavedOnPhone(items: max(waiting.items, 1))
+    }
+
+    /// Empties the phone's data and forgets what sync knew. For signing out, deleting the account, and
+    /// another account taking over this phone.
+    func wipe() {
+        changeTimer?.cancel()
+        retry?.cancel()
+        try? database?.wipe()
+        lastSynced = nil
+        updateNeeded = false
+        waiting = (0, 0)
+        failedCount = 0
+        otherAccountUnsaved = UnsavedOnPhone()
+        if status == .otherAccount { status = .idle }
+        onWiped()
+    }
+
+    /// Lets the signed-in account take over a phone holding another account's unsent data: wipes it, then
+    /// syncs the signed-in account down.
+    func takeOver() {
+        guard let database, let account else { return }
+        wipe()
+        try? database.setSyncOwner(account)
+        sync()
+    }
+
+    /// Saves a weight unit you picked to the account's settings, so your other phones switch too.
+    func saveWeightUnit(_ unit: String) {
+        guard let database, let account else { return }
+        try? database.saveWeightUnit(unit, accountId: account)
+    }
+
+    /// Counts what's waiting and what failed again.
+    func refreshCounts() {
+        guard let database else { return }
+        if let counts = try? database.waitingCounts() { waiting = counts }
+        failedCount = (try? database.syncFailures().count) ?? 0
     }
 
     private func push(_ waiting: [LocalSyncItem], to database: AppDatabase, token: String) async throws(SyncFailure) {

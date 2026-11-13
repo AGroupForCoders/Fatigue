@@ -48,7 +48,7 @@ final class ExerciseCatalog {
 
     /// The library as saved on the phone.
     static func load(from database: AppDatabase) -> ExerciseCatalog {
-        let catalog = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary())
+        let catalog = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary(), samples: !((try? database.wasWiped()) ?? false))
         catalog.database = database
         return catalog
     }
@@ -56,7 +56,7 @@ final class ExerciseCatalog {
     /// Reads the library again, after a sync wrote to the database.
     func reloadFromDatabase() {
         guard let database else { return }
-        let reloaded = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary())
+        let reloaded = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary(), samples: !((try? database.wasWiped()) ?? false))
         exercises = reloaded.exercises
         setups = reloaded.setups
     }

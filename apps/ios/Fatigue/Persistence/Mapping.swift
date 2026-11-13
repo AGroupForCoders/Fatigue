@@ -205,8 +205,9 @@ extension ExerciseCatalog {
     }
 
     /// The library from what's saved, on top of the built-in exercises. An empty database
-    /// starts from the sample settings, so debug builds have something to show.
-    convenience init(stored: StoredLibrary) {
+    /// starts from the sample settings, so debug builds have something to show, unless `samples` is off,
+    /// as it is after a sign-out emptied the phone.
+    convenience init(stored: StoredLibrary, samples: Bool = true) {
         var exercises = Dictionary(ExerciseCatalog.builtIn.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         for row in stored.exercises where !row.muscles.isEmpty || !row.isBuiltin {
             let primary = row.muscles.first { $0.share == 1 }.flatMap { Muscle(rawValue: $0.muscle) } ?? exercises[row.name]?.primaryMuscle ?? .chest
@@ -222,6 +223,6 @@ extension ExerciseCatalog {
         for setup in stored.setups {
             setups[ExerciseCatalog.key(setup.name, Brand(name: setup.brand, label: setup.label))] = BrandSetup(settings: setup.settings.map(ExerciseSetting.init(stored:)))
         }
-        self.init(exercises: Array(exercises.values), setups: stored.exercises.isEmpty && stored.setups.isEmpty ? ExerciseCatalog.sampleSetups : setups)
+        self.init(exercises: Array(exercises.values), setups: samples && stored.exercises.isEmpty && stored.setups.isEmpty ? ExerciseCatalog.sampleSetups : setups)
     }
 }

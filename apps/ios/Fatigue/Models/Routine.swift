@@ -145,7 +145,8 @@ final class WorkoutStore {
         history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:))
         active = workouts.first { $0.finishedAt == nil }.map { WorkoutSession(stored: $0, now: now) }
         #if DEBUG
-        if routines.isEmpty, history.isEmpty, active == nil {
+        // Not after a sign-out emptied the phone: the next account to sign in would back the samples up as its own.
+        if routines.isEmpty, history.isEmpty, active == nil, !((try? database.wasWiped()) ?? false) {
             routines = Routine.samples
             // With six earlier weeks, so the app opens with history to graph.
             history = (FinishedWorkout.samples() + FinishedWorkout.earlierSamples()).sorted { $0.startedAt > $1.startedAt }
@@ -407,6 +408,15 @@ final class WorkoutStore {
             active.exercises = stored.exercises.map(WorkoutExercise.init(stored:))
             for index in active.exercises.indices { active.fillPrevious(for: index) }
         }
+    }
+
+    /// Forgets everything after the database was wiped, such as on sign-out. The running workout goes too.
+    func forgetAll() {
+        active?.skipRest()
+        isShowingActive = false
+        active = nil
+        history = []
+        routines = []
     }
 
     /// Reads history and prebuilt workouts again, after a sync wrote to the database. The running workout
