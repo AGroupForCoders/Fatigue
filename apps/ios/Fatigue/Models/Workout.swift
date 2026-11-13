@@ -224,11 +224,16 @@ extension WorkoutExercise {
 }
 
 /// A rest countdown that started when a set was ticked.
-struct RestTimer: Equatable {
+/// Saved on the phone while it runs (see `SavedRest`) and shown outside the app by the
+/// notification and the Live Activity, so it's plain data any of them can read.
+nonisolated struct RestTimer: Equatable, Codable, Sendable {
     var endsAt: Date
     var total: TimeInterval
-    /// The exercise you're resting from, for the notification when rest ends.
+    /// The exercise you're resting from, for the notification and Live Activity.
     var exerciseName = ""
+
+    /// When the countdown started, for a progress line that moving the timer by ±15 s doesn't jump.
+    var startedAt: Date { endsAt.addingTimeInterval(-total) }
 }
 
 /// The workout that is running. Holds everything the workout screen shows and changes.
@@ -241,6 +246,9 @@ final class WorkoutSession {
     private(set) var rest: RestTimer?
     /// Off when editing a finished workout, where ticking a set shouldn't start a rest timer.
     var startsRestWhenTicked = true
+    /// Called whenever the rest timer starts, moves or ends, with the new timer or nil.
+    /// The store uses it to keep the saved copy, notification and Live Activity in step.
+    @ObservationIgnored var onRestChange: ((RestTimer?) -> Void)?
     /// Looks up your sets on an exercise and brand from last time, for the Previous column.
     /// Set by the store; nil in tests and previews.
     @ObservationIgnored var previousLookup: ((String, String?) -> [WorkoutSet])?
@@ -265,7 +273,7 @@ final class WorkoutSession {
         exercises[exerciseIndex].sets[setIndex].isDone.toggle()
         if startsRestWhenTicked, exercises[exerciseIndex].sets[setIndex].isDone {
             let seconds = TimeInterval(exercises[exerciseIndex].restSeconds)
-            rest = RestTimer(endsAt: now().addingTimeInterval(seconds), total: seconds, exerciseName: exercises[exerciseIndex].name)
+            setRest(RestTimer(endsAt: now().addingTimeInterval(seconds), total: seconds, exerciseName: exercises[exerciseIndex].name))
         }
     }
 
@@ -362,19 +370,32 @@ final class WorkoutSession {
         guard var timer = rest else { return }
         timer.endsAt = max(now(), timer.endsAt.addingTimeInterval(seconds))
         timer.total = max(1, timer.total + seconds)
-        rest = timer
+        setRest(timer)
     }
 
     func skipRest() {
-        rest = nil
+        setRest(nil)
     }
 
     /// Clears the rest timer once its time is up. Returns whether it did.
     @discardableResult
     func finishRestIfDue() -> Bool {
         guard let timer = rest, timer.endsAt <= now() else { return false }
-        rest = nil
+        setRest(nil)
         return true
+    }
+
+    /// Picks up a rest timer saved before the app was closed, as long as it hasn't run out.
+    /// Doesn't report a change: whatever shows the timer outside the app was already told.
+    func resumeRest(_ timer: RestTimer) {
+        guard timer.endsAt > now() else { return }
+        rest = timer
+    }
+
+    private func setRest(_ timer: RestTimer?) {
+        guard timer != rest else { return }
+        rest = timer
+        onRestChange?(timer)
     }
 }
 

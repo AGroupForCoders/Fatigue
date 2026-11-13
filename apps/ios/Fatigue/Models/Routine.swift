@@ -109,26 +109,34 @@ final class WorkoutStore {
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
     /// Debug builds open a running workout on launch with `-openWorkout`, for screenshots.
     var isShowingActive = ProcessInfo.processInfo.arguments.contains("-openWorkout")
+    /// Called whenever the running workout's rest timer starts, moves or ends. The app points this at
+    /// the notification and the Live Activity, which follow the timer outside the app.
+    var onRestChange: ((RestTimer?, WorkoutSession) -> Void)?
     private let now: () -> Date
     /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
     private let database: AppDatabase?
+    /// Where the rest timer is saved between launches. Nil, like `database`, keeps it in memory.
+    private let defaults: UserDefaults?
 
     init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), now: @escaping () -> Date = Date.init) {
         self.routines = routines
         self.history = history
         self.now = now
         self.database = nil
+        self.defaults = nil
     }
 
-    /// Loads everything saved on the phone, including a workout that was running when the app closed.
+    /// Loads everything saved on the phone, including a workout that was running when the app closed,
+    /// and its rest timer if that's still running.
     /// Debug builds fill an empty database with the sample workouts, so there's something to look at.
-    init(database: AppDatabase, now: @escaping () -> Date = Date.init) {
+    init(database: AppDatabase, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.database = database
+        self.defaults = defaults
         self.now = now
         let workouts = (try? database.workouts()) ?? []
         routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
         history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:))
-        active = workouts.first { $0.finishedAt == nil }.map(WorkoutSession.init(stored:))
+        active = workouts.first { $0.finishedAt == nil }.map { WorkoutSession(stored: $0, now: now) }
         #if DEBUG
         if routines.isEmpty, history.isEmpty, active == nil {
             routines = Routine.samples
@@ -141,7 +149,11 @@ final class WorkoutStore {
             // Previous isn't stored, since it comes from history; fill it in again.
             active.previousLookup = previousSets
             for index in active.exercises.indices { active.fillPrevious(for: index) }
+            if let saved = SavedRest.load(from: defaults), saved.workoutID == active.id { active.resumeRest(saved.rest) }
+            follow(active)
         }
+        // A saved timer that ran out, or belonged to a workout since finished, is of no use now.
+        if active?.rest == nil { SavedRest.save(nil, to: defaults) }
     }
 
     func start(_ routine: Routine) {
@@ -158,8 +170,27 @@ final class WorkoutStore {
 
     private func begin(_ session: WorkoutSession) {
         session.previousLookup = previousSets
+        follow(session)
         active = session
         isShowingActive = true
+    }
+
+    /// Keeps the saved copy of the rest timer up to date, and passes each change on to `onRestChange`.
+    private func follow(_ session: WorkoutSession) {
+        session.onRestChange = { [weak self, weak session] rest in
+            guard let self, let session else { return }
+            if let defaults { SavedRest.save(rest.map { SavedRest(workoutID: session.id, rest: $0) }, to: defaults) }
+            onRestChange?(rest, session)
+        }
+    }
+
+    /// Does what a button on the rest Live Activity asks, to the running workout's rest timer.
+    func perform(_ action: RestAction) {
+        guard let active else { return }
+        switch action {
+        case .skip: active.skipRest()
+        case .extend(let seconds): active.adjustRest(by: seconds)
+        }
     }
 
     /// Your sets on an exercise and brand the last time you did it, newest workout first.
@@ -229,6 +260,7 @@ final class WorkoutStore {
             let stored = finished.stored
             persist { try $0.save(stored) }
         }
+        session.skipRest()
         isShowingActive = false
         active = nil
     }
@@ -258,7 +290,10 @@ final class WorkoutStore {
 
     /// Throws the running workout away without saving it.
     func discard() {
-        if let session = active { persist { try $0.deleteWorkout(id: session.id.uuidString) } }
+        if let session = active {
+            persist { try $0.deleteWorkout(id: session.id.uuidString) }
+            session.skipRest()
+        }
         isShowingActive = false
         active = nil
     }
