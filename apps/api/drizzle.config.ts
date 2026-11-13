@@ -1,6 +1,9 @@
 import { defineConfig } from "drizzle-kit";
 
-process.loadEnvFile?.(".env");
+// Only migrate needs a database; generate works without a .env.
+try {
+  process.loadEnvFile?.(".env");
+} catch {}
 
 export default defineConfig({
   dialect: "postgresql",
