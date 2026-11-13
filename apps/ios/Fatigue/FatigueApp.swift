@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct FatigueApp: App {
     @State private var auth = AuthStore()
+    @State private var social = SocialStore()
     @State private var workouts: WorkoutStore
     @State private var catalog: ExerciseCatalog
 
@@ -41,6 +42,7 @@ struct FatigueApp: App {
                 RootView()
             }
             .environment(auth)
+            .environment(social)
             .environment(workouts)
             .environment(workouts.media)
             .environment(catalog)

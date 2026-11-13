@@ -7,11 +7,13 @@ struct ProfileScreen: View {
     @Environment(\.palette) private var palette
     @Environment(AuthStore.self) private var auth
     @Environment(WorkoutStore.self) private var store
+    @Environment(SocialStore.self) private var social
     /// Launch with `-openSettings` to open settings straight away, for screenshots.
     @State private var showingSettings = ProcessInfo.processInfo.arguments.contains("-openSettings")
     @State private var photoItem: PhotosPickerItem?
     @State private var photo: UIImage? = ProfilePhoto.load()
-    @State private var path: [UUID] = []
+    @State private var path = NavigationPath()
+    @State private var editingProfile = false
     @State private var exporting = false
     @State private var exportFile: ExportFile?
 
@@ -23,12 +25,23 @@ struct ProfileScreen: View {
                     WorkoutDetailScreen(workoutID: id)
                 }
                 .exercisePages(history: store.history)
+                .navigationDestination(for: FriendsRoute.self) { _ in FriendsScreen() }
+        }
+        .task(id: auth.account?.id) {
+            // A different account on this phone shouldn't see the last one's friends while loading.
+            if social.myProfile?.userId != auth.account?.id { social.reset() }
+            await social.load()
+        }
+        .sheet(isPresented: $editingProfile) {
+            ProfileEditor(current: social.myProfile)
+                .environment(\.palette, palette)
+                .environment(social)
         }
         .onAppear {
             // Debug builds open the third workout in history with `-openHistory`, for screenshots.
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-openHistory"), path.isEmpty, store.history.count > 2 {
-                path = [store.history[2].id]
+                path.append(store.history[2].id)
             }
             #endif
         }
@@ -138,8 +151,48 @@ struct ProfileScreen: View {
                 Text("Lifting since \(account.createdAt.formatted(.dateTime.month(.wide).year()))  ·  \(store.history.count) workout\(store.history.count == 1 ? "" : "s")")
                     .textStyle(Tokens.Typography.body)
                     .foregroundStyle(palette.foregroundMuted)
+                if let bio = social.myProfile?.bio {
+                    Text(bio)
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            socialRow
         }
+        .animation(.standard, value: social.profile)
+    }
+
+    /// Your handle and friends once you have a handle, or a prompt to pick one. Left out while the API can't be reached.
+    @ViewBuilder private var socialRow: some View {
+        switch social.profile {
+        case .ready(let profile):
+            HStack(spacing: Tokens.Space.s) {
+                Button { editingProfile = true } label: {
+                    OutlinedLabel(systemImage: profile.defaultVisibility.systemImage, text: "@\(profile.handle)")
+                }
+                .buttonStyle(.press)
+                .accessibilityLabel("Edit profile, @\(profile.handle)")
+                NavigationLink(value: FriendsRoute()) {
+                    OutlinedLabel(systemImage: "person.2", text: friendsText)
+                }
+                .buttonStyle(.press)
+            }
+        case .needsHandle:
+            Button { editingProfile = true } label: {
+                OutlinedLabel(systemImage: "at", text: "Pick a handle so friends can find you")
+            }
+            .buttonStyle(.press)
+        case .unknown, .unavailable:
+            EmptyView()
+        }
+    }
+
+    private var friendsText: String {
+        let friends = social.accepted.count
+        let requests = social.incoming.count
+        let text = friends == 1 ? "1 friend" : "\(friends) friends"
+        return requests == 0 ? text : "\(text)  ·  \(requests) request\(requests == 1 ? "" : "s")"
     }
 }
 
