@@ -37,6 +37,8 @@ struct FatigueApp: App {
             .environment(auth)
             .environment(workouts)
             .environment(catalog)
+            // The links in reset and verification emails end up here, as fatigue:// URLs.
+            .onOpenURL { url in auth.open(url) }
         }
     }
 }
@@ -47,6 +49,7 @@ struct RootView: View {
     @Environment(AuthStore.self) private var auth
 
     var body: some View {
+        @Bindable var auth = auth
         ZStack {
             palette.background.ignoresSafeArea()
             switch auth.state {
@@ -59,6 +62,10 @@ struct RootView: View {
             }
         }
         .animation(.standard, value: auth.state)
+        .sheet(item: $auth.passwordReset) { _ in
+            ResetPasswordScreen()
+                .environment(\.palette, palette)
+        }
         .task {
             await auth.restore()
             await signInForScreenshots()

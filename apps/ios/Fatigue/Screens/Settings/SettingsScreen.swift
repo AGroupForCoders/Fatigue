@@ -11,6 +11,8 @@ struct SettingsScreen: View {
     @State private var name = ""
     @State private var renameError: String?
     @State private var deleting = false
+    @State private var verificationSent = false
+    @State private var verificationError: String?
     @FocusState private var editingName: Bool
 
     var body: some View {
@@ -56,6 +58,7 @@ struct SettingsScreen: View {
                             .foregroundStyle(palette.foregroundMuted)
                             .frame(minHeight: Tokens.Size.control, alignment: .leading)
                         Hairline(soft: true)
+                        verification(account)
                     }
                 }
                 if let renameError {
@@ -107,10 +110,55 @@ struct SettingsScreen: View {
         .presentationDetents([.large])
         .presentationBackground(palette.background)
         .onAppear { name = account.name }
+        .task {
+            // The link in the verification email may have been opened on another device.
+            if !account.emailVerified { await auth.restore() }
+        }
         .onChange(of: editingName) { _, editing in if !editing { saveName() } }
         .sheet(isPresented: $deleting) {
             DeleteAccountSheet()
                 .environment(\.palette, palette)
+        }
+    }
+
+    /// Whether the email has been verified, with a way to get the email again if not.
+    private func verification(_ account: Account) -> some View {
+        HStack(spacing: Tokens.Space.m) {
+            if account.emailVerified {
+                Image(systemName: "checkmark")
+                    .imageScale(.small)
+                Text("Email verified")
+            } else {
+                Text(verificationError ?? (verificationSent ? "Verification email sent. Check your inbox." : "Email not verified"))
+                    .foregroundStyle(verificationError == nil ? palette.foregroundMuted : palette.accent)
+            }
+            Spacer(minLength: 0)
+            if !account.emailVerified && !verificationSent {
+                Button(action: sendVerification) {
+                    Text("Resend")
+                        .foregroundStyle(palette.foreground)
+                        .frame(minHeight: Tokens.Space.xxl)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressRow)
+            }
+        }
+        .textStyle(Tokens.Typography.caption)
+        .foregroundStyle(palette.foregroundMuted)
+        .frame(minHeight: Tokens.Space.xxl, alignment: .leading)
+        .animation(.quick, value: account.emailVerified)
+        .animation(.quick, value: verificationSent)
+    }
+
+    private func sendVerification() {
+        Task {
+            do {
+                try await auth.sendVerificationEmail()
+                verificationError = nil
+                verificationSent = true
+            } catch {
+                verificationError = error.localizedDescription
+            }
         }
     }
 
