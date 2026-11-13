@@ -6,6 +6,7 @@ struct WorkoutDetailScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(WorkoutStore.self) private var store
+    @Environment(SocialStore.self) private var social
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let workoutID: UUID
 
@@ -13,6 +14,8 @@ struct WorkoutDetailScreen: View {
     @State private var confirmingDelete = false
     @State private var savedAsRoutine = false
     @State private var editingDetails = false
+    @State private var composing = false
+    @State private var confirmingUnshare = false
 
     private var workout: FinishedWorkout? { store.history.first { $0.id == workoutID } }
 
@@ -58,6 +61,21 @@ struct WorkoutDetailScreen: View {
             Text("It's removed from your history for good.")
         }
         .sensoryFeedback(.success, trigger: savedAsRoutine) { _, saved in saved }
+        .sheet(isPresented: $composing) {
+            if let workout {
+                PostComposer(workout: workout, earlier: store.history.filter { $0.startedAt < workout.startedAt },
+                             defaultVisibility: social.myProfile?.defaultVisibility ?? .everyone)
+                    .environment(\.palette, palette)
+                    .environment(social)
+            }
+        }
+        .confirmationDialog("Remove from feed?", isPresented: $confirmingUnshare, titleVisibility: .visible) {
+            Button("Remove from feed", role: .destructive) {
+                Task { try? await social.unshare(workoutID) }
+            }
+        } message: {
+            Text("Friends stop seeing it. The workout stays in your history.")
+        }
     }
 
     private var menu: some View {
@@ -68,6 +86,12 @@ struct WorkoutDetailScreen: View {
                 guard let workout, !savedAsRoutine else { return }
                 store.add(workout.asRoutine())
                 savedAsRoutine = true
+            }
+            if social.myProfile != nil, let workout {
+                Button(social.isShared(workout.id) ? "Share again" : "Share to feed", systemImage: "square.and.arrow.up") { composing = true }
+                if social.isShared(workout.id) {
+                    Button("Remove from feed", systemImage: "eye.slash") { confirmingUnshare = true }
+                }
             }
             Button("Delete workout", systemImage: "trash", role: .destructive) { confirmingDelete = true }
         } label: {

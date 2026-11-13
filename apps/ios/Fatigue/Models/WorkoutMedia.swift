@@ -63,7 +63,14 @@ final class MediaStore {
         byWorkout = Dictionary(grouping: rows.compactMap(WorkoutMedia.init(stored:)), by: \.workoutID)
     }
 
+    /// The most photos and videos one workout can hold.
+    static let limit = 3
+
     func media(for workoutID: UUID) -> [WorkoutMedia] { byWorkout[workoutID] ?? [] }
+
+    /// How many more a workout can take before it reaches the limit. Never negative, so a workout
+    /// saved with more than the limit before there was one keeps what it has and takes no more.
+    func room(for workoutID: UUID) -> Int { max(0, Self.limit - media(for: workoutID).count) }
 
     /// The first photo or video on a workout, for its history row.
     func cover(for workoutID: UUID) -> WorkoutMedia? { byWorkout[workoutID]?.first }
@@ -77,8 +84,10 @@ final class MediaStore {
     // MARK: Adding
 
     /// Copies what was picked into the media folder and puts it on the workout. Each pick is saved as soon
-    /// as it's in, so a slow iCloud download for one doesn't hold up the others. Picks that can't be read are skipped.
+    /// as it's in, so a slow iCloud download for one doesn't hold up the others. Picks that can't be read are skipped,
+    /// and so are any past the limit.
     func add(_ picks: [PhotosPickerItem], to workoutID: UUID) async {
+        let picks = Array(picks.prefix(room(for: workoutID)))
         guard !picks.isEmpty else { return }
         importing.insert(workoutID)
         defer { importing.remove(workoutID) }
@@ -91,6 +100,11 @@ final class MediaStore {
             }.value
             guard let imported else { continue }
             let (media, thumbnail) = imported
+            // Checked again here, since another pick for the same workout can finish while this one copies.
+            guard room(for: workoutID) > 0 else {
+                removeFiles(of: media)
+                break
+            }
             if let thumbnail { thumbnails[media.id] = thumbnail }
             byWorkout[workoutID, default: []].append(media)
             let stored = media.stored

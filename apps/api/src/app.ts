@@ -4,6 +4,7 @@ import { services } from "./middleware/services";
 import { authPages } from "./modules/auth/auth.pages";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { friendRoutes } from "./modules/friends/friends.routes";
+import { postRoutes } from "./modules/posts/posts.routes";
 import { profileRoutes } from "./modules/profiles/profiles.routes";
 import { syncRoutes } from "./modules/sync/sync.routes";
 
@@ -20,6 +21,7 @@ export function createApp() {
   app.route("/api/auth", authRoutes);
   app.route("/api/profiles", profileRoutes);
   app.route("/api/friends", friendRoutes);
+  app.route("/api/posts", postRoutes);
   app.route("/api/sync", syncRoutes);
 
   return app;

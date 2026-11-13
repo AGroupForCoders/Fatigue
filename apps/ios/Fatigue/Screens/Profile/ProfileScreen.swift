@@ -26,6 +26,7 @@ struct ProfileScreen: View {
                 }
                 .exercisePages(history: store.history)
                 .navigationDestination(for: FriendsRoute.self) { _ in FriendsScreen() }
+                .socialPages()
         }
         .task(id: auth.account?.id) {
             // A different account on this phone shouldn't see the last one's friends while loading.

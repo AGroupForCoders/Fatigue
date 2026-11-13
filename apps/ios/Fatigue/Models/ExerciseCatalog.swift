@@ -97,6 +97,8 @@ final class ExerciseCatalog {
                 setups[key] = nil
                 setups[info.name + key.dropFirst(oldName.count)] = value
             }
+            // Before saving the library, which finds exercises by name and would add the new name as another exercise.
+            try? database?.renameExercise(from: oldName, to: info.name)
         }
         setups[Self.key(info.name, brand)] = setup
         persist()

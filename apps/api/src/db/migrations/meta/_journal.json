@@ -19,8 +19,15 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1794552358344,
-      "tag": "0002_sync",
+      "when": 1794547719449,
+      "tag": "0002_social_posts",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794552918556,
+      "tag": "0003_sync",
       "breakpoints": true
     }
   ]
