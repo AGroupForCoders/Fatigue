@@ -6,17 +6,18 @@ import SwiftUI
 struct ExerciseScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(WeightUnit.storageKey) private var weightUnit: WeightUnit = .kg
     let name: String
     let history: [FinishedWorkout]
 
-    @State private var brand: String?
+    @State private var brand: Brand?
     @State private var metric: StatMetric = .setVolume
     @State private var weighted = true
     /// The setting the graph is split by. Remembered per exercise.
     @State private var splitBy: String?
 
     /// Opens on `brand`, the one you're on now, or the one you've used most if you've never done it there.
-    init(name: String, brand: String?, history: [FinishedWorkout]) {
+    init(name: String, brand: Brand?, history: [FinishedWorkout]) {
         self.name = name
         self.history = history
         let brands = ExerciseStats.brands(for: name, in: history)
@@ -26,7 +27,7 @@ struct ExerciseScreen: View {
 
     private static func splitKey(_ name: String) -> String { "exerciseSplit.\(name)" }
 
-    private var brands: [String?] {
+    private var brands: [Brand?] {
         let used = ExerciseStats.brands(for: name, in: history)
         return used.contains(brand) ? used : [brand] + used
     }
@@ -51,7 +52,7 @@ struct ExerciseScreen: View {
                 header
                 if brands.count > 1 { brandPicker }
                 if stats.sessions.isEmpty {
-                    Text("No ticked sets on \(brand ?? "no brand") yet. Finish a workout with this exercise and it shows up here.")
+                    Text("No ticked sets on \(brand?.display ?? "no brand") yet. Finish a workout with this exercise and it shows up here.")
                         .textStyle(Tokens.Typography.body)
                         .foregroundStyle(palette.foregroundMuted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -84,7 +85,7 @@ struct ExerciseScreen: View {
                 Text(name)
                     .textStyle(Tokens.Typography.title)
                     .foregroundStyle(palette.foreground)
-                Text(brand ?? "No brand")
+                Text(brand?.display ?? "No brand")
                     .textStyle(Tokens.Typography.control)
                     .foregroundStyle(palette.foregroundMuted)
             }
@@ -100,16 +101,24 @@ struct ExerciseScreen: View {
     }
 
     private var brandPicker: some View {
-        chips(brands.map { ($0 ?? "No brand", $0) }, selected: brand) { brand = $0 }
+        chips(brands.map { ($0?.display ?? "No brand", $0) }, selected: brand) { brand = $0 }
             .padding(.top, Tokens.Space.l)
     }
 
     // MARK: Graph
 
-    private var points: [StatPoint] { stats.points(metric, weighted: isWeighted, splitBy: split) }
+    /// The graph's points, with plain weights in the unit from Settings. Scores are unitless and stay as they are.
+    private var points: [StatPoint] {
+        stats.points(metric, weighted: isWeighted, splitBy: split).map {
+            StatPoint(date: $0.date, value: shown($0.value), series: $0.series)
+        }
+    }
 
-    /// "kg" for plain kilograms, "weighted" for scores, so it's never a guess which one a number is.
-    private var unit: String { isWeighted ? "weighted" : "kg" }
+    /// A plain kilogram value in the unit from Settings, or a score untouched.
+    private func shown(_ value: Double) -> Double { isWeighted ? value : weightUnit.amount(fromKilograms: value) }
+
+    /// "kg" or "lb" for plain weights, "weighted" for scores, so it's never a guess which one a number is.
+    private var unit: String { isWeighted ? "weighted" : weightUnit.rawValue }
 
     private var lineStyles: [Color] { [palette.foreground, palette.accent, palette.foregroundMuted, palette.foregroundFaint] }
 
@@ -232,10 +241,10 @@ struct ExerciseScreen: View {
                         .foregroundStyle(palette.foregroundMuted)
                         .padding(.top, Tokens.Space.l)
                         .padding(.bottom, Tokens.Space.xs)
-                    records(stats.records(splitBy: split, series: series))
+                    records(stats.records(splitBy: split, series: series, in: weightUnit))
                 }
             } else {
-                records(stats.records())
+                records(stats.records(in: weightUnit))
             }
         }
     }
@@ -243,25 +252,26 @@ struct ExerciseScreen: View {
     private func records(_ records: ExerciseRecords) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Hairline()
-            recordRow("Heaviest weight", records.heaviestWeight, unit: "kg")
+            recordRow("Heaviest weight", records.heaviestWeight)
             Hairline(soft: true)
-            recordRow("Best 1RM", records.bestOneRepMax, unit: "kg")
+            recordRow("Best 1RM", records.bestOneRepMax)
             Hairline(soft: true)
-            recordRow("Best set volume", records.bestSetVolume, unit: "kg", weightedBest: records.weightedSetVolume)
+            recordRow("Best set volume", records.bestSetVolume, weightedBest: records.weightedSetVolume)
             Hairline(soft: true)
-            recordRow("Best session volume", records.bestSessionVolume, unit: "kg", weightedBest: records.weightedSessionVolume)
+            recordRow("Best session volume", records.bestSessionVolume, weightedBest: records.weightedSessionVolume)
             Hairline()
         }
     }
 
-    private func recordRow(_ title: String, _ record: StatRecord?, unit: String, weightedBest: StatRecord? = nil) -> some View {
+    /// A plain record in the unit from Settings, with the weighted best under it where there is one.
+    private func recordRow(_ title: String, _ record: StatRecord?, weightedBest: StatRecord? = nil) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .textStyle(Tokens.Typography.body)
                     .foregroundStyle(palette.foreground)
                 Spacer()
-                Text(record.map { "\(Self.format($0.value, whole: title.contains("volume"))) \(unit)" } ?? "-")
+                Text(record.map { "\(Self.format(weightUnit.amount(fromKilograms: $0.value), whole: title.contains("volume"))) \(weightUnit.rawValue)" } ?? "-")
                     .textStyle(Tokens.Typography.number)
                     .monospacedDigit()
                     .foregroundStyle(palette.foreground)
@@ -299,10 +309,11 @@ struct ExerciseScreen: View {
                     .padding(.bottom, Tokens.Space.xs)
                     ForEach(Array(session.sets.enumerated()), id: \.element.id) { index, set in
                         HStack(spacing: Tokens.Space.m) {
-                            Text("\(index + 1)")
-                                .foregroundStyle(palette.foregroundFaint)
+                            Text(session.sets.mark(at: index))
+                                .foregroundStyle(set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
                                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
-                            Text(ExerciseStats.describe(set) + (set.rpe.map { " @\(PlainNumber.string($0))" } ?? ""))
+                                .accessibilityLabel(session.sets.spokenName(at: index))
+                            Text(ExerciseStats.describe(set, in: weightUnit) + (set.rpe.map { " @\(PlainNumber.string($0))" } ?? ""))
                                 .foregroundStyle(palette.foreground)
                             Text(([set.kind == .hold ? "Hold" : nil].compactMap { $0 } + session.exercise.labels(for: set.setup)).joined(separator: " · "))
                                 .foregroundStyle(palette.foregroundMuted)

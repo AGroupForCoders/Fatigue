@@ -14,6 +14,30 @@ struct HistoryTests {
         #expect(finished.duration == 3_000)
     }
 
+    @Test func countingWorkoutsThatUseAnExerciseIgnoresTheBrand() {
+        let history = FinishedWorkout.samples()
+        // Chest Press is in the Push sample on Technogym; Adductors in Leg day on Technogym.
+        #expect(history.count(using: "Chest Press") == 1)
+        #expect(history.count(using: "Adductors") == 1)
+        #expect(history.count(using: "Belt Squat") == 0)
+        #expect(([FinishedWorkout]()).count(using: "Chest Press") == 0)
+    }
+
+    @Test func deleteMessageSaysHowManyWorkoutsUseIt() {
+        #expect(ExerciseEditor.deleteMessage(workoutsUsingIt: 0) == "It's removed from the picker and your prebuilt workouts.")
+        #expect(ExerciseEditor.deleteMessage(workoutsUsingIt: 1).hasPrefix("1 finished workout uses it and keeps its sets."))
+        #expect(ExerciseEditor.deleteMessage(workoutsUsingIt: 3).hasPrefix("3 finished workouts use it and keep their sets."))
+    }
+
+    @Test func removingAnExerciseFromPrebuiltWorkoutsLeavesHistoryAlone() {
+        let store = WorkoutStore()
+        let before = store.history.map(\.setCount)
+        store.removeFromRoutines(exerciseNamed: "Adductors")
+        #expect(!store.routines.flatMap(\.exercises).contains { $0.name == "Adductors" })
+        #expect(store.routines.count == Routine.samples.count)
+        #expect(store.history.map(\.setCount) == before)
+    }
+
     @Test func volumeCountsRepSetsOnly() {
         let finished = WorkoutSession.sample().finished(at: .now)
         // The 40 kg hold is left out, the 55 × 8 rep set counts.
@@ -42,7 +66,7 @@ struct HistoryTests {
         #expect(HistoryRow.when(now.addingTimeInterval(-86_400), now: now) == "Yesterday")
         var workout = FinishedWorkout.samples(now: now)[0]
         workout.startedAt = now
-        #expect(HistoryRow.summary(workout, now: now) == "Today · 52 min · 9 sets · \(Int(workout.volume).formatted()) kg")
+        #expect(HistoryRow.summary(workout, unit: .kg, now: now) == "Today · 52 min · 9 sets · \(Int(workout.volume.rounded()).formatted()) kg")
         #expect(HistoryRow.duration(74) == "1 h 14 min")
     }
 

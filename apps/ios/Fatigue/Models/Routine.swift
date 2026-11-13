@@ -15,21 +15,21 @@ struct Routine: Identifiable, Equatable {
 struct RoutineExercise: Identifiable, Equatable {
     /// Everything about the exercise except its id, for telling whether a workout changed it.
     var shape: [String] {
-        [name, brand ?? "", String(restSeconds)]
+        [name, brand?.key ?? "", String(restSeconds)]
             + settings.map { "\($0.name)=\($0.value)" }
-            + sets.map { "\($0.setup.kind.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
+            + sets.map { "\($0.setup.kind.rawValue) \($0.type.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
     }
 
     var id = UUID()
     var name: String
-    var brand: String?
+    var brand: Brand?
     var restSeconds = 90
     var settings: [ExerciseSetting] = []
     var sets: [RoutineSet]
 
     /// A new exercise in the routine editor: three plain rep sets with nothing filled in,
     /// and the settings saved for it with no brand.
-    static func new(named name: String, brand: String? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
+    static func new(named name: String, brand: Brand? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
         RoutineExercise(name: name, brand: brand, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
     }
 }
@@ -37,6 +37,8 @@ struct RoutineExercise: Identifiable, Equatable {
 /// One planned set: its setup and the target weight and reps or seconds.
 struct RoutineSet: Equatable {
     var setup: SetSetup
+    var type: SetType = .normal
+    /// Always kilograms, as on `WorkoutSet`.
     var weight = ""
     var amount = ""
 }
@@ -54,7 +56,7 @@ extension Routine {
                     restSeconds: exercise.restSeconds,
                     settings: exercise.settings,
                     sets: exercise.sets.map { set in
-                        WorkoutSet(setup: set.setup, weight: set.weight, amount: set.amount, previous: Self.target(set))
+                        WorkoutSet(setup: set.setup, type: set.type, weight: set.weight, amount: set.amount, previous: Self.target(set))
                     }
                 )
             },
@@ -74,7 +76,7 @@ extension Routine {
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
                 settings: exercise.settings,
-                sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
+                sets: exercise.sets.map { RoutineSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             )
         }
         return routine
@@ -86,9 +88,9 @@ extension Routine {
         updated(from: session).exercises.map(\.shape) != exercises.map(\.shape)
     }
 
-    private static func target(_ set: RoutineSet) -> String {
-        guard !set.weight.isEmpty, !set.amount.isEmpty else { return "" }
-        return "\(set.weight) × \(set.amount)\(set.setup.kind == .hold ? "s" : "")"
+    private static func target(_ set: RoutineSet) -> PreviousSet? {
+        guard !set.weight.isEmpty, !set.amount.isEmpty else { return nil }
+        return PreviousSet(kind: set.setup.kind, weightKg: Double(set.weight), amount: set.amount)
     }
 }
 
@@ -107,7 +109,8 @@ final class WorkoutStore {
     /// The workout running now, if any. Only one runs at a time.
     private(set) var active: WorkoutSession?
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
-    /// Debug builds open a running workout on launch with `-openWorkout`, for screenshots.
+    /// A workout restored from the database opens full screen on launch. Debug builds also
+    /// start one open with `-openWorkout`, for screenshots.
     var isShowingActive = ProcessInfo.processInfo.arguments.contains("-openWorkout")
     private let now: () -> Date
     /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
@@ -141,6 +144,9 @@ final class WorkoutStore {
             // Previous isn't stored, since it comes from history; fill it in again.
             active.previousLookup = previousSets
             for index in active.exercises.indices { active.fillPrevious(for: index) }
+            // The app opens straight into a running workout. The store is only built on a cold
+            // launch, so coming back from the background leaves a minimised workout minimised.
+            isShowingActive = true
         }
     }
 
@@ -163,11 +169,16 @@ final class WorkoutStore {
     }
 
     /// Your sets on an exercise and brand the last time you did it, newest workout first.
-    func previousSets(name: String, brand: String?) -> [WorkoutSet] {
+    func previousSets(name: String, brand: Brand?) -> [WorkoutSet] {
         for workout in history {
             if let exercise = workout.exercises.first(where: { $0.name == name && $0.brand == brand }) { return exercise.sets }
         }
         return []
+    }
+
+    /// Every finished workout as export rows, one per set, newest workout first.
+    func exportRows() -> [ExportRow] {
+        history.flatMap { $0.exportRows() }
     }
 
     /// Saves the running workout as it is now. Called after every change, and when the app goes to the background.
@@ -329,20 +340,31 @@ final class WorkoutStore {
         }
         return result
     }
+
+    /// Takes an exercise out of every prebuilt workout, after it's deleted from the library.
+    /// Finished workouts aren't touched, so nothing you logged on it is lost.
+    func removeFromRoutines(exerciseNamed name: String) {
+        guard routines.contains(where: { $0.exercises.contains { $0.name == name } }) else { return }
+        routines = routines.map { routine in
+            var routine = routine
+            routine.exercises.removeAll { $0.name == name }
+            return routine
+        }
+    }
 }
 
 extension WorkoutSession {
     /// Adds exercises picked from the library, each with one empty rep set to start,
     /// on the brand picked when it was created (no brand otherwise), with the settings saved for it.
-    func addExercises(named names: [String], brands: [String: String] = [:], catalog: ExerciseCatalog? = nil) {
+    func addExercises(named names: [String], brands: [String: Brand] = [:], catalog: ExerciseCatalog? = nil) {
         for name in names {
             let brand = brands[name]
             let saved = catalog?.setup(for: name, brand: brand) ?? BrandSetup()
             let last = previousLookup?(name, brand) ?? []
             // Start from last time's sets when there were any, so the cells are already filled in.
             let sets = last.isEmpty
-                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
-                : last.map { WorkoutSet(setup: $0.setup, weight: $0.weight, amount: $0.amount, previous: "") }
+                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "")]
+                : last.map { WorkoutSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets))
             fillPrevious(for: exercises.count - 1)
         }
@@ -355,15 +377,8 @@ extension WorkoutSession {
         let last = previousLookup?(exercise.name, exercise.brand) ?? []
         guard !last.isEmpty else { return }
         for index in exercise.sets.indices {
-            exercises[exerciseIndex].sets[index].previous = Self.describe(last[min(index, last.count - 1)])
+            exercises[exerciseIndex].sets[index].previous = PreviousSet(last[min(index, last.count - 1)])
         }
-    }
-
-    /// A past set in the Previous column's form, such as "55 × 8 @8.5" or "40 × 45s @8".
-    static func describe(_ set: WorkoutSet) -> String {
-        var text = "\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")"
-        if let rpe = set.rpe { text += " @\(PlainNumber.string(rpe))" }
-        return text
     }
 
     /// Applies an edit from the exercise editor to an exercise in this workout.
@@ -383,7 +398,7 @@ extension WorkoutSession {
     }
 
     /// Switches an exercise to another brand, bringing in the settings saved for that brand.
-    func changeBrand(of exerciseIndex: Int, to brand: String?, catalog: ExerciseCatalog) {
+    func changeBrand(of exerciseIndex: Int, to brand: Brand?, catalog: ExerciseCatalog) {
         exercises[exerciseIndex].brand = brand
         exercises[exerciseIndex].settings = catalog.setup(for: exercises[exerciseIndex].name, brand: brand).settings
         fillPrevious(for: exerciseIndex)

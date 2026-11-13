@@ -64,7 +64,8 @@ struct MainScreen: View {
                             withAnimation(.standard) {
                                 store.finish(title: details.title, description: details.description, unticked: details.unticked, updateRoutine: details.updateRoutine)
                             }
-                        }
+                        },
+                        onDeleteExercise: { store.removeFromRoutines(exerciseNamed: $0) }
                     )
                 }
             }

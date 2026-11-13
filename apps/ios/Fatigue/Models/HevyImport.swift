@@ -6,8 +6,8 @@ import Foundation
 
 // MARK: - CSV
 
-/// Reads and writes RFC 4180 CSV. Quoted fields may hold commas, newlines and doubled quotes.
-nonisolated enum CSV {
+/// Reading CSV, for the Hevy import. Writing it lives with the export, in `DataExport.swift`.
+nonisolated extension CSV {
     /// The rows of a CSV text, each as its fields. Empty lines are left out.
     static func parse(_ text: String) -> [[String]] {
         var rows: [[String]] = []
@@ -64,16 +64,6 @@ nonisolated enum CSV {
         return rows
     }
 
-    /// A field as it goes in a file: quoted when it holds a comma, a quote or a line break.
-    static func field(_ text: String) -> String {
-        guard text.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return text }
-        return "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-    }
-
-    /// One line of a file, without the line break.
-    static func line(_ fields: [String]) -> String {
-        fields.map(field).joined(separator: ",")
-    }
 }
 
 // MARK: - Hevy's file
@@ -246,9 +236,9 @@ extension HevyWorkout {
                     notes: exercise.notes.isEmpty ? [] : [StoredNote(id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|note").uuidString, text: exercise.notes)],
                     sets: exercise.sets.enumerated().map { setIndex, set in
                         StoredSet(
-                            id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|\(setIndex)").uuidString, kind: set.kind,
+                            id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|\(setIndex)").uuidString, kind: set.kind, setType: set.type,
                             weightKg: set.weightKg, reps: set.reps, durationSeconds: set.durationSeconds, rpe: set.rpe,
-                            completedAt: Int64((finishedAt.timeIntervalSince1970 * 1000).rounded()), overrides: [:], setType: set.type
+                            completedAt: Int64((finishedAt.timeIntervalSince1970 * 1000).rounded()), overrides: [:]
                         )
                     }
                 )
