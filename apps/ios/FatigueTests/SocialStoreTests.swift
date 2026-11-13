@@ -42,6 +42,28 @@ private final class FakeSocialAPI: SocialAPI, @unchecked Sendable {
         if let failure { throw failure }
         removed.append(userId)
     }
+
+    var shares: [ShareRequest] = []
+    var shareFailure: Error?
+    var deletedPosts: [String] = []
+    var feedPages: [String?: PostPage] = [:]
+
+    func person(handle: String, token: String) async throws -> Person? { people.first { $0.handle == handle } }
+
+    func share(_ request: ShareRequest, token: String) async throws -> Post {
+        if let shareFailure { throw shareFailure }
+        shares.append(request)
+        return Post(id: request.id, author: .init(userId: "anton", handle: "anton", name: "Anton"), workoutId: request.workoutId,
+                    caption: request.caption, visibility: request.visibility, startedAt: request.startedAt, createdAt: .now, snapshot: request.snapshot)
+    }
+
+    func deletePost(_ id: String, token: String) async throws {
+        if let failure { throw failure }
+        deletedPosts.append(id)
+    }
+
+    func feed(cursor: String?, token: String) async throws -> PostPage { feedPages[cursor] ?? PostPage(posts: [], nextCursor: nil) }
+    func posts(by userId: String, cursor: String?, token: String) async throws -> PostPage { PostPage(posts: [], nextCursor: nil) }
 }
 
 @MainActor
@@ -50,8 +72,25 @@ struct SocialStoreTests {
     let bea = FriendRow(userId: "bea", handle: "bea", name: "Bea", relation: .friends, since: .now)
     let mine = MyProfile(userId: "anton", handle: "anton", name: "Anton", bio: nil, defaultVisibility: .everyone)
 
-    private func store(_ api: FakeSocialAPI, token: String? = "token") -> SocialStore {
-        SocialStore(api: api, token: { token })
+    private func store(_ api: FakeSocialAPI, token: String? = "token", defaults: UserDefaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!) -> SocialStore {
+        SocialStore(api: api, token: { token }, defaults: defaults)
+    }
+
+    private func sharing(_ api: FakeSocialAPI = FakeSocialAPI(), defaults: UserDefaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!) async -> (SocialStore, FakeSocialAPI) {
+        api.profile = mine
+        let social = store(api, defaults: defaults)
+        await social.load()
+        return (social, api)
+    }
+
+    private var legDay: FinishedWorkout {
+        FinishedWorkout(title: "Leg day", description: "Knee felt fine", startedAt: Date(timeIntervalSince1970: 1_700_000_000), duration: 3120,
+                        gym: Gym(name: "City Gym", latitude: 51.5, longitude: -0.12), exercises: [
+            WorkoutExercise(name: "Adductors", brand: Brand(name: "Technogym"), restSeconds: 90, notes: [ExerciseNote(text: "Seat 4")], sets: [
+                WorkoutSet(setup: SetSetup(kind: .reps), type: .warmup, weight: "20", amount: "12", isDone: true),
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "8", rpe: 8, isDone: true),
+            ]),
+        ])
     }
 
     @Test func noProfileYetAsksForAHandle() async {
@@ -161,5 +200,126 @@ struct SocialStoreTests {
     @Test func sendsOnlyTheChangedFields() throws {
         let json = try JSONEncoder().encode(ProfileChanges(defaultVisibility: .onlyMe))
         #expect(String(decoding: json, as: UTF8.self) == #"{"defaultVisibility":"private"}"#)
+    }
+
+    // MARK: Sharing
+
+    @Test func aSnapshotKeepsTheSetsNotesAndGym() {
+        let snapshot = PostSnapshot(legDay, records: [ExerciseStats.Beaten(exercise: "Adductors", brand: Brand(name: "Technogym"), record: "Heaviest weight", value: "60 kg")])
+        #expect(snapshot.title == "Leg day")
+        #expect(snapshot.durationSeconds == 3120)
+        #expect(snapshot.gym?.name == "City Gym")
+        #expect(snapshot.volumeKg == 480)
+        let exercise = snapshot.exercises[0]
+        #expect(exercise.brand == "Technogym")
+        #expect(exercise.notes == ["Seat 4"])
+        let sets = exercise.groups.flatMap(\.sets)
+        #expect(sets.map(\.mark) == ["W", "1"])
+        #expect(sets[1].text(in: .kg) == "60 × 8")
+        #expect(snapshot.records.first?.value == "60 kg")
+    }
+
+    @Test func sharingSendsTheWorkoutAndRemembersItsPost() async {
+        let (social, api) = await sharing()
+        let workout = legDay
+        let sent = await social.share(workout, records: [], visibility: .friends, caption: "  New notch ")
+        #expect(sent)
+        #expect(api.shares.first?.caption == "New notch")
+        #expect(api.shares.first?.visibility == .friends)
+        #expect(social.isShared(workout.id))
+        #expect(social.pending.isEmpty)
+    }
+
+    @Test func sharingAgainReusesThePostID() async {
+        let (social, api) = await sharing()
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .everyone)
+        await social.share(workout, records: [], visibility: .everyone)
+        #expect(api.shares.count == 2)
+        #expect(api.shares[0].id == api.shares[1].id)
+    }
+
+    @Test func offlineSharesWaitAndGoOutLaterUnderTheSameID() async {
+        let defaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!
+        let (social, api) = await sharing(defaults: defaults)
+        api.shareFailure = APIError.offline
+        let sent = await social.share(legDay, records: [], visibility: .everyone)
+        #expect(!sent)
+        #expect(social.pending.count == 1)
+        let queuedID = social.pending[0].id
+
+        // A relaunch picks the waiting share back up from the phone.
+        api.shareFailure = nil
+        let relaunched = store(api, defaults: defaults)
+        await relaunched.load()
+        #expect(relaunched.pending.isEmpty)
+        #expect(api.shares.map(\.id) == [queuedID])
+    }
+
+    @Test func aShareTheAPIRefusesIsDropped() async {
+        let (social, api) = await sharing()
+        api.shareFailure = LiveSocialAPI.HTTPFailure(status: 410, message: "That post was deleted.")
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .everyone)
+        #expect(social.pending.isEmpty)
+        #expect(!social.isShared(workout.id))
+    }
+
+    @Test func anotherAccountDoesntSendTheFirstOnesShares() async {
+        let defaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!
+        let (social, api) = await sharing(defaults: defaults)
+        api.shareFailure = APIError.offline
+        await social.share(legDay, records: [], visibility: .everyone)
+
+        let other = FakeSocialAPI()
+        other.profile = MyProfile(userId: "jos", handle: "jos", name: "Jos", bio: nil, defaultVisibility: .everyone)
+        let second = store(other, defaults: defaults)
+        await second.load()
+        #expect(second.pending.isEmpty)
+        #expect(other.shares.isEmpty)
+    }
+
+    @Test func unsharingDeletesThePost() async throws {
+        let (social, api) = await sharing()
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .everyone)
+        let postID = api.shares[0].id
+        try await social.unshare(workout.id)
+        #expect(api.deletedPosts == [postID])
+        #expect(!social.isShared(workout.id))
+    }
+
+    @Test func theFeedPagesWithoutRepeatingPosts() async throws {
+        let (social, api) = await sharing()
+        func post(_ id: String, _ seconds: Double) -> Post {
+            Post(id: id, author: .init(userId: "jos", handle: "jos", name: "Jos"), workoutId: nil, caption: nil, visibility: .everyone,
+                 startedAt: Date(timeIntervalSince1970: seconds), createdAt: .now, snapshot: nil)
+        }
+        api.feedPages[nil] = PostPage(posts: [post("b", 2), post("a", 1)], nextCursor: "next")
+        api.feedPages["next"] = PostPage(posts: [post("a", 1), post("z", 0)], nextCursor: nil)
+        try await social.refreshFeed()
+        try await social.loadMoreFeed()
+        #expect(social.feed.map(\.id) == ["b", "a", "z"])
+        #expect(social.feedCursor == nil)
+    }
+
+    @Test func aPostFromANewerAppStillLoadsWithoutItsWorkout() throws {
+        let json = Data("""
+        {"id":"p1","author":{"userId":"jos","handle":"jos","name":"Jos"},"workoutId":null,"caption":"Hi","visibility":"friends",
+         "startedAt":"2026-11-10T18:00:00.000Z","createdAt":"2026-11-10T19:00:00.000Z","snapshotVersion":99,"snapshot":{"something":"new"}}
+        """.utf8)
+        let post = try JSONDecoder.api.decode(Post.self, from: json)
+        #expect(post.snapshot == nil)
+        #expect(post.caption == "Hi")
+    }
+
+    @Test func aShareRoundTripsThroughTheAPIsJSON() throws {
+        let request = ShareRequest(id: "p1", workoutId: "w1", caption: nil, visibility: .everyone, startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                   snapshot: PostSnapshot(legDay, records: []))
+        let json = String(decoding: try JSONEncoder.api.encode(request), as: UTF8.self)
+        #expect(json.contains(#""startedAt":"2023-11-14T22:13:20.000Z""#))
+        #expect(json.contains(#""visibility":"public""#))
+        let back = try JSONDecoder.api.decode(ShareRequest.self, from: Data(json.utf8))
+        #expect(back == request)
     }
 }

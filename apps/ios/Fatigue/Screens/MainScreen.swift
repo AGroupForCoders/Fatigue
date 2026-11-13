@@ -3,11 +3,12 @@ import SwiftUI
 /// The signed-in app: a tab for each area, the bottom nav, and the running workout's bar above it.
 struct MainScreen: View {
     enum Tab: CaseIterable {
-        case workout, stats, profile
+        case workout, feed, stats, profile
 
         var title: String {
             switch self {
             case .workout: "Workout"
+            case .feed: "Feed"
             case .stats: "Stats"
             case .profile: "Profile"
             }
@@ -16,6 +17,7 @@ struct MainScreen: View {
         var icon: String {
             switch self {
             case .workout: "dumbbell"
+            case .feed: "person.2"
             case .stats: "chart.bar"
             case .profile: "person"
             }
@@ -25,6 +27,8 @@ struct MainScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkoutStore.self) private var store
+    @Environment(SocialStore.self) private var social
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Environment(\.scenePhase) private var scenePhase
     /// Launch with `-openProfile` or `-openStats` to start on that tab, for screenshots.
     @State private var tab: Tab = {
@@ -37,6 +41,7 @@ struct MainScreen: View {
         ZStack {
             // Every tab stays alive, so switching keeps each one's scroll position.
             WorkoutsScreen().opacity(tab == .workout ? 1 : 0).allowsHitTesting(tab == .workout)
+            FeedScreen(openProfile: { tab = .profile }).opacity(tab == .feed ? 1 : 0).allowsHitTesting(tab == .feed)
             StatsScreen().opacity(tab == .stats ? 1 : 0).allowsHitTesting(tab == .stats)
             ProfileScreen().opacity(tab == .profile ? 1 : 0).allowsHitTesting(tab == .profile)
         }
@@ -61,9 +66,11 @@ struct MainScreen: View {
                         onMinimise: { store.isShowingActive = false },
                         routine: store.activeRoutine,
                         onFinish: { details in
+                            let before = store.history
                             withAnimation(.standard) {
                                 store.finish(title: details.title, description: details.description, gym: details.gym, unticked: details.unticked, updateRoutine: details.updateRoutine)
                             }
+                            share(details.share, before: before)
                         },
                         onDeleteExercise: { store.removeFromRoutines(exerciseNamed: $0) }
                     )
@@ -74,7 +81,17 @@ struct MainScreen: View {
         .task(id: store.active?.id) { await store.autosaveActive() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { store.saveActive() }
+            // Shares made offline go out when the app comes back.
+            if phase == .active { Task { await social.sendPending() } }
         }
+    }
+
+    /// Shares the workout just finished, if you chose to on the finish summary. `before` is history before
+    /// it, for the records it beat. Waits for a connection if there isn't one.
+    private func share(_ visibility: PostVisibility?, before: [FinishedWorkout]) {
+        guard let visibility, let finished = store.history.first, finished.id != before.first?.id else { return }
+        let records = ExerciseStats.beaten(by: finished, history: before, splitBy: { ExerciseSplit.remembered(for: $0) }, in: unit)
+        Task { await social.share(finished, records: records, visibility: visibility) }
     }
 
     /// Debug builds start the leg day workout on launch with `-openWorkout`, or start it minimised

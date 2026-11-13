@@ -70,6 +70,13 @@ protocol SocialAPI: Sendable {
     func acceptFriend(_ userId: String, token: String) async throws -> Relation
     /// Declines, takes back a request, or unfriends.
     func removeFriend(_ userId: String, token: String) async throws
+    /// Someone's profile by handle, or nil when nobody has it.
+    func person(handle: String, token: String) async throws -> Person?
+    /// Shares a workout, or shares it again. Returns the post, whose ID may be an earlier share's.
+    func share(_ request: ShareRequest, token: String) async throws -> Post
+    func deletePost(_ id: String, token: String) async throws
+    func feed(cursor: String?, token: String) async throws -> PostPage
+    func posts(by userId: String, cursor: String?, token: String) async throws -> PostPage
 }
 
 /// Talks to the profiles and friends modules on the Fatigue API.
@@ -113,6 +120,30 @@ nonisolated struct LiveSocialAPI: SocialAPI {
         _ = try await data("friends/\(userId)", method: "DELETE", token: token)
     }
 
+    func person(handle: String, token: String) async throws -> Person? {
+        do {
+            return try await send("profiles/\(handle)", token: token)
+        } catch let error as HTTPFailure where error.status == 404 {
+            return nil
+        }
+    }
+
+    func share(_ request: ShareRequest, token: String) async throws -> Post {
+        try await send("posts/\(request.id)", method: "PUT", body: request, token: token)
+    }
+
+    func deletePost(_ id: String, token: String) async throws {
+        _ = try await data("posts/\(id)", method: "DELETE", token: token)
+    }
+
+    func feed(cursor: String?, token: String) async throws -> PostPage {
+        try await send("posts/feed", query: cursor.map { [URLQueryItem(name: "cursor", value: $0)] }, token: token)
+    }
+
+    func posts(by userId: String, cursor: String?, token: String) async throws -> PostPage {
+        try await send("posts/by/\(userId)", query: cursor.map { [URLQueryItem(name: "cursor", value: $0)] }, token: token)
+    }
+
     /// A non-2xx answer. Keeps the status so callers can treat 404 as "nothing there", and shows the server's message.
     struct HTTPFailure: LocalizedError {
         let status: Int
@@ -121,12 +152,12 @@ nonisolated struct LiveSocialAPI: SocialAPI {
     }
 
     private func send<Response: Decodable>(
-        _ path: String, method: String = "GET", query: [URLQueryItem]? = nil, body: ProfileChanges? = nil, token: String
+        _ path: String, method: String = "GET", query: [URLQueryItem]? = nil, body: (any Encodable)? = nil, token: String
     ) async throws -> Response {
         try JSONDecoder.api.decode(Response.self, from: try await data(path, method: method, query: query, body: body, token: token))
     }
 
-    private func data(_ path: String, method: String, query: [URLQueryItem]? = nil, body: ProfileChanges? = nil, token: String) async throws -> Data {
+    private func data(_ path: String, method: String, query: [URLQueryItem]? = nil, body: (any Encodable)? = nil, token: String) async throws -> Data {
         var url = baseURL.appending(path: "api/\(path)")
         if let query { url.append(queryItems: query) }
         var request = URLRequest(url: url)
@@ -134,7 +165,7 @@ nonisolated struct LiveSocialAPI: SocialAPI {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
+            request.httpBody = try JSONEncoder.api.encode(body)
         }
 
         let data: Data
@@ -152,4 +183,16 @@ nonisolated struct LiveSocialAPI: SocialAPI {
         }
         return data
     }
+}
+
+nonisolated extension JSONEncoder {
+    /// Writes dates the way the API reads them, ISO 8601 with milliseconds, such as 2026-11-12T11:45:34.687Z.
+    static let api: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+        }
+        return encoder
+    }()
 }
