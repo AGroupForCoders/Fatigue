@@ -399,15 +399,27 @@ private struct ExerciseSection: View {
                             editingSetup = .group(group.setIndices, exercise.sets[first].setup)
                         }
                     } label: {
-                        HStack(spacing: Tokens.Space.xs) {
-                            Text(group.heading)
-                            Image(systemName: "chevron.down")
-                                .imageScale(.small)
-                                .foregroundStyle(palette.foregroundFaint)
+                        // Laid out like a set row, so when reps and holds are mixed the group's own
+                        // "Reps" or "Time" sits over the column it's about.
+                        HStack(spacing: Tokens.Space.s) {
+                            Color.clear.frame(width: Tokens.Size.setNumberColumn, height: 1)
+                            HStack(spacing: Tokens.Space.xs) {
+                                Text(group.heading)
+                                Image(systemName: "chevron.down")
+                                    .imageScale(.small)
+                                    .foregroundStyle(palette.foregroundFaint)
+                            }
+                            .textStyle(Tokens.Typography.caption)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            if hasMixedKinds, let first = group.setIndices.first {
+                                Color.clear.frame(width: Tokens.Size.weightColumn, height: 1)
+                                Text(Self.amountHeading(for: exercise.sets[first].kind))
+                                    .textStyle(Tokens.Typography.label)
+                                    .frame(width: Tokens.Size.amountColumn)
+                                Color.clear.frame(width: Tokens.Size.rpeColumn + Tokens.Space.s + Tokens.Size.tickColumn, height: 1)
+                            }
                         }
-                        .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
-                        .padding(.leading, Tokens.Size.setNumberColumn + Tokens.Space.s)
                         .padding(.top, Tokens.Space.m)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -713,12 +725,22 @@ private struct ExerciseSection: View {
         .accessibilityHint("Press and hold to pick a setup")
     }
 
+    /// Whether this exercise has both rep sets and holds, so one column heading can't name the amount for all.
+    private var hasMixedKinds: Bool {
+        Set(exercise.sets.map(\.kind)).count > 1
+    }
+
+    static func amountHeading(for kind: SetKind) -> String {
+        kind == .hold ? "Time" : "Reps"
+    }
+
     private var columnHeadings: some View {
         HStack(spacing: Tokens.Space.s) {
             Color.clear.frame(width: Tokens.Size.setNumberColumn, height: 1)
             Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
             Text(unit.rawValue).frame(width: Tokens.Size.weightColumn)
-            Text(exercise.sets.allSatisfy { $0.kind == .hold } ? "Time" : "Reps").frame(width: Tokens.Size.amountColumn)
+            // With reps and holds mixed, each group's heading names this column instead.
+            Text(hasMixedKinds ? "" : Self.amountHeading(for: exercise.sets.first?.kind ?? .reps)).frame(width: Tokens.Size.amountColumn)
             Text("RPE").frame(width: Tokens.Size.rpeColumn)
             Color.clear.frame(width: Tokens.Size.tickColumn, height: 1)
         }
