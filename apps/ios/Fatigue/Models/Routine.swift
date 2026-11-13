@@ -98,10 +98,14 @@ extension Routine {
 final class WorkoutStore {
     var routines: [Routine] {
         didSet {
+            guard !isReloading else { return }
             let stored = routines.map(\.stored)
             persist { try $0.save(stored) }
         }
     }
+    /// Called after every save to the database, so sync can push the change.
+    var onPersist: (() -> Void)?
+    private var isReloading = false
     /// Finished workouts, newest first.
     private(set) var history: [FinishedWorkout]
     /// The workout running now, if any. Only one runs at a time.
@@ -204,6 +208,51 @@ final class WorkoutStore {
             print("Saving failed: \(error)")
             #endif
         }
+        onPersist?()
+    }
+
+    /// Reads everything back from the database after a sync brought in changes from another phone.
+    ///
+    /// The running workout is left alone when it's still the one in the database, so what you're typing
+    /// isn't replaced under you. If a pull brings in a second running workout, the one with the most
+    /// recent ticked set stays open and the other is finished at the time of its last ticked set, as the
+    /// data model page says. A running workout that another phone finished or deleted closes here.
+    func reload() {
+        guard let database, let workouts = try? database.workouts() else { return }
+        isReloading = true
+        routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
+        isReloading = false
+
+        var running = workouts.filter { $0.finishedAt == nil }
+        var finished = workouts.filter { $0.finishedAt != nil }
+        if running.count > 1 {
+            running.sort { Self.lastActivity($0) > Self.lastActivity($1) }
+            for var other in running.dropFirst() {
+                other.finishedAt = Date(timeIntervalSince1970: Double(Self.lastActivity(other)) / 1000)
+                persist { try $0.save(other) }
+                finished.append(other)
+            }
+            running = Array(running.prefix(1))
+        }
+        history = finished.map(FinishedWorkout.init(stored:)).sorted { $0.startedAt > $1.startedAt }
+
+        if let current = running.first {
+            if active?.id.uuidString != current.id {
+                let session = WorkoutSession(stored: current)
+                session.previousLookup = previousSets
+                for index in session.exercises.indices { session.fillPrevious(for: index) }
+                active = session
+            }
+        } else if active != nil {
+            active = nil
+            isShowingActive = false
+        }
+    }
+
+    /// When a running workout was last touched: its latest ticked set, or when it started.
+    private static func lastActivity(_ workout: StoredWorkout) -> Int64 {
+        let ticks = workout.exercises.flatMap(\.sets).compactMap(\.completedAt)
+        return ticks.max() ?? Int64(workout.startedAt.timeIntervalSince1970 * 1000)
     }
 
     /// Ends the workout and puts it at the top of your history, if it has any sets to keep.

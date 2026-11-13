@@ -7,10 +7,12 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
     @Environment(AuthStore.self) private var auth
+    @Environment(SyncStore.self) private var sync
     @AppStorage("weightUnit") private var weightUnit = "kg"
     @State private var name = ""
     @State private var renameError: String?
     @State private var deleting = false
+    @State private var confirmingReset = false
     @FocusState private var editingName: Bool
 
     var body: some View {
@@ -86,6 +88,30 @@ struct SettingsScreen: View {
                 }
                 Hairline()
 
+                Text("Sync")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundMuted)
+                    .padding(.top, Tokens.Space.xxxl + Tokens.Space.l)
+                    .padding(.bottom, Tokens.Space.s)
+                Hairline()
+                Button { sync.requestSync(.manual) } label: {
+                    HStack {
+                        rowLabel("Sync now", color: palette.foreground)
+                        Text(sync.statusText)
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(sync.status == .outdated ? palette.accent : palette.foregroundMuted)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+                .buttonStyle(.pressRow)
+                .disabled(sync.status == .syncing)
+                Hairline(soft: true)
+                Button { confirmingReset = true } label: {
+                    rowLabel("Reset local data and re-download", color: palette.foreground)
+                }
+                .buttonStyle(.pressRow)
+                Hairline()
+
                 Button { Task { await auth.signOut() } } label: {
                     rowLabel("Sign out", color: palette.foreground)
                 }
@@ -111,6 +137,12 @@ struct SettingsScreen: View {
         .sheet(isPresented: $deleting) {
             DeleteAccountSheet()
                 .environment(\.palette, palette)
+        }
+        .alert("Reset local data?", isPresented: $confirmingReset) {
+            Button("Reset and re-download", role: .destructive) { Task { await sync.resetAndRedownload() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Everything on this phone is replaced with what's on the server. Changes that haven't synced yet are lost.")
         }
     }
 
@@ -172,6 +204,7 @@ struct SettingsScreen: View {
 private struct DeleteAccountSheet: View {
     @Environment(\.palette) private var palette
     @Environment(AuthStore.self) private var auth
+    @Environment(SyncStore.self) private var sync
     @State private var password = ""
     @State private var error: String?
     @State private var isWorking = false
@@ -224,6 +257,8 @@ private struct DeleteAccountSheet: View {
         Task {
             do {
                 try await auth.deleteAccount(password: password)
+                // The server dropped every synced row with the account, so the phone's copy and its sync state go too.
+                sync.accountDeleted()
             } catch {
                 self.error = error.localizedDescription
             }

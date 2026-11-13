@@ -25,6 +25,7 @@ struct MainScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkoutStore.self) private var store
+    @Environment(SyncStore.self) private var sync
     @Environment(\.scenePhase) private var scenePhase
     /// Launch with `-openProfile` or `-openStats` to start on that tab, for screenshots.
     @State private var tab: Tab = {
@@ -63,6 +64,7 @@ struct MainScreen: View {
                         onFinish: { details in
                             withAnimation(.standard) {
                                 store.finish(title: details.title, description: details.description, unticked: details.unticked, updateRoutine: details.updateRoutine)
+                                sync.requestSync(.workoutFinished)
                             }
                         }
                     )

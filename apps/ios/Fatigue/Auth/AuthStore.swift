@@ -30,6 +30,9 @@ final class AuthStore {
         if case .signedIn(let account) = state { account } else { nil }
     }
 
+    /// The session token to send with requests outside of signing in, such as sync.
+    var sessionToken: String? { tokens.read() }
+
     /// Picks up the session saved on this phone, if there is one.
     func restore() async {
         guard let token = tokens.read() else { state = .signedOut; return }

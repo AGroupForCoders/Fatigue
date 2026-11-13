@@ -157,10 +157,11 @@ extension Routine {
             StoredExercise(
                 id: exercise.id.uuidString, name: exercise.name, brand: exercise.brand, restSeconds: exercise.restSeconds,
                 settings: exercise.settings.map(\.stored), notes: [],
-                sets: exercise.sets.map { set in
-                    // Planned sets have no id in the app, so each save gives them a new one.
-                    storedSet(id: UUID().uuidString, kind: set.setup.kind, weight: set.weight, amount: set.amount, rpe: nil,
-                              completedAt: nil, overrides: overrides(set.setup, settings: exercise.settings))
+                sets: exercise.sets.enumerated().map { index, set in
+                    // Planned sets have no id in the app, so they get one from their exercise and position.
+                    // That keeps the id stable from one save to the next, so sync sees an edit rather than a new row.
+                    storedSet(id: SyncID.plannedSet(exerciseId: exercise.id.uuidString, position: index), kind: set.setup.kind,
+                              weight: set.weight, amount: set.amount, rpe: nil, completedAt: nil, overrides: overrides(set.setup, settings: exercise.settings))
                 }
             )
         })

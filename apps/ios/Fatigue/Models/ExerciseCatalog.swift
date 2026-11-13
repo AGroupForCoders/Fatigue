@@ -52,10 +52,22 @@ final class ExerciseCatalog {
         return catalog
     }
 
+    /// Called after every save to the database, so sync can push the change.
+    var onPersist: (() -> Void)?
+
     private func persist() {
         guard let database else { return }
         let stored = stored
         try? database.save(stored)
+        onPersist?()
+    }
+
+    /// Reads the library back from the database after a sync brought in changes from another phone.
+    func reload() {
+        guard let database, let stored = try? database.library() else { return }
+        let fresh = ExerciseCatalog(stored: stored)
+        exercises = fresh.exercises
+        setups = fresh.setups
     }
 
     init(exercises: [ExerciseInfo] = ExerciseCatalog.builtIn, setups: [String: BrandSetup] = ExerciseCatalog.sampleSetups) {
