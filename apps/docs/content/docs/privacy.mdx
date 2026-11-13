@@ -1,0 +1,87 @@
+---
+title: Privacy policy
+description: What Fatigue stores, where, and how to delete it.
+---
+
+This is the privacy policy for the Fatigue iOS app. It is written to match what the app actually does today. When the app changes, this page changes with it, and the date below moves.
+
+**Last updated:** 13 November 2026
+
+## The short version
+
+- Fatigue is a workout tracker. The data it holds is the data you type into it.
+- You sign up with a name, an email address and a password. That is the only personal information we ask for.
+- There are no ads, no analytics, no tracking and no third-party SDKs that phone home.
+- We never sell your data or share it with anyone to advertise to you.
+- You can delete your account, and everything on our server with it, from inside the app.
+
+## What the app stores
+
+### On your phone
+
+Everything you log is saved on your phone first, in a database that only the app can read.
+
+- **Workouts.** Exercises, sets, weights, reps, holds, RPE, set types, notes, rest times, the brand of machine and the settings you used, and when the workout started and ended.
+- **Routines and custom exercises** you create.
+- **Preferences.** Your weight unit (kg or lb), light or dark theme, and small view choices such as how an exercise page splits its graph.
+- **Your profile photo**, if you pick one. It is shrunk and saved on the phone only. It is never uploaded.
+- **Your session.** The token that keeps you signed in is kept in the iOS Keychain, readable only while the phone is unlocked. A copy of your name and email is kept so the app can show them while offline.
+
+Signing out removes the session, the cached account and the profile photo from the phone.
+
+### On our server
+
+When you create an account we store, on our server:
+
+- **Your name**, as you typed it when signing up. You can change it in Settings.
+- **Your email address.** It is your sign-in and the only way we could contact you about your account. We do not send marketing email.
+- **Your password**, stored only as a salted hash. We cannot read it.
+- **Sign-in sessions.** Each one records when it was created, when it expires, and the IP address and device description (the HTTP user agent) of the phone that opened it. This is standard session handling and is used only to keep your account secure.
+
+**Workout data and the server.** Backing up and syncing your workouts to your account is part of the product and is listed in the [requirements](/docs/requirements#account-and-sync). Once it ships, the workouts, routines and custom exercises listed above are also stored on the server, linked to your account, so they can be restored on a new phone. Until then they live only on your phone.
+
+### What we do not collect
+
+- No location.
+- No contacts, calendar or health data. Fatigue does not use HealthKit.
+- No advertising identifier, and no identifier used to track you across other apps or websites.
+- No analytics or crash reporting from third parties. Apple may share anonymous crash logs with us if you have opted in to that in iOS Settings, under Apple's own privacy policy.
+- No cookies. The app talks to our server with a bearer token only.
+
+## Who can see your data
+
+Nobody outside the people who run Fatigue, and they only look when something is broken.
+
+Our server runs on Cloudflare Workers and the database is Postgres hosted by Neon. They are infrastructure providers; they store the data on our behalf and do not use it for their own purposes. Data in transit is encrypted with HTTPS.
+
+We do not share data with advertisers, data brokers or analytics companies. We would hand over data only if the law required it.
+
+## How long we keep it
+
+Account data stays until you delete your account. Sign-in sessions expire after 90 days without use and are removed when you sign out or delete the account.
+
+## Deleting your account
+
+You can delete your account from inside the app:
+
+1. Open the **Profile** tab and tap the settings icon.
+2. Tap **Delete account**.
+3. Type your password and confirm.
+
+This removes your account, your sign-in sessions and, once sync ships, every workout stored on the server. It cannot be undone. Data on the phone is removed with the app when you uninstall it.
+
+If you can no longer sign in, email the address below from the email address on the account and we will delete it for you.
+
+## Children
+
+Fatigue is not aimed at children under 13 and we do not knowingly collect data from them. If you think a child has made an account, email us and we will remove it.
+
+## Changes
+
+If we start collecting something new, this page will say so before the app does, and the date at the top will change.
+
+## Contact
+
+Questions and deletion requests go to **`[PLACEHOLDER: support email]`**.
+
+Fatigue is published by **`[PLACEHOLDER: the seller name shown on the App Store listing]`**. The [App Store readiness](/docs/app-store) page tracks filling these in.

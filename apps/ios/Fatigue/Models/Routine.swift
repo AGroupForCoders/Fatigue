@@ -15,21 +15,21 @@ struct Routine: Identifiable, Equatable {
 struct RoutineExercise: Identifiable, Equatable {
     /// Everything about the exercise except its id, for telling whether a workout changed it.
     var shape: [String] {
-        [name, brand ?? "", String(restSeconds)]
+        [name, brand?.key ?? "", String(restSeconds)]
             + settings.map { "\($0.name)=\($0.value)" }
             + sets.map { "\($0.setup.kind.rawValue) \($0.type.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
     }
 
     var id = UUID()
     var name: String
-    var brand: String?
+    var brand: Brand?
     var restSeconds = 90
     var settings: [ExerciseSetting] = []
     var sets: [RoutineSet]
 
     /// A new exercise in the routine editor: three plain rep sets with nothing filled in,
     /// and the settings saved for it with no brand.
-    static func new(named name: String, brand: String? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
+    static func new(named name: String, brand: Brand? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
         RoutineExercise(name: name, brand: brand, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
     }
 }
@@ -168,7 +168,7 @@ final class WorkoutStore {
     }
 
     /// Your sets on an exercise and brand the last time you did it, newest workout first.
-    func previousSets(name: String, brand: String?) -> [WorkoutSet] {
+    func previousSets(name: String, brand: Brand?) -> [WorkoutSet] {
         for workout in history {
             if let exercise = workout.exercises.first(where: { $0.name == name && $0.brand == brand }) { return exercise.sets }
         }
@@ -299,12 +299,23 @@ final class WorkoutStore {
     func delete(_ routineID: UUID) {
         routines.removeAll { $0.id == routineID }
     }
+
+    /// Takes an exercise out of every prebuilt workout, after it's deleted from the library.
+    /// Finished workouts aren't touched, so nothing you logged on it is lost.
+    func removeFromRoutines(exerciseNamed name: String) {
+        guard routines.contains(where: { $0.exercises.contains { $0.name == name } }) else { return }
+        routines = routines.map { routine in
+            var routine = routine
+            routine.exercises.removeAll { $0.name == name }
+            return routine
+        }
+    }
 }
 
 extension WorkoutSession {
     /// Adds exercises picked from the library, each with one empty rep set to start,
     /// on the brand picked when it was created (no brand otherwise), with the settings saved for it.
-    func addExercises(named names: [String], brands: [String: String] = [:], catalog: ExerciseCatalog? = nil) {
+    func addExercises(named names: [String], brands: [String: Brand] = [:], catalog: ExerciseCatalog? = nil) {
         for name in names {
             let brand = brands[name]
             let saved = catalog?.setup(for: name, brand: brand) ?? BrandSetup()
@@ -353,7 +364,7 @@ extension WorkoutSession {
     }
 
     /// Switches an exercise to another brand, bringing in the settings saved for that brand.
-    func changeBrand(of exerciseIndex: Int, to brand: String?, catalog: ExerciseCatalog) {
+    func changeBrand(of exerciseIndex: Int, to brand: Brand?, catalog: ExerciseCatalog) {
         exercises[exerciseIndex].brand = brand
         exercises[exerciseIndex].settings = catalog.setup(for: exercises[exerciseIndex].name, brand: brand).settings
         fillPrevious(for: exerciseIndex)

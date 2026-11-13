@@ -42,7 +42,8 @@ final class ExerciseCatalog {
     /// Where changes are saved. Nil keeps them in memory, as tests and previews do.
     private var database: AppDatabase?
 
-    /// Every saved exercise-and-brand's settings, keyed "Adductors|Technogym".
+    /// Every saved exercise-and-brand's settings, keyed "Adductors|Technogym", or "Adductors|Technogym|City gym"
+    /// with a label (see `Brand.key`).
     var savedSetups: [String: BrandSetup] { setups }
 
     /// The library as saved on the phone.
@@ -70,20 +71,20 @@ final class ExerciseCatalog {
     }
 
     /// The brands with settings saved for an exercise.
-    func brands(for name: String) -> [String] {
+    func brands(for name: String) -> [Brand] {
         setups.keys.compactMap { key in
-            let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
-            return parts.count == 2 && parts[0] == name && !parts[1].isEmpty ? String(parts[1]) : nil
+            let parsed = Self.parse(key: key)
+            return parsed.name == name ? parsed.brand : nil
         }
     }
 
-    func setup(for name: String, brand: String?) -> BrandSetup {
+    func setup(for name: String, brand: Brand?) -> BrandSetup {
         setups[Self.key(name, brand)] ?? BrandSetup()
     }
 
     /// Saves an exercise and the settings for one of its brands.
     /// Renaming a custom exercise moves everything saved under the old name.
-    func save(_ info: ExerciseInfo, renamedFrom oldName: String? = nil, brand: String?, setup: BrandSetup) {
+    func save(_ info: ExerciseInfo, renamedFrom oldName: String? = nil, brand: Brand?, setup: BrandSetup) {
         let oldName = oldName ?? info.name
         if let index = exercises.firstIndex(where: { $0.name == oldName }) {
             exercises[index] = info
@@ -101,22 +102,40 @@ final class ExerciseCatalog {
         persist()
     }
 
-    /// Saves settings for other brands of an exercise, edited alongside the one being used.
-    func save(_ setups: [String: BrandSetup], for name: String) {
+    /// Saves settings for other brands of an exercise, edited alongside the one being used. Nil is no brand.
+    func save(_ setups: [Brand?: BrandSetup], for name: String) {
         guard !setups.isEmpty else { return }
-        for (brand, setup) in setups { self.setups[Self.key(name, brand.isEmpty ? nil : brand)] = setup }
+        for (brand, setup) in setups { self.setups[Self.key(name, brand)] = setup }
         persist()
     }
 
     /// Remembers the settings for an exercise on a brand, such as after you add a row on the workout screen.
-    func saveSettings(_ settings: [ExerciseSetting], for name: String, brand: String?) {
+    func saveSettings(_ settings: [ExerciseSetting], for name: String, brand: Brand?) {
         let named = settings.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
         guard setups[Self.key(name, brand)]?.settings != named else { return }
         setups[Self.key(name, brand), default: BrandSetup()].settings = named
         persist()
     }
 
-    private static func key(_ name: String, _ brand: String?) -> String { "\(name)|\(brand ?? "")" }
+    /// Takes a custom exercise out of the library. It's marked deleted rather than removed, so workouts
+    /// that used it keep their sets and still show its name. Built-in exercises can't be deleted.
+    @discardableResult
+    func delete(exerciseNamed name: String) -> Bool {
+        guard let index = exercises.firstIndex(where: { $0.name == name }), exercises[index].isCustom else { return false }
+        exercises.remove(at: index)
+        for key in setups.keys where key.hasPrefix(name + "|") { setups[key] = nil }
+        try? database?.deleteExercise(named: name)
+        return true
+    }
+
+    /// The exercise's name, "|", then the brand's key, which `parse(key:)` reads back.
+    static func key(_ name: String, _ brand: Brand?) -> String { "\(name)|\(brand?.key ?? "")" }
+
+    /// The exercise name and brand a setup key stands for.
+    static func parse(key: String) -> (name: String, brand: Brand?) {
+        let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        return (String(parts[0]), parts.count > 1 ? Brand(key: String(parts[1])) : nil)
+    }
 }
 
 extension ExerciseCatalog {

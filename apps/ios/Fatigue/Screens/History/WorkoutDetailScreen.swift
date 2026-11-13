@@ -35,7 +35,8 @@ struct WorkoutDetailScreen: View {
                         if let workout { withAnimation(.standard) { store.replace(workout.updated(from: session)) } }
                         editing = nil
                         if workout == nil { dismiss() }
-                    }
+                    },
+                    onDeleteExercise: { store.removeFromRoutines(exerciseNamed: $0) }
                 )
             }
         }
@@ -131,7 +132,7 @@ private struct ExerciseRecord: View {
                         .environment(\.palette, palette)
                 }
                 if let brand = exercise.brand {
-                    Text(brand)
+                    Text(brand.display)
                         .textStyle(Tokens.Typography.control)
                         .foregroundStyle(palette.foregroundMuted)
                 }

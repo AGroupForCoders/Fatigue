@@ -117,6 +117,65 @@ struct DatabaseTests {
         #expect(reopened.setup(for: "Adductors", brand: "Technogym").settings.map(\.name) == ["Seat", "Notch", "Dead stop"])
     }
 
+    /// A custom "Belt Squat" with a setting, logged in one finished workout and planned in one prebuilt workout.
+    private func beltSquat(in database: AppDatabase) throws -> (WorkoutStore, ExerciseCatalog) {
+        let workouts = store(database)
+        let catalog = ExerciseCatalog.load(from: database)
+        catalog.save(ExerciseInfo(name: "Belt Squat", equipment: .machine, primaryMuscle: .quadriceps, isCustom: true), brand: nil,
+                     setup: BrandSetup(settings: [ExerciseSetting(name: "Belt", value: "3")]))
+        workouts.startEmpty()
+        workouts.active?.addExercises(named: ["Belt Squat"], catalog: catalog)
+        workouts.active?.exercises[0].sets[0].weight = "80"
+        workouts.active?.exercises[0].sets[0].amount = "10"
+        workouts.active?.toggle(set: 0, in: 0)
+        workouts.finish(title: "Legs")
+        var routine = workouts.routines[0]
+        routine.exercises.append(.new(named: "Belt Squat"))
+        workouts.update(routine)
+        return (workouts, catalog)
+    }
+
+    @Test func deletingACustomExerciseHidesItAndKeepsItsHistory() throws {
+        let database = try AppDatabase.inMemory()
+        let (workouts, catalog) = try beltSquat(in: database)
+        #expect(workouts.history.count(using: "Belt Squat") == 1)
+
+        #expect(catalog.delete(exerciseNamed: "Belt Squat"))
+        workouts.removeFromRoutines(exerciseNamed: "Belt Squat")
+        #expect(catalog.info(named: "Belt Squat") == nil)
+        #expect(catalog.setup(for: "Belt Squat", brand: nil).settings.isEmpty)
+
+        let reopened = store(database)
+        let reopenedCatalog = ExerciseCatalog.load(from: database)
+        #expect(!reopenedCatalog.names.contains("Belt Squat"))
+        #expect(reopenedCatalog.savedSetups["Belt Squat|"] == nil)
+        #expect(!reopened.routines.flatMap(\.exercises).contains { $0.name == "Belt Squat" })
+        let legs = try #require(reopened.history.first { $0.title == "Legs" })
+        #expect(legs.exercises.map(\.name) == ["Belt Squat"])
+        #expect(legs.exercises[0].sets.map(\.weight) == ["80"])
+        #expect(legs.exercises[0].settings.map(\.name) == ["Belt"])
+    }
+
+    @Test func builtInExercisesCannotBeDeleted() throws {
+        let database = try AppDatabase.inMemory()
+        let catalog = ExerciseCatalog.load(from: database)
+        #expect(!catalog.delete(exerciseNamed: "Adductors"))
+        #expect(catalog.info(named: "Adductors") != nil)
+        #expect(ExerciseCatalog.load(from: database).setup(for: "Adductors", brand: "Technogym").settings.count == 3)
+    }
+
+    @Test func creatingAnExerciseWithADeletedNameBringsItBack() throws {
+        let database = try AppDatabase.inMemory()
+        let (_, catalog) = try beltSquat(in: database)
+        catalog.delete(exerciseNamed: "Belt Squat")
+        catalog.save(ExerciseInfo(name: "Belt Squat", equipment: .barbell, primaryMuscle: .quadriceps, isCustom: true), brand: nil,
+                     setup: BrandSetup(settings: [ExerciseSetting(name: "Pin", value: "2")]))
+
+        let reopened = ExerciseCatalog.load(from: database)
+        #expect(reopened.info(named: "Belt Squat")?.equipment == .barbell)
+        #expect(reopened.setup(for: "Belt Squat", brand: nil).settings.map(\.name) == ["Pin"])
+    }
+
     @Test func previousComesFromTheLastTimeOnThatBrand() throws {
         let database = try AppDatabase.inMemory()
         let workouts = store(database)
@@ -148,5 +207,35 @@ struct DatabaseTests {
         old.exercises[0].settings[0].value = "9"
         workouts.replace(old)
         #expect(ExerciseCatalog.load(from: database).setup(for: "Adductors", brand: "Technogym").settings[0].value == "4")
+    }
+
+    @Test func aBrandAndLabelPickTheirOwnRow() throws {
+        let database = try AppDatabase.inMemory()
+        let (plain, labelled, plainAgain) = try database.writer.write { db in
+            (try AppDatabase.exerciseBrandId(name: "Adductors", brand: "Technogym", label: nil, in: db),
+             try AppDatabase.exerciseBrandId(name: "Adductors", brand: "Technogym", label: "City gym", in: db),
+             try AppDatabase.exerciseBrandId(name: "Adductors", brand: "Technogym", label: nil, in: db))
+        }
+        #expect(plain != labelled)
+        // Clearing the label goes back to the row without one.
+        #expect(plainAgain == plain)
+    }
+
+    @Test func theLabelSurvivesSavingAndLoading() throws {
+        let database = try AppDatabase.inMemory()
+        let cityGym = Brand(name: "Technogym", label: "City gym")
+        let catalog = ExerciseCatalog.load(from: database)
+        catalog.save(ExerciseInfo(name: "Adductors", equipment: .machine, primaryMuscle: .adductors), brand: cityGym, setup: BrandSetup(settings: [ExerciseSetting(name: "Pad", value: "2")]))
+
+        var workout = FinishedWorkout.samples()[2]
+        workout.exercises[0].brand = cityGym
+        workout.exercises[0].settings = []
+        try database.save(workout.stored)
+
+        let reopened = ExerciseCatalog.load(from: database)
+        #expect(reopened.setup(for: "Adductors", brand: cityGym).settings.map(\.name) == ["Pad"])
+        #expect(reopened.setup(for: "Adductors", brand: "Technogym").settings.map(\.name) == ["Seat", "Notch", "Dead stop"])
+        let loaded = FinishedWorkout(stored: try #require(try database.workouts().first))
+        #expect(loaded.exercises[0].brand == cityGym)
     }
 }
