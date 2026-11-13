@@ -39,6 +39,24 @@ struct DatabaseTests {
         #expect(session.exercises[0].notes.last?.text == "Felt strong")
     }
 
+    @Test func aRestoredWorkoutOpensFullScreen() throws {
+        let database = try AppDatabase.inMemory()
+        let first = store(database)
+        first.startEmpty()
+        first.isShowingActive = false
+        first.saveActive()
+
+        // Relaunching opens the workout, even though it was minimised when the app closed.
+        #expect(store(database).isShowingActive)
+    }
+
+    @Test func noRunningWorkoutOpensOnTheTabs() throws {
+        let database = try AppDatabase.inMemory()
+        let reopened = store(database)
+        #expect(reopened.active == nil)
+        #expect(reopened.isShowingActive == false)
+    }
+
     @Test func finishingMovesTheWorkoutIntoHistory() throws {
         let database = try AppDatabase.inMemory()
         let first = store(database)

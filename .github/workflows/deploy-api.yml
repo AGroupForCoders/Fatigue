@@ -1,0 +1,91 @@
+# Deploys apps/api to Cloudflare Workers. See apps/api/README.md, "Deploying".
+#
+# Deploy only: pull request checks live in ci.yml. This runs on a push to main that
+# touches the API (or by hand), re-runs the API checks as a last guard, migrates the
+# production database, then deploys. Migrations run first so the new code never
+# meets an old schema; the old code keeps working against the new schema because
+# migrations only add things.
+#
+# Secrets this needs (repository Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN    "Edit Cloudflare Workers" template token
+#   CLOUDFLARE_ACCOUNT_ID   Workers & Pages overview, right-hand column
+#   DATABASE_URL            Neon production branch, pooled connection string
+# The Worker's own secrets are set once with `wrangler secret put`, not here.
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-api.yml"
+      - "apps/api/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one half way through a migration.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  deploy:
+    name: Migrate and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm api:typecheck
+      - run: pnpm api:test
+
+      - name: Run migrations against production
+        run: pnpm api:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to Cloudflare Workers
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          packageManager: pnpm
+          command: deploy
+
+      - name: Check /health
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DEPLOYMENT_URL" ]]; then
+            echo "wrangler did not report a deployment URL; skipping the health check" >&2
+            exit 0
+          fi
+          echo "Checking $DEPLOYMENT_URL/health"
+          # The first request after a deploy can take a moment to land on the new version.
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 10 "$DEPLOYMENT_URL/health"; then
+              echo
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          echo "::error::$DEPLOYMENT_URL/health did not answer 200 after the deploy"
+          exit 1

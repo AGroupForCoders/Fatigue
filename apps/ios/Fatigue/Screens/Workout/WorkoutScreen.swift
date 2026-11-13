@@ -166,7 +166,7 @@ struct WorkoutScreen: View {
         if let id = session.openRPE, let place = session.place(of: id) {
             let set = session.exercises[place.exercise].sets[place.set]
             RPEPanel(
-                title: "\(session.exercises[place.exercise].name) · Set \(place.set + 1)",
+                title: "\(session.exercises[place.exercise].name) · \(session.exercises[place.exercise].sets.spokenName(at: place.set))",
                 selected: set.rpe,
                 onPick: { value in
                     session.exercises[place.exercise].sets[place.set].rpe = value
@@ -399,10 +399,10 @@ private struct ExerciseSection: View {
                         if group.heading.isEmpty || setIndex != group.setIndices.first {
                             Hairline(soft: true)
                         }
-                        SwipeToDelete(accessibilityName: "set \(setIndex + 1)") {
+                        SwipeToDelete(accessibilityName: exercise.sets.spokenName(at: setIndex).lowercased()) {
                             session.deleteSet(setID)
                         } content: {
-                            SetRow(session: session, setID: setID, number: setIndex + 1, isRecord: records[setID] != nil, focus: focus)
+                            SetRow(session: session, setID: setID, isRecord: records[setID] != nil, focus: focus)
                         }
                     }
                     .transition(.opacity)
@@ -700,13 +700,12 @@ private struct ExerciseSection: View {
     }
 }
 
-/// One set: its number, what you did last time, weight, reps or time, RPE and the tick box.
+/// One set: its number or type letter, what you did last time, weight, reps or time, RPE and the tick box.
+/// Tapping the number opens a menu to mark the set as a warm-up, a drop set or a set to failure.
 private struct SetRow: View {
     @Environment(\.palette) private var palette
     @Bindable var session: WorkoutSession
     let setID: UUID
-    /// The set's number within its exercise, starting at 1.
-    let number: Int
     /// Whether this ticked set beat your best for its shape, shown as a small arrow by its number.
     var isRecord = false
     var focus: FocusState<FocusedCell?>.Binding
@@ -721,21 +720,40 @@ private struct SetRow: View {
     }
 
     private func row(_ set: WorkoutSet, exercise e: Int, index i: Int) -> some View {
-        HStack(spacing: Tokens.Space.s) {
-            HStack(spacing: 1) {
-                Text("\(number)")
-                    .contentTransition(.numericText(value: Double(number)))
-                if isRecord {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 9, weight: .bold))
-                        .transition(.scale.combined(with: .opacity))
+        let sets = session.exercises[e].sets
+        let mark = sets.mark(at: i)
+        let spoken = sets.spokenName(at: i)
+        return HStack(spacing: Tokens.Space.s) {
+            Menu {
+                ForEach(SetType.allCases, id: \.self) { type in
+                    Button {
+                        withAnimation(.standard) { session.changeType(of: setID, to: type) }
+                    } label: {
+                        if set.type == type {
+                            Label(type.name, systemImage: "checkmark")
+                        } else {
+                            Text(type.name)
+                        }
+                    }
                 }
+            } label: {
+                HStack(spacing: 1) {
+                    Text(mark)
+                        .contentTransition(.numericText())
+                    if isRecord {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 9, weight: .bold))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .foregroundStyle(isRecord ? palette.accent : set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
+                .animation(.standard, value: isRecord)
+                .animation(.standard, value: mark)
+                .frame(width: Tokens.Size.setNumberColumn, height: Tokens.Size.setRow, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(isRecord ? palette.accent : palette.foregroundFaint)
-            .animation(.standard, value: isRecord)
-            .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(isRecord ? "Set \(number), record" : "Set \(number)")
+            .accessibilityLabel(isRecord ? "\(spoken), record" : spoken)
+            .accessibilityHint("Changes the set's type")
             Text(set.previous.isEmpty ? "-" : set.previous)
                 .foregroundStyle(palette.foregroundMuted)
                 .lineLimit(1)
