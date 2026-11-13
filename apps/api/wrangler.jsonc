@@ -11,11 +11,9 @@
   "observability": { "enabled": true },
   // Readable stack traces in those logs.
   "upload_source_maps": true,
-  // Plain settings for the email links. The sender is a placeholder until the Resend domain is set up (see README).
-  // Locally, .env overrides them. DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL and RESEND_API_KEY are
-  // secrets set with `wrangler secret put`, never `vars` in this file.
+  // Settings that are the same everywhere. Everything else, secret or not, lives in the GitHub `production`
+  // environment and goes up with each deploy (see .github/workflows/deploy-api.yml). Locally, .env sets it all.
   "vars": {
-    "EMAIL_FROM": "Fatigue <no-reply@example.com>",
     "APP_DEEP_LINK_SCHEME": "fatigue"
   }
 }

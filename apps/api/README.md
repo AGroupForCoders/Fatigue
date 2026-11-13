@@ -30,9 +30,9 @@ Settings:
 
 | Variable               | What it is                                                                              | Where                                 |
 | ---------------------- | --------------------------------------------------------------------------------------- | ------------------------------------- |
-| `BETTER_AUTH_URL`      | The public URL of the API. Every link in an email starts with it.                       | `wrangler secret put`, `.env` locally |
-| `RESEND_API_KEY`       | Resend API key. Unset means emails go to the console.                                   | `wrangler secret put RESEND_API_KEY`  |
-| `EMAIL_FROM`           | Sender, such as `Fatigue <no-reply@yourdomain>`. The domain must be verified in Resend. | `wrangler.jsonc` vars, `.env` locally |
+| `BETTER_AUTH_URL`      | The public URL of the API. Every link in an email starts with it.                       | GitHub variable, `.env` locally       |
+| `RESEND_API_KEY`       | Resend API key. Unset means emails go to the console.                                   | GitHub secret, `.env` locally         |
+| `EMAIL_FROM`           | Sender, such as `Fatigue <no-reply@yourdomain>`. The domain must be verified in Resend. | GitHub variable, `.env` locally       |
 | `APP_DEEP_LINK_SCHEME` | The iOS app's URL scheme. Defaults to `fatigue`, which matches the app.                 | `wrangler.jsonc` vars                 |
 
 ## Profiles and friends
@@ -60,13 +60,6 @@ The snapshot is stored as it comes, up to 256 KB. The server never reads inside 
 
 Service tests run against PGlite, a Postgres that runs in memory, with every migration applied (`src/db/test-db.ts`). They need no database running.
 
-## Deploying
-
-1. Verify a sending domain in Resend and create an API key.
-2. Set `EMAIL_FROM` in `wrangler.jsonc` to the verified sender. `BETTER_AUTH_URL` is a secret, set in the deploy steps below.
-3. `wrangler secret put DATABASE_URL`, `wrangler secret put BETTER_AUTH_SECRET`, `wrangler secret put RESEND_API_KEY`.
-4. `pnpm --filter @fatigue/api deploy`, then point `APIConfig.baseURL` in the iOS app at the deployed URL.
-
 ## Changing the Better Auth config
 
 Better Auth's tables in `src/db/schema/auth.ts` are generated. After changing its config in `src/modules/auth/auth.ts`, run `pnpm --filter @fatigue/api auth:schema`, then `pnpm --filter @fatigue/api db:generate` to write the migration.
@@ -77,45 +70,42 @@ The API runs as the `fatigue-api` Worker on Cloudflare Workers (paid plan), agai
 
 Local dev is untouched by any of this: `.env` and your dev Neon branch (or Docker) stay as they are. Only `wrangler deploy` and the workflow reach production.
 
+### Where the settings live
+
+Everything production needs lives in the `production` environment on GitHub (Settings → Environments → production). Each deploy builds the Worker's settings from it with `scripts/production-config.mjs` and uploads them with the new version, so GitHub is the one place to change a value. The deploy refuses to run if a required value is missing or a provider is half set up.
+
+| Name                    | Kind     | What it is                                                                                  |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | secret   | Deploys the Worker. Cloudflare's "Edit Cloudflare Workers" token template.                  |
+| `CLOUDFLARE_ACCOUNT_ID` | secret   | The Cloudflare account. Also makes up the R2 endpoint, as the Worker's `R2_ACCOUNT_ID`.     |
+| `DIRECT_DATABASE_URL`   | secret   | Neon production branch, direct connection. Only the migration step uses it.                |
+| `DATABASE_URL`          | secret   | Neon production branch, **pooled** (host contains `-pooler`). The Worker opens one per request. |
+| `BETTER_AUTH_SECRET`    | secret   | Signs sessions. Random, and not the one in your `.env`. Changing it signs everybody out.   |
+| `BETTER_AUTH_URL`       | variable | `https://fatigue-api.<subdomain>.workers.dev`, no trailing slash. Must match `APIConfig.productionBaseURL`. |
+| `R2_BUCKET`             | variable | The private media bucket, `fatigue-media`.                                                  |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | secrets | S3 keys from an R2 token with Object Read & Write on that bucket alone. The deploy checks they can list it. |
+| `RESEND_API_KEY`        | secret   | Resend key with sending access to the verified domain.                                      |
+| `EMAIL_FROM`            | variable | `Fatigue <no-reply@<verified domain>>`.                                                     |
+
+R2 and Resend can each be left out entirely (the API then runs without them), but not half set up.
+
 ### One-time setup
 
-Do this once, from `apps/api`, signed in to Cloudflare with `pnpm exec wrangler login`.
+Run the setup wizard from the repository root, signed in to `gh` as someone who can change the repository's settings:
 
-1. **Neon production branch.** In the Neon project, create a branch named `production` from `main` (Branches → Create branch, or `neon branches create --name production`). Copy two connection strings from Connect: the **pooled** one (toggle "Connection pooling"; the host contains `-pooler`) for the Worker, which opens a connection per request, and the **direct** one for migrations, which Neon recommends running outside the pooler.
+```sh
+scripts/setup-production.sh
+```
 
-2. **Deploy the Worker once by hand** so it exists before secrets go on it:
+It opens each dashboard in turn, says what to click, and saves what you paste straight into the `production` environment with `gh`. Nothing is written to disk, and secrets are typed hidden. In order: a Cloudflare API token, the account and its workers.dev URL (looked up with the token), the Neon production branch's two URLs (Anton's Neon project), a generated `BETTER_AUTH_SECRET`, the `fatigue-media` R2 bucket (Oceania location hint) and its keys, a Resend sending domain and key. Last, it offers to start the deploy.
 
-   ```sh
-   pnpm exec wrangler deploy
-   ```
+Running it again is safe: for anything already saved, Enter keeps it.
 
-   The output ends with the public URL, `https://fatigue-api.<subdomain>.workers.dev`. Keep it.
-
-3. **Worker secrets.** Each command prompts for the value; nothing is written to disk.
-
-   ```sh
-   pnpm exec wrangler secret put DATABASE_URL        # the Neon production pooled URL
-   pnpm exec wrangler secret put BETTER_AUTH_SECRET  # paste the output of: openssl rand -base64 32
-   pnpm exec wrangler secret put BETTER_AUTH_URL     # the Worker URL from step 2, no trailing slash
-   ```
-
-   `BETTER_AUTH_SECRET` must be a new value, not the one in your `.env`. `BETTER_AUTH_URL` must be exactly the URL the app calls, or Better Auth refuses sign-in.
-
-4. **GitHub secrets** (repository Settings → Secrets and variables → Actions). Put them in a `production` environment if you want to approve deploys; the workflow uses that environment name.
-
-   | Secret                  | Value                                                                                                                         |
-   | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-   | `CLOUDFLARE_API_TOKEN`  | Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template. Scope it to this account. |
-   | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview, right-hand column.                                                                                  |
-   | `DATABASE_URL`          | The Neon production **direct** URL. The workflow uses it to run migrations.                                                   |
-
-5. **Point the app at it.** Set `APIConfig.productionBaseURL` in `apps/ios/Fatigue/Auth/AuthAPI.swift` to the Worker URL. Debug builds keep using localhost.
-
-6. Run the workflow once from the Actions tab (Deploy API → Run workflow) to confirm the whole path works, then it runs on its own.
+Then set `APIConfig.productionBaseURL` in `apps/ios/Fatigue/Auth/AuthAPI.swift` to the `BETTER_AUTH_URL` it printed. Debug builds keep using localhost.
 
 ### Migrations
 
-`pnpm api:migrate` (`drizzle-kit migrate`) applies `src/db/migrations` to whatever `DATABASE_URL` points at. Locally that comes from `.env`; in the workflow it comes from the `DATABASE_URL` GitHub secret. Drizzle records applied migrations in `drizzle.__drizzle_migrations`, so re-running is a no-op.
+`pnpm api:migrate` (`drizzle-kit migrate`) applies `src/db/migrations` to whatever `DATABASE_URL` points at. Locally that comes from `.env`; in the workflow it comes from the `DIRECT_DATABASE_URL` secret. Drizzle records applied migrations in `drizzle.__drizzle_migrations`, so re-running is a no-op.
 
 Migrations run before the Worker uploads, so new code never meets an old schema. Keep migrations additive (add tables and nullable columns, don't drop or rename in the same release) and the previous version keeps working during the few seconds between the two steps. If a migration fails the Worker is not deployed; fix the migration and re-run the workflow.
 
@@ -128,11 +118,11 @@ DATABASE_URL='postgres://...neon.tech/neondb?sslmode=require' pnpm api:migrate
 ### Checking a deploy
 
 - `curl https://fatigue-api.<subdomain>.workers.dev/health` answers `{"ok":true}`.
-- `pnpm exec wrangler secret list` shows `DATABASE_URL`, `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`.
+- `pnpm exec wrangler secret list` shows `DATABASE_URL`, `BETTER_AUTH_SECRET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `RESEND_API_KEY`.
 - `pnpm exec wrangler tail` streams live requests; the dashboard's Logs tab keeps them (observability is on in `wrangler.jsonc`).
 - From a TestFlight build on a real phone: sign up with a new email, sign out, sign in again, then delete the account from the profile screen. Each step should succeed, and the row should be gone from `user` in the Neon production branch afterwards.
 - The Neon production branch shows the tables from `src/db/migrations` and a `drizzle.__drizzle_migrations` row per migration.
 
 ### Changing the URL later
 
-A custom domain is a one-line `routes` entry in `wrangler.jsonc` plus updating `BETTER_AUTH_URL` (`wrangler secret put` again) and `APIConfig.productionBaseURL`. Ship the app update and the Worker change together, since release builds only know one URL.
+A custom domain is a one-line `routes` entry in `wrangler.jsonc` plus updating the `BETTER_AUTH_URL` variable on GitHub and `APIConfig.productionBaseURL`. Ship the app update and the Worker change together, since release builds only know one URL.
