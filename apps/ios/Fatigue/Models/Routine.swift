@@ -293,6 +293,17 @@ final class WorkoutStore {
     func delete(_ routineID: UUID) {
         routines.removeAll { $0.id == routineID }
     }
+
+    /// Takes an exercise out of every prebuilt workout, after it's deleted from the library.
+    /// Finished workouts aren't touched, so nothing you logged on it is lost.
+    func removeFromRoutines(exerciseNamed name: String) {
+        guard routines.contains(where: { $0.exercises.contains { $0.name == name } }) else { return }
+        routines = routines.map { routine in
+            var routine = routine
+            routine.exercises.removeAll { $0.name == name }
+            return routine
+        }
+    }
 }
 
 extension WorkoutSession {

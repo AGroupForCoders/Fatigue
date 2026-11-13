@@ -35,7 +35,8 @@ struct WorkoutDetailScreen: View {
                         if let workout { withAnimation(.standard) { store.replace(workout.updated(from: session)) } }
                         editing = nil
                         if workout == nil { dismiss() }
-                    }
+                    },
+                    onDeleteExercise: { store.removeFromRoutines(exerciseNamed: $0) }
                 )
             }
         }

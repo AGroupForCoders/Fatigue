@@ -52,6 +52,8 @@ exercise ──< exercise_brand ──< setting
 
 Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. The server is seeded with the same rows and IDs, so synced rows that point at a built-in exercise still pass its foreign keys. Custom exercises are ordinary rows.
 
+Deleting a custom exercise sets `deleted_at` on it, its `exercise_brand` rows, their settings and its `routine_exercise` rows (with their sets), in one transaction. Its `workout_exercise` rows are left alone, so finished workouts still show it with their sets, and the exercise page and stats keep its history. Only rows without `deleted_at` show in the picker and the library. Because `name` is unique, creating an exercise with a deleted one's name clears `deleted_at` on that row instead of adding another, which brings its history back with it.
+
 **`exercise_muscle`**
 
 Which muscles an exercise works, and how much of the work each one does. A future fatigue meter needs this per muscle, and it can't be filled in for old exercises after the fact.

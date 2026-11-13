@@ -59,6 +59,13 @@ struct FinishedWorkout: Identifiable {
     }
 }
 
+extension [FinishedWorkout] {
+    /// How many of these workouts logged sets on an exercise, on any brand. Said when you delete the exercise.
+    func count(using exerciseName: String) -> Int {
+        filter { $0.exercises.contains { $0.name == exerciseName } }.count
+    }
+}
+
 /// What to do with sets you didn't tick when you finish.
 enum UntickedSets {
     /// Leave them out of the saved workout.
