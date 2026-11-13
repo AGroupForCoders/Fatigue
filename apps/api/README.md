@@ -56,6 +56,18 @@ Every route here needs `Authorization: Bearer <token>`. The design is on the Soc
 - `GET /api/posts/:id` is one post, or 404 if you can't see it.
 - `DELETE /api/posts/:id` deletes your post.
 
+### Photos and videos
+
+Up to three per post, uploaded straight to the R2 bucket. The design is in "Storing photos and videos" on the Social docs page.
+
+- `PUT /api/posts/:id/media/:mediaId` with `{ kind, contentType, byteSize, width?, height?, durationSeconds?, position }` returns `{ id, status, upload? }`. `upload` is `{ url, method, headers, expiresAt }`: send the file there with exactly those headers. A photo is `image/jpeg` up to 10 MB, a video `video/mp4` up to 50 MB. Asking again for the same ID gives a fresh link, or no link once the file is in.
+- `POST /api/posts/:id/media/:mediaId/complete` checks the file arrived at its size and shows it on the post. 409 `not_uploaded` until it has.
+- `DELETE /api/posts/:id/media/:mediaId` takes it off the post and deletes the file.
+- Every post comes with `media`, its finished photos and videos in order, each with a `url` that works for an hour.
+- `POST /api/profiles/me/photo/upload` with `{ id, byteSize }` returns `{ upload }` for a JPEG up to 2 MB; `PUT /api/profiles/me/photo` with the same body makes it your photo; `DELETE /api/profiles/me/photo` removes it. Every person comes with `photoUrl`.
+
+Without the R2 settings (local dev, unless you add them to `.env`) these answer 503 and posts and people come back with no media or photos. A daily cron trigger deletes files nobody can see any more; run it locally with `pnpm exec wrangler dev --test-scheduled` and `curl "http://localhost:8787/__scheduled"`.
+
 The snapshot is stored as it comes, up to 256 KB. The server never reads inside it; `workoutId` is only sent back to the sharer.
 
 Service tests run against PGlite, a Postgres that runs in memory, with every migration applied (`src/db/test-db.ts`). They need no database running.

@@ -32,6 +32,7 @@ struct PostCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s) {
             if showsAuthor { PostAuthorLine(post: post) }
+            PostMediaView(media: post.media)
             NavigationLink(value: PostRoute(post: post)) {
                 VStack(alignment: .leading, spacing: Tokens.Space.s) {
                     HStack(alignment: .firstTextBaseline) {
@@ -121,7 +122,7 @@ struct PostAuthorLine: View {
         HStack(spacing: Tokens.Space.s) {
             NavigationLink(value: PersonRoute(userId: post.author.userId, handle: post.author.handle, name: post.author.name)) {
                 HStack(spacing: Tokens.Space.s) {
-                    Avatar(name: post.author.name, photo: nil, size: Tokens.Size.control)
+                    Avatar(name: post.author.name, photo: nil, url: post.author.photoUrl, size: Tokens.Size.control)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(post.author.name)
                             .textStyle(Tokens.Typography.body)

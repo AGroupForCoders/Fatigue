@@ -112,6 +112,9 @@ nonisolated struct ShareRequest: Codable, Hashable, Sendable {
     var startedAt: Date
     var snapshotVersion = PostSnapshot.version
     var snapshot: PostSnapshot
+    /// The photos and videos picked to go with it. Kept with the request on the phone, never sent in it:
+    /// each one uploads on its own once the post exists.
+    var media: [ShareMedia] = []
 }
 
 /// A shared workout, as the API returns it.
@@ -120,6 +123,8 @@ nonisolated struct Post: Decodable, Hashable, Identifiable, Sendable {
         let userId: String
         let handle: String
         let name: String
+        /// A download link for their profile photo, or nil when they have none.
+        var photoUrl: URL? = nil
     }
 
     let id: String
@@ -132,10 +137,13 @@ nonisolated struct Post: Decodable, Hashable, Identifiable, Sendable {
     let createdAt: Date
     /// Nil when it was shared by a newer app in a shape this one can't read.
     let snapshot: PostSnapshot?
+    /// Photos and videos that have finished uploading, in order.
+    let media: [PostMedia]
 
-    private enum CodingKeys: String, CodingKey { case id, author, workoutId, caption, visibility, startedAt, createdAt, snapshotVersion, snapshot }
+    private enum CodingKeys: String, CodingKey { case id, author, workoutId, caption, visibility, startedAt, createdAt, snapshotVersion, snapshot, media }
 
-    init(id: String, author: Author, workoutId: String?, caption: String?, visibility: PostVisibility, startedAt: Date, createdAt: Date, snapshot: PostSnapshot?) {
+    init(id: String, author: Author, workoutId: String?, caption: String?, visibility: PostVisibility, startedAt: Date, createdAt: Date,
+         snapshot: PostSnapshot?, media: [PostMedia] = []) {
         self.id = id
         self.author = author
         self.workoutId = workoutId
@@ -144,6 +152,7 @@ nonisolated struct Post: Decodable, Hashable, Identifiable, Sendable {
         self.startedAt = startedAt
         self.createdAt = createdAt
         self.snapshot = snapshot
+        self.media = media
     }
 
     init(from decoder: Decoder) throws {
@@ -157,6 +166,7 @@ nonisolated struct Post: Decodable, Hashable, Identifiable, Sendable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         let version = try container.decode(Int.self, forKey: .snapshotVersion)
         snapshot = version <= PostSnapshot.version ? try? container.decode(PostSnapshot.self, forKey: .snapshot) : nil
+        media = (try? container.decodeIfPresent([PostMedia].self, forKey: .media)) ?? []
     }
 }
 

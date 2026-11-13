@@ -180,13 +180,18 @@ Public posts from people who aren't your friends show on their profile, not in y
 
 ## Storing photos and videos
 
-This comes after sharing works without media. Files go in a private Cloudflare R2 bucket, through R2's S3-compatible API rather than a Workers binding, so the API can move host without rewriting this part. The tech stack page explains why.
+Files go in a private Cloudflare R2 bucket, `fatigue-media`, through R2's S3-compatible API rather than a Workers binding, so the API can move host without rewriting this part. The tech stack page explains why.
 
-- **Uploads go straight to R2.** The phone asks the API for an upload link for each file, then sends the file to that link. The file never passes through the Worker, which keeps big videos off it. Links last 15 minutes and only accept the size and type the phone said.
-- **Downloads use short-lived links too.** The feed hands back a signed link for each file, valid for an hour, and only to people allowed to see the post. Nothing in the bucket is public.
-- **Keys say who owns the file:** `users/<user id>/posts/<post id>/<media id>` and `users/<user id>/profile/<photo id>`. Deleting an account then removes everything under `users/<user id>/`.
-- **The phone shrinks files first,** the way the profile photo already is: photos to 2048 pixels on the long side as JPEG, videos to 1080p.
-- **A post only shows media once it has uploaded.** If an upload never finishes, the row stays hidden and a daily clean-up removes it.
+- **You pick what goes.** The share sheet shows the workout's photos and videos, all ticked to start with. Untick any to keep them on your phone. Sharing straight from the finish summary sends all of them.
+- **Uploads go straight to R2.** After the post exists, the phone asks the API for an upload link for each file (`PUT /api/posts/:id/media/:mediaId`), sends the file to it, then says it's done (`POST …/complete`). The file never passes through the Worker. Links last 15 minutes and only accept the type and size the phone declared, and only once.
+- **Done means it arrived.** The API checks the file is in the bucket at the declared size before the post shows it. It doesn't open the file to check it's really a JPEG or MP4; the signed type and size are the guard for now.
+- **The phone shrinks files first:** photos to 2048 pixels on the long side as JPEG (up to 10 MB), videos to 1080p MP4 (up to 50 MB). A post holds up to three, the same as a workout.
+- **Uploads wait for a connection.** What's still to upload is kept on the phone per account, like a share made offline, and finishes on the next launch or refresh. The post shows without it until then.
+- **Sharing again matches the pick.** Media you unticked comes off the post and its file is deleted; newly ticked media uploads.
+- **Downloads use short-lived links.** Every post comes with `media`, each with a signed link valid for an hour, only for people allowed to see the post. Nothing in the bucket is public. A copied link works for anyone until it expires, which is the trade for loading straight from R2.
+- **Profile photos** go up the same way (`POST /api/profiles/me/photo/upload`, then `PUT /api/profiles/me/photo`), as a 512 pixel JPEG. Every person in the API comes with `photoUrl`. Anyone signed in can see a profile photo, the same as a handle.
+- **Keys say who owns the file:** `users/<user id>/posts/<post id>/<media id>.jpg|mp4` and `users/<user id>/profile/<photo id>.jpg`. Deleting an account deletes everything under `users/<user id>/` first; if that fails, the account stays and you can try again.
+- **A daily clean-up** (a Worker cron trigger, 15:17 UTC) deletes uploads never finished within a day, media taken off posts, and everything on deleted posts.
 
 ## API modules
 
@@ -217,7 +222,7 @@ Very little:
 3. Likes and comments, with report and block in the same change.
 4. Tagging who you trained with.
 5. Notifications, in the app first and then push.
-6. Photos and videos on posts, and profile photos, through R2.
+6. Photos and videos on posts, and profile photos, through R2. Done in #100.
 
 Comparing yourself with a friend is tracked in [#91](https://github.com/AGroupForCoders/Fatigue/issues/91).
 

@@ -66,7 +66,7 @@ struct PersonScreen: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.l) {
-            Avatar(name: route.name, photo: nil)
+            Avatar(name: route.name, photo: nil, url: person?.photoUrl)
             VStack(alignment: .leading, spacing: Tokens.Space.s) {
                 Text(route.name)
                     .textStyle(Tokens.Typography.title)

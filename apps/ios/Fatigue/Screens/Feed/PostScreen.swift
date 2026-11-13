@@ -18,6 +18,10 @@ struct PostScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 PostAuthorLine(post: post)
                     .padding(.bottom, Tokens.Space.xl)
+                if !post.media.isEmpty {
+                    PostMediaView(media: post.media)
+                        .padding(.bottom, Tokens.Space.xl)
+                }
                 if let snapshot = post.snapshot {
                     content(snapshot)
                 } else {

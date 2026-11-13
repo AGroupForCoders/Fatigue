@@ -116,6 +116,8 @@ struct ProfileScreen: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self), let saved = ProfilePhoto.save(data) {
                     withAnimation(.standard) { photo = saved }
+                    // Friends see it once it's up. If that fails, it goes up the next time the profile loads.
+                    if let jpeg = ProfilePhoto.data() { try? await social.setProfilePhoto(jpeg) }
                 }
                 photoItem = nil
             }
@@ -213,6 +215,8 @@ struct Avatar: View {
     @Environment(\.palette) private var palette
     let name: String
     let photo: UIImage?
+    /// Someone else's photo, loaded from the API's link. Ignored when `photo` is there.
+    var url: URL? = nil
     var size: CGFloat = Tokens.Size.primaryButton + Tokens.Space.xxl
 
     var body: some View {
@@ -222,20 +226,34 @@ struct Avatar: View {
                     .resizable()
                     .scaledToFill()
                     .transition(.opacity)
+            } else if let url {
+                AsyncImage(url: url, transaction: Transaction(animation: .quick)) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFill()
+                    } else {
+                        initial
+                    }
+                }
             } else {
-                palette.surface
-                Text(name.first.map { String($0).uppercased() } ?? "")
-                    .textStyle(Tokens.Typography.exerciseName)
-                    .foregroundStyle(palette.foregroundMuted)
+                initial
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay(Circle().strokeBorder(palette.borderControl, lineWidth: Tokens.Size.line))
     }
+
+    private var initial: some View {
+        ZStack {
+            palette.surface
+            Text(name.first.map { String($0).uppercased() } ?? "")
+                .textStyle(Tokens.Typography.exerciseName)
+                .foregroundStyle(palette.foregroundMuted)
+        }
+    }
 }
 
-/// The profile photo, kept as a small JPEG on this phone. Uploading it comes with sync.
+/// Your profile photo, kept as a small JPEG on this phone so it shows straight away. A copy goes up to the API for friends.
 nonisolated enum ProfilePhoto {
     private static var url: URL {
         URL.applicationSupportDirectory.appending(path: "profile-photo.jpg")
@@ -243,6 +261,11 @@ nonisolated enum ProfilePhoto {
 
     static func load() -> UIImage? {
         UIImage(contentsOfFile: url.path(percentEncoded: false))
+    }
+
+    /// The saved JPEG, as it's uploaded.
+    static func data() -> Data? {
+        try? Data(contentsOf: url)
     }
 
     /// Shrinks the picked photo to 512 points across and saves it. Returns the saved image.
