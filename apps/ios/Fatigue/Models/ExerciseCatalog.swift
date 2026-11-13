@@ -53,6 +53,14 @@ final class ExerciseCatalog {
         return catalog
     }
 
+    /// Reads the library again, after a sync wrote to the database.
+    func reloadFromDatabase() {
+        guard let database else { return }
+        let reloaded = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary())
+        exercises = reloaded.exercises
+        setups = reloaded.setups
+    }
+
     private func persist() {
         guard let database else { return }
         let stored = stored

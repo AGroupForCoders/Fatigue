@@ -28,6 +28,7 @@ struct MainScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkoutStore.self) private var store
     @Environment(SocialStore.self) private var social
+    @Environment(SyncEngine.self) private var sync
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Environment(\.scenePhase) private var scenePhase
     /// Launch with `-openFeed`, `-openProfile` or `-openStats` to start on that tab, for screenshots.
@@ -81,8 +82,22 @@ struct MainScreen: View {
         .task(id: store.active?.id) { await store.autosaveActive() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { store.saveActive() }
-            // Shares made offline go out when the app comes back.
-            if phase == .active { Task { await social.sendPending() } }
+            // Shares made offline go out when the app comes back, and the phone syncs.
+            if phase == .active {
+                Task { await social.sendPending() }
+                sync.sync()
+            }
+            // A workout finished just before the phone is pocketed still goes up, in the time iOS allows.
+            if phase == .background { pushBeforeSuspending() }
+        }
+    }
+
+    private func pushBeforeSuspending() {
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask(withName: "sync") { UIApplication.shared.endBackgroundTask(task) }
+        Task {
+            await sync.pushNow()
+            UIApplication.shared.endBackgroundTask(task)
         }
     }
 
