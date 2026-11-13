@@ -6,6 +6,7 @@ struct FatigueApp: App {
     @State private var social = SocialStore()
     @State private var workouts: WorkoutStore
     @State private var catalog: ExerciseCatalog
+    @State private var sync: SyncEngine
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -23,7 +24,16 @@ struct FatigueApp: App {
         }
         let workouts = database.map { WorkoutStore(database: $0) } ?? WorkoutStore()
         _workouts = State(initialValue: workouts)
-        _catalog = State(initialValue: database.map { ExerciseCatalog.load(from: $0) } ?? ExerciseCatalog())
+        let catalog = database.map { ExerciseCatalog.load(from: $0) } ?? ExerciseCatalog()
+        _catalog = State(initialValue: catalog)
+        // Backs up to the API and brings down what other phones changed. A pull reloads what the screens show.
+        let sync = SyncEngine(database: database)
+        sync.onPulled = { [workouts, catalog] outcome in
+            workouts.reloadFromDatabase()
+            catalog.reloadFromDatabase()
+            if let unit = outcome.weightUnit { UserDefaults.standard.set(unit, forKey: WeightUnit.storageKey) }
+        }
+        _sync = State(initialValue: sync)
         // Outside the app the rest timer is followed by the "Rest done" notification and the Live Activity:
         // ticking a set starts them, ±15 moves them, and skipping, finishing or deleting the workout ends them.
         workouts.onRestChange = { rest, session in
@@ -46,6 +56,7 @@ struct FatigueApp: App {
             .environment(workouts)
             .environment(workouts.media)
             .environment(catalog)
+            .environment(sync)
             // The links in reset and verification emails end up here, as fatigue:// URLs.
             .onOpenURL { url in auth.open(url) }
         }
@@ -56,6 +67,7 @@ struct FatigueApp: App {
 struct RootView: View {
     @Environment(\.palette) private var palette
     @Environment(AuthStore.self) private var auth
+    @Environment(SyncEngine.self) private var sync
 
     var body: some View {
         @Bindable var auth = auth
@@ -71,11 +83,14 @@ struct RootView: View {
             }
         }
         .animation(.standard, value: auth.state)
+        // Sync follows whoever is signed in, and stops while nobody is.
+        .onChange(of: auth.account?.id, initial: true) { _, id in sync.account = id }
         .sheet(item: $auth.passwordReset) { _ in
             ResetPasswordScreen()
                 .environment(\.palette, palette)
         }
         .task {
+            sync.startWatching()
             await auth.restore()
             await signInForScreenshots()
         }

@@ -135,6 +135,28 @@ nonisolated extension AppDatabase {
         }
     }
 
+    // MARK: Whose data this is
+
+    /// The account the synced data on this phone belongs to, or nil before the first sync. The phone only
+    /// ever syncs with this account, so one person's workouts can't end up in another's.
+    func syncOwner() throws -> String? {
+        try writer.read { db in try String.fetchOne(db, sql: "SELECT value FROM sync_state WHERE key = 'owner'") }
+    }
+
+    func setSyncOwner(_ userID: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO sync_state (key, value) VALUES ('owner', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", arguments: [userID])
+        }
+    }
+
+    /// The tables under synced items. A commit that touches any of them may have something to push.
+    static let syncedTables: Set<String> = [
+        "exercise", "exercise_muscle", "exercise_brand", "setting",
+        "routine", "routine_exercise", "routine_exercise_setting", "routine_set", "routine_set_override",
+        "workout", "workout_exercise", "workout_exercise_note", "workout_exercise_setting", "workout_set", "workout_set_override",
+        "user_setting",
+    ]
+
     // MARK: - What the phone and the server agree on
 
     private struct Agreed {

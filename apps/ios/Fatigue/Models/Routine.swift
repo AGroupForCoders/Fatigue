@@ -409,6 +409,15 @@ final class WorkoutStore {
         }
     }
 
+    /// Reads history and prebuilt workouts again, after a sync wrote to the database. The running workout
+    /// never syncs, so it's left as it is.
+    func reloadFromDatabase() {
+        guard let database else { return }
+        let workouts = (try? database.workouts()) ?? []
+        history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:)).sorted { $0.startedAt > $1.startedAt }
+        routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
+    }
+
     func deleteFromHistory(_ workoutID: UUID) {
         history.removeAll { $0.id == workoutID }
         persist { try $0.deleteWorkout(id: workoutID.uuidString) }
