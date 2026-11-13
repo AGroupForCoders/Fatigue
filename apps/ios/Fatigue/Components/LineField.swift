@@ -3,7 +3,7 @@ import SwiftUI
 /// A form field drawn as a label above the text and a hairline under it, with no box.
 /// The line darkens while the field has the cursor.
 struct LineField: View {
-    enum Kind { case name, email, password, newPassword }
+    enum Kind { case name, email, password, newPassword, handle }
 
     @Environment(\.palette) private var palette
     let label: String
@@ -39,6 +39,14 @@ struct LineField: View {
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+        case .handle:
+            HStack(spacing: 0) {
+                Text("@").foregroundStyle(palette.foregroundMuted)
+                TextField("", text: $text)
+                    .textContentType(.username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
         case .password, .newPassword:
             SecureField("", text: $text)
                 .textContentType(kind == .password ? .password : .newPassword)
