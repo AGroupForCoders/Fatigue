@@ -107,7 +107,7 @@ struct RoutineEditor: View {
             ExercisePicker { names, brands in
                 withAnimation(.standard) {
                     routine.exercises += names.map { name in
-                        RoutineExercise.new(named: name, brand: brands[name], settings: catalog.setup(for: name, brand: brands[name]).settings)
+                        RoutineExercise.new(named: name, brand: brands[name], settings: catalog.setup(for: name, brand: brands[name]).settings, measures: catalog.measures(for: name))
                     }
                 }
             }
@@ -117,14 +117,14 @@ struct RoutineEditor: View {
 }
 
 /// One exercise in the routine editor: its name, how many sets, and the weight and reps to aim for.
-/// Exercises whose sets differ, such as a hold then reps, show the count only; finishing a workout
+/// Exercises whose sets differ, such as a notch that changes from set to set, show the count only; finishing a workout
 /// can update those sets (see the finish summary).
 private struct RoutineExerciseEditorRow: View {
     @Environment(\.palette) private var palette
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Binding var exercise: RoutineExercise
 
-    /// Whether every set shares a setup and target, so one weight and reps can stand for all of them.
+    /// Whether every set shares its values and target, so one weight and reps can stand for all of them.
     private var setsMatch: Bool {
         guard let first = exercise.sets.first else { return true }
         return exercise.sets.allSatisfy { $0 == first }
@@ -155,19 +155,21 @@ private struct RoutineExerciseEditorRow: View {
                         .foregroundStyle(palette.foreground)
                         .frame(minWidth: Tokens.Size.weightColumn)
                     step("plus", label: "One more set") {
-                        exercise.sets.append(exercise.sets.last ?? RoutineSet(setup: SetSetup(kind: .reps)))
+                        exercise.sets.append(exercise.sets.last ?? RoutineSet(setup: SetSetup(kind: exercise.measures.amount)))
                     }
                 }
                 Spacer()
                 if setsMatch {
-                    WeightEntry(kilograms: Binding(
-                        get: { exercise.sets.first?.weight ?? "" },
-                        set: { value in for index in exercise.sets.indices { exercise.sets[index].weight = value } }
-                    )) { text in
-                        target(unit.rawValue, text: text)
+                    if exercise.measures.weighted {
+                        WeightEntry(kilograms: Binding(
+                            get: { exercise.sets.first?.weight ?? "" },
+                            set: { value in for index in exercise.sets.indices { exercise.sets[index].weight = value } }
+                        )) { text in
+                            target(unit.rawValue, text: text)
+                        }
+                        Text("×").foregroundStyle(palette.foregroundFaint)
                     }
-                    Text("×").foregroundStyle(palette.foregroundFaint)
-                    target(exercise.sets.first?.setup.kind == .hold ? "s" : "reps", text: Binding(
+                    target(exercise.measures.amount == .hold ? "s" : "reps", text: Binding(
                         get: { exercise.sets.first?.amount ?? "" },
                         set: { value in for index in exercise.sets.indices { exercise.sets[index].amount = value } }
                     ))

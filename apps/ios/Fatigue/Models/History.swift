@@ -48,7 +48,7 @@ struct FinishedWorkout: Identifiable {
         return copy
     }
 
-    /// A prebuilt workout with the same exercises, sets and setups, to start again another day.
+    /// A prebuilt workout with the same exercises and sets, to start again another day.
     func asRoutine() -> Routine {
         Routine(name: title, exercises: exercises.map { exercise in
             RoutineExercise(
@@ -56,6 +56,7 @@ struct FinishedWorkout: Identifiable {
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
                 settings: exercise.settings,
+                measures: exercise.measures,
                 sets: exercise.sets.map { RoutineSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             )
         })
@@ -138,9 +139,9 @@ extension FinishedWorkout {
             ]),
             FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 74 * 60, gym: sampleGym, exercises: [
                 exercise("Adductors", brand: "Technogym", [
-                    WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "7", rpe: 9, isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 8]), weight: "50", amount: "8", rpe: 8, isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7]), weight: "55", amount: "8", rpe: 8.5, isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7]), weight: "55", amount: "7", rpe: 9, isDone: true),
                 ], settings: ExerciseCatalog.sampleAdductorSettings),
                 exercise("Leg Press", reps("160", "10", rpe: [8, 8.5, 9])),
                 exercise("Leg Extension", reps("50", "12", rpe: [8, 9])),
@@ -153,7 +154,7 @@ extension FinishedWorkout {
     }
 
     /// Six earlier weeks of the same three workouts, for debug builds, so every exercise has a line to graph.
-    /// Weights creep up week by week. Adductors switch between notch 7 and 8 and sometimes skip the dead stop,
+    /// Weights creep up week by week. Adductors switch between notch 7, 8 and 9 and sometimes skip the dead stop,
     /// so Split by and the filters have something to show. Not part of `samples()`, which tests count on.
     static func earlierSamples(now: Date = .now) -> [FinishedWorkout] {
         func day(_ daysAgo: Double) -> Date { now.addingTimeInterval(-daysAgo * 86_400) }
@@ -172,6 +173,7 @@ extension FinishedWorkout {
             let notch: Double = week.isMultiple(of: 2) ? 8 : 7
             let deadStop: Double = week == 3 || week == 5 ? 0 : 1
             let adductorSetup = SetSetup(kind: .reps, values: ["Notch": notch, "Dead stop": deadStop])
+            let deeper = SetSetup(kind: .reps, values: ["Notch": notch + 1, "Dead stop": deadStop])
             return [
                 FinishedWorkout(title: "Pull", startedAt: day(offset + 2), duration: 50 * 60, gym: sampleGym, exercises: [
                     exercise("Lat Pulldown", reps(65 - back * 2.5, 10)),
@@ -185,7 +187,7 @@ extension FinishedWorkout {
                 ]),
                 FinishedWorkout(title: "Leg day", startedAt: day(offset + 6), duration: 70 * 60, gym: sampleGym, exercises: [
                     exercise("Adductors", brand: "Technogym", [
-                        WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: PlainNumber.string(40 - back * 1.25), amount: "45", rpe: 8, isDone: true),
+                        WorkoutSet(setup: deeper, weight: PlainNumber.string(50 - back * 2.5), amount: "8", rpe: 8, isDone: true),
                         WorkoutSet(setup: adductorSetup, weight: PlainNumber.string(55 - back * 2.5), amount: "8", rpe: 8.5, isDone: true),
                         WorkoutSet(setup: adductorSetup, weight: PlainNumber.string(55 - back * 2.5), amount: "7", rpe: 9, isDone: true),
                     ], settings: ExerciseCatalog.sampleAdductorSettings),

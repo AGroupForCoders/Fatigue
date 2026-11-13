@@ -294,7 +294,6 @@ private struct ExerciseSection: View {
     /// Whether the settings line is opened up into editable rows.
     @State private var editingSettings = false
     @State private var pickingBrand = false
-    @State private var editingSetup: SetupEdit?
     @State private var pickingRest = false
 
     /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE`, `-editExercise` or `-editSettings`, for screenshots.
@@ -391,50 +390,22 @@ private struct ExerciseSection: View {
                 .padding(.top, Tokens.Space.xxl)
                 .padding(.bottom, Tokens.Space.s)
 
-            ForEach(exercise.groups) { group in
-                if !group.heading.isEmpty {
+            // Keyed by set id, not position, so a deleted row's swipe state never lands on the row that moves up.
+            ForEach(exercise.sets.map(\.id), id: \.self) { setID in
+                let setIndex = exercise.sets.firstIndex { $0.id == setID } ?? 0
+                VStack(spacing: 0) {
                     Hairline(soft: true)
-                    Button {
-                        if let first = group.setIndices.first {
-                            editingSetup = .group(group.setIndices, exercise.sets[first].setup)
-                        }
-                    } label: {
-                        HStack(spacing: Tokens.Space.xs) {
-                            Text(group.heading)
-                            Image(systemName: "chevron.down")
-                                .imageScale(.small)
-                                .foregroundStyle(palette.foregroundFaint)
-                        }
-                        .textStyle(Tokens.Typography.caption)
-                        .foregroundStyle(palette.foregroundMuted)
-                        .padding(.leading, Tokens.Size.setNumberColumn + Tokens.Space.s)
-                        .padding(.top, Tokens.Space.m)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    SwipeToDelete(accessibilityName: exercise.sets.spokenName(at: setIndex).lowercased()) {
+                        session.deleteSet(setID)
+                    } content: {
+                        SetRow(session: session, setID: setID, isRecord: records[setID] != nil, focus: focus)
                     }
-                    .buttonStyle(.pressRow)
-                    .accessibilityLabel("\(group.heading). Change setup")
-                    .transition(.opacity)
                 }
-                // Keyed by set id, not position, so a deleted row's swipe state never lands on the row that moves up.
-                ForEach(group.setIndices.map { exercise.sets[$0].id }, id: \.self) { setID in
-                    let setIndex = exercise.sets.firstIndex { $0.id == setID } ?? 0
-                    VStack(spacing: 0) {
-                        if group.heading.isEmpty || setIndex != group.setIndices.first {
-                            Hairline(soft: true)
-                        }
-                        SwipeToDelete(accessibilityName: exercise.sets.spokenName(at: setIndex).lowercased()) {
-                            session.deleteSet(setID)
-                        } content: {
-                            SetRow(session: session, setID: setID, isRecord: records[setID] != nil, focus: focus)
-                        }
-                    }
-                    .transition(.opacity)
-                }
+                .transition(.opacity)
             }
 
             Hairline(soft: true)
-            addSetMenu
+            addSetButton
         }
         .padding(.top, Tokens.Space.xxxl)
         .padding(.bottom, Tokens.Space.s)
@@ -482,20 +453,9 @@ private struct ExerciseSection: View {
                     catalog.moveBrand(for: edit.info.name, from: move.from, to: move.to)
                 }
                 withAnimation(.standard) {
-                    session.applyEdit(to: exerciseIndex, name: edit.info.name, settings: edit.setup.settings, renamedSettings: edit.renamedSettings)
+                    session.applyEdit(to: exerciseIndex, name: edit.info.name, settings: edit.setup.settings, renamedSettings: edit.renamedSettings, measures: edit.info.measures)
                     // Picking another brand in the editor moves this exercise onto it.
                     if edit.brand != oldBrand { session.changeBrand(of: exerciseIndex, to: edit.brand, catalog: catalog) }
-                }
-            }
-            .environment(\.palette, palette)
-        }
-        .sheet(item: $editingSetup) { edit in
-            SetupSheet(exercise: exercise, setup: edit.setup, actionTitle: edit.actionTitle) { setup in
-                withAnimation(.standard) {
-                    switch edit {
-                    case .group(let indices, _): session.changeSetup(of: indices, in: exerciseIndex, to: setup)
-                    case .new: session.addSet(to: exerciseIndex, setup: setup)
-                    }
                 }
             }
             .environment(\.palette, palette)
@@ -541,7 +501,7 @@ private struct ExerciseSection: View {
     @ViewBuilder private var settings: some View {
         if editingSettings {
             settingRows
-        } else if !exercise.settings.isEmpty {
+        } else if !exercise.plainSettings.isEmpty {
             Button {
                 withAnimation(.standard) { editingSettings = true }
             } label: {
@@ -574,10 +534,11 @@ private struct ExerciseSection: View {
         focus.wrappedValue = .settingName(id)
     }
 
-    /// The settings opened up: one editable row each, then Add setting and Done.
+    /// The settings opened up: one editable row each, then Add setting and Done. Every-set settings are
+    /// typed on each set instead, so they aren't here.
     private var settingRows: some View {
         VStack(alignment: .leading, spacing: 0) {
-                ForEach(exercise.settings) { setting in
+                ForEach(exercise.plainSettings) { setting in
                     SwipeToDelete(accessibilityName: setting.name.isEmpty ? "setting" : setting.name) {
                         session.deleteSetting(setting.id)
                     } content: {
@@ -682,24 +643,15 @@ private struct ExerciseSection: View {
         }
     }
 
-    /// Tap adds a set like the last one. Press and hold to pick another setup this exercise uses,
-    /// or start a new one, which gets its own heading.
-    private var addSetMenu: some View {
-        Menu {
-            ForEach(exercise.setups, id: \.self) { setup in
-                Button(exercise.heading(for: setup)) {
-                    withAnimation(.standard) { session.addSet(to: exerciseIndex, setup: setup) }
-                }
-            }
-            Divider()
-            Button("New setup", systemImage: "plus") {
-                editingSetup = .new(exercise.sets.last?.setup ?? SetSetup(kind: .reps))
-            }
+    /// Adds a set like the last one.
+    private var addSetButton: some View {
+        Button {
+            withAnimation(.standard) { session.addSet(to: exerciseIndex) }
         } label: {
             HStack {
                 Text("Add set")
                 Spacer()
-                Image(systemName: "chevron.up.chevron.down")
+                Image(systemName: "plus")
                     .imageScale(.small)
                     .foregroundStyle(palette.foregroundFaint)
             }
@@ -707,18 +659,26 @@ private struct ExerciseSection: View {
             .foregroundStyle(palette.foregroundMuted)
             .frame(maxWidth: .infinity, minHeight: Tokens.Size.control, alignment: .leading)
             .contentShape(Rectangle())
-        } primaryAction: {
-            withAnimation(.standard) { session.addSet(to: exerciseIndex) }
         }
-        .accessibilityHint("Press and hold to pick a setup")
+        .buttonStyle(.pressRow)
     }
 
+    /// One header row for every set: Previous, the exercise's measures, RPE and the tick.
     private var columnHeadings: some View {
         HStack(spacing: Tokens.Space.s) {
             Color.clear.frame(width: Tokens.Size.setNumberColumn, height: 1)
             Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
-            Text(unit.rawValue).frame(width: Tokens.Size.weightColumn)
-            Text(exercise.sets.allSatisfy { $0.kind == .hold } ? "Time" : "Reps").frame(width: Tokens.Size.amountColumn)
+            ForEach(exercise.setBoxes, id: \.self) { box in
+                switch box {
+                case .weight: Text(unit.rawValue).frame(width: Tokens.Size.weightColumn)
+                case .amount: Text(exercise.measures.amountName).frame(width: Tokens.Size.amountColumn)
+                case .setting(let setting):
+                    Text(setting.name)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(width: Tokens.Size.amountColumn)
+                }
+            }
             Text("RPE").frame(width: Tokens.Size.rpeColumn)
             Color.clear.frame(width: Tokens.Size.tickColumn, height: 1)
         }
@@ -749,6 +709,7 @@ private struct SetRow: View {
 
     private func row(_ set: WorkoutSet, exercise e: Int, index i: Int) -> some View {
         let sets = session.exercises[e].sets
+        let measures = session.exercises[e].measures
         let mark = sets.mark(at: i)
         let spoken = sets.spokenName(at: i)
         return HStack(spacing: Tokens.Space.s) {
@@ -787,19 +748,30 @@ private struct SetRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            WeightEntry(kilograms: $session.exercises[e].sets[i].weight) { text in
-                NumberCell(text: text, isDone: set.isDone, accessibilityName: "Weight in \(unit.name)", focus: focus, cell: .weight(set.id))
+            ForEach(session.exercises[e].setBoxes, id: \.self) { box in
+                switch box {
+                case .weight:
+                    WeightEntry(kilograms: $session.exercises[e].sets[i].weight) { text in
+                        NumberCell(text: text, isDone: set.isDone, accessibilityName: "Weight in \(unit.name)", focus: focus, cell: .weight(set.id))
+                    }
+                    .frame(width: Tokens.Size.weightColumn)
+                case .amount:
+                    NumberCell(
+                        text: $session.exercises[e].sets[i].amount,
+                        suffix: measures.amount == .hold ? "s" : "",
+                        isDone: set.isDone,
+                        accessibilityName: measures.amount == .hold ? "Seconds" : "Reps",
+                        focus: focus,
+                        cell: .amount(set.id)
+                    )
+                    .frame(width: Tokens.Size.amountColumn)
+                case .setting(let setting):
+                    EverySetCell(value: $session.exercises[e].sets[i].setup.values[setting.name]) { text in
+                        NumberCell(text: text, isDone: set.isDone, accessibilityName: setting.name, focus: focus, cell: .everySet(set.id, setting.id))
+                    }
+                    .frame(width: Tokens.Size.amountColumn)
+                }
             }
-            .frame(width: Tokens.Size.weightColumn)
-            NumberCell(
-                text: $session.exercises[e].sets[i].amount,
-                suffix: set.kind == .hold ? "s" : "",
-                isDone: set.isDone,
-                accessibilityName: set.kind == .hold ? "Seconds" : "Reps",
-                focus: focus,
-                cell: .amount(set.id)
-            )
-            .frame(width: Tokens.Size.amountColumn)
             RPECell(rpe: set.rpe, isDone: set.isDone, isOpen: session.openRPE == set.id) {
                 focus.wrappedValue = nil
                 session.openRPE = session.openRPE == set.id ? nil : set.id
@@ -810,6 +782,32 @@ private struct SetRow: View {
         .textStyle(Tokens.Typography.control)
         .monospacedDigit()
         .frame(height: Tokens.Size.setRow)
+    }
+}
+
+/// An every-set setting's value on one set, typed as text. The text is kept while you type, so "7." can
+/// become 7.5, and the number is written whenever the text reads as one. Clearing it leaves the set without one.
+private struct EverySetCell<Content: View>: View {
+    @Binding var value: Double?
+    @State private var text: String
+    private let content: (Binding<String>) -> Content
+
+    init(value: Binding<Double?>, @ViewBuilder content: @escaping (Binding<String>) -> Content) {
+        _value = value
+        _text = State(initialValue: value.wrappedValue.map(PlainNumber.string) ?? "")
+        self.content = content
+    }
+
+    var body: some View {
+        content($text)
+            .onChange(of: text) { _, text in
+                let trimmed = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+                if trimmed.isEmpty { value = nil } else if let number = Double(trimmed) { value = number }
+            }
+            .onChange(of: value) { _, value in
+                // Only when it changed from elsewhere, so typing "7." isn't turned back into "7".
+                if value != Double(text.replacingOccurrences(of: ",", with: ".")) { text = value.map(PlainNumber.string) ?? "" }
+            }
     }
 }
 
@@ -939,30 +937,4 @@ private struct ReorderExercises: View {
         .environment(MediaStore())
         .environment(\.palette, .dark)
         .preferredColorScheme(.dark)
-}
-
-/// What the setup sheet is doing: changing a group's setup, or adding a set with a new one.
-private enum SetupEdit: Identifiable {
-    case group([Int], SetSetup)
-    case new(SetSetup)
-
-    var id: String {
-        switch self {
-        case .group(let indices, _): "group-\(indices.first ?? 0)"
-        case .new: "new"
-        }
-    }
-
-    var setup: SetSetup {
-        switch self {
-        case .group(_, let setup), .new(let setup): setup
-        }
-    }
-
-    var actionTitle: String {
-        switch self {
-        case .group(let indices, _): indices.count == 1 ? "Change 1 set" : "Change \(indices.count) sets"
-        case .new: "Add set"
-        }
-    }
 }

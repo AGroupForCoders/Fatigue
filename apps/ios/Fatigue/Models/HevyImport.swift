@@ -222,26 +222,48 @@ nonisolated enum HevyImport {
     }
 }
 
+extension HevyExercise {
+    /// Whether every set is a hold, such as a plank.
+    var isAllHolds: Bool { sets.allSatisfy { $0.kind == "hold" } }
+}
+
+/// Where a Hevy exercise's sets go: the exercise for its rep sets, and the one for its holds. They're the same
+/// exercise when it's counted in time; otherwise the holds go to its isometric exercise, such as
+/// "Shoulder Press Isometric", since an exercise is counted in reps or in time, never both (ADR 0003).
+struct HevyExerciseNames: Equatable {
+    var reps: String
+    var holds: String
+}
+
 extension HevyWorkout {
     /// This workout as it's stored, with Hevy's exercise names already turned into the app's.
-    /// Every id comes from the workout's key, so a second import makes the very same rows.
-    func stored(exerciseName: (String) -> String) -> StoredWorkout {
-        StoredWorkout(
+    /// Every id comes from the workout's key, so a second import makes the very same rows. An exercise with
+    /// rep sets and holds on different exercises becomes two, the holds straight after the rep sets.
+    func stored(exerciseNames: (HevyExercise) -> HevyExerciseNames) -> StoredWorkout {
+        let completedAt = Int64((finishedAt.timeIntervalSince1970 * 1000).rounded())
+        return StoredWorkout(
             id: id.uuidString, title: title, note: description.isEmpty ? nil : description,
             startedAt: startedAt, finishedAt: finishedAt, routineId: nil,
-            exercises: exercises.enumerated().map { exerciseIndex, exercise in
-                let exerciseId = DerivedID.uuid("\(importKey)|\(exerciseIndex)")
-                return StoredExercise(
-                    id: exerciseId.uuidString, name: exerciseName(exercise.title), brand: nil, restSeconds: 90, settings: [],
-                    notes: exercise.notes.isEmpty ? [] : [StoredNote(id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|note").uuidString, text: exercise.notes)],
-                    sets: exercise.sets.enumerated().map { setIndex, set in
-                        StoredSet(
-                            id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|\(setIndex)").uuidString, kind: set.kind, setType: set.type,
-                            weightKg: set.weightKg, reps: set.reps, durationSeconds: set.durationSeconds, rpe: set.rpe,
-                            completedAt: Int64((finishedAt.timeIntervalSince1970 * 1000).rounded()), overrides: [:]
-                        )
-                    }
-                )
+            exercises: exercises.enumerated().flatMap { exerciseIndex, exercise -> [StoredExercise] in
+                let names = exerciseNames(exercise)
+                let sets = exercise.sets.enumerated().map { setIndex, set in
+                    StoredSet(
+                        id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|\(setIndex)").uuidString, kind: set.kind, setType: set.type,
+                        weightKg: set.weightKg, reps: set.reps, durationSeconds: set.durationSeconds, rpe: set.rpe,
+                        completedAt: completedAt, overrides: [:]
+                    )
+                }
+                let notes = exercise.notes.isEmpty ? [] : [StoredNote(id: DerivedID.uuid("\(importKey)|\(exerciseIndex)|note").uuidString, text: exercise.notes)]
+                let id = DerivedID.uuid("\(importKey)|\(exerciseIndex)").uuidString
+                let split = names.holds != names.reps && sets.contains { $0.kind == "hold" }
+                guard split else {
+                    return [StoredExercise(id: id, name: names.reps, brand: nil, restSeconds: 90, settings: [], notes: notes, sets: sets)]
+                }
+                let reps = sets.filter { $0.kind != "hold" }
+                let holds = StoredExercise(id: reps.isEmpty ? id : DerivedID.uuid("\(importKey)|\(exerciseIndex)|holds").uuidString, name: names.holds,
+                                           brand: nil, restSeconds: 90, settings: [], notes: reps.isEmpty ? notes : [], sets: sets.filter { $0.kind == "hold" })
+                guard !reps.isEmpty else { return [holds] }
+                return [StoredExercise(id: id, name: names.reps, brand: nil, restSeconds: 90, settings: [], notes: notes, sets: reps), holds]
             },
             importKey: importKey
         )
@@ -324,8 +346,18 @@ enum HevyExerciseMatcher {
 
     /// A custom exercise for a Hevy name nothing matched, with the kit read from the brackets
     /// and a muscle guessed from the name. Both can be corrected on the exercise page.
-    static func customExercise(named name: String) -> ExerciseInfo {
-        ExerciseInfo(name: name, equipment: equipment(in: name), primaryMuscle: muscle(in: name), isCustom: true)
+    /// It's counted in time when `holds` (every set of it was a hold), and weighted unless it's bodyweight.
+    static func customExercise(named name: String, holds: Bool = false) -> ExerciseInfo {
+        let equipment = equipment(in: name)
+        return ExerciseInfo(name: name, equipment: equipment, primaryMuscle: muscle(in: name), isCustom: true,
+                            measures: ExerciseMeasures(amount: holds ? .hold : .reps, weighted: equipment != .bodyweight))
+    }
+
+    /// The isometric version of an exercise counted in reps, for its holds: same equipment and muscles,
+    /// counted in time, weighted like the exercise.
+    static func isometricExercise(of info: ExerciseInfo) -> ExerciseInfo {
+        ExerciseInfo(name: MeasuresMigration.isometricName(of: info.name), equipment: info.equipment, primaryMuscle: info.primaryMuscle,
+                     secondaryMuscles: info.secondaryMuscles, isCustom: true, measures: ExerciseMeasures(amount: .hold, weighted: info.measures.weighted))
     }
 
     static func equipment(in name: String) -> Equipment {

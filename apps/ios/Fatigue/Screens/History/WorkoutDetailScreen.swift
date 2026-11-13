@@ -149,7 +149,7 @@ struct WorkoutDetailScreen: View {
     }
 }
 
-/// One exercise of a finished workout: name and brand, notes, then its sets under their setup headings.
+/// One exercise of a finished workout: name and brand, settings and notes, then its sets.
 private struct ExerciseRecord: View {
     @Environment(\.palette) private var palette
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
@@ -173,8 +173,8 @@ private struct ExerciseRecord: View {
                         .foregroundStyle(palette.foregroundMuted)
                 }
             }
-            if !exercise.settings.isEmpty {
-                Text(exercise.settings.map { "\($0.name) \(SettingEditor.displayValue($0))" }.joined(separator: " · "))
+            if !exercise.plainSettings.isEmpty {
+                Text(exercise.plainSettings.map { "\($0.name) \(SettingEditor.displayValue($0))" }.joined(separator: " · "))
                     .textStyle(Tokens.Typography.control)
                     .foregroundStyle(palette.foregroundMuted)
             }
@@ -183,17 +183,9 @@ private struct ExerciseRecord: View {
                     .textStyle(Tokens.Typography.control)
                     .foregroundStyle(palette.foregroundMuted)
             }
-            ForEach(exercise.groups) { group in
-                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                    if !group.heading.isEmpty {
-                        Text(group.heading)
-                            .textStyle(Tokens.Typography.caption)
-                            .foregroundStyle(palette.foregroundMuted)
-                            .padding(.top, Tokens.Space.s)
-                    }
-                    ForEach(group.setIndices, id: \.self) { index in
-                        setLine(mark: exercise.sets.mark(at: index), spoken: exercise.sets.spokenName(at: index), set: exercise.sets[index])
-                    }
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                ForEach(exercise.sets.indices, id: \.self) { index in
+                    setLine(mark: exercise.sets.mark(at: index), spoken: exercise.sets.spokenName(at: index), set: exercise.sets[index])
                 }
             }
         }
@@ -209,6 +201,9 @@ private struct ExerciseRecord: View {
                 .accessibilityLabel(spoken)
             Text(PreviousSet(kind: set.kind, weightKg: Double(set.weight), amount: set.amount).text(in: unit))
                 .foregroundStyle(palette.foreground)
+            ForEach(exercise.everySetLabels(for: set), id: \.self) { label in
+                Text(label).foregroundStyle(palette.foregroundMuted)
+            }
             if let rpe = set.rpe {
                 Text("@\(PlainNumber.string(rpe))")
                     .foregroundStyle(palette.foregroundMuted)

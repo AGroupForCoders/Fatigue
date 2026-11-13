@@ -497,7 +497,7 @@ struct ExerciseScreen: View {
                                 .accessibilityLabel(session.sets.spokenName(at: index))
                             Text(ExerciseStats.describe(set, in: weightUnit) + (set.rpe.map { " @\(PlainNumber.string($0))" } ?? ""))
                                 .foregroundStyle(palette.foreground)
-                            Text(([set.kind == .hold ? "Hold" : nil].compactMap { $0 } + session.exercise.labels(for: set.setup)).joined(separator: " · "))
+                            Text(session.exercise.everySetLabels(for: set).joined(separator: " · "))
                                 .foregroundStyle(palette.foregroundMuted)
                         }
                         .textStyle(Tokens.Typography.control)

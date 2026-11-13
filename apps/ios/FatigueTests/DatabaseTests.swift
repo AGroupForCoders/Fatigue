@@ -88,7 +88,7 @@ struct DatabaseTests {
 
         let reopened = store(database)
         #expect(reopened.routines.map(\.name) == ["Pull", "Legs A", "Push"])
-        #expect(reopened.routines[1].exercises[0].sets[0].setup == SetSetup(kind: .hold, values: ["Notch": 8]))
+        #expect(reopened.routines[1].exercises[0].sets[0].setup == SetSetup(kind: .reps, values: ["Notch": 8]))
         #expect(reopened.routines[1].exercises[0].settings.map(\.name) == ["Seat", "Notch", "Dead stop"])
     }
 
@@ -266,10 +266,10 @@ struct DatabaseTests {
         settings[1].name = "Range"
         catalog.save(ExerciseInfo(name: "Adductors", equipment: .machine, primaryMuscle: .adductors), brand: "Technogym", setup: BrandSetup(settings: settings))
 
-        // The sample Leg day's hold group overrides Notch to 8. It's stored by setting id, so it follows the rename.
+        // The sample Leg day's first set is at notch 8. It's stored by setting id, so it follows the rename.
         let legDay = try #require(store(database).history.first { $0.title == "Leg day" })
         #expect(legDay.exercises[0].settings.map(\.name) == ["Seat", "Range", "Dead stop"])
-        #expect(legDay.exercises[0].groups.first?.heading == "Hold · Range 8")
+        #expect(legDay.exercises[0].everySetLabels(for: legDay.exercises[0].sets[0]) == ["Range 8"])
         _ = workouts
     }
 
@@ -284,11 +284,12 @@ struct DatabaseTests {
 
     // MARK: Moving history between brands
 
-    /// A workout on Adductors, Hammer Strength, with Seat at 2 and Pad at 3 for the exercise and a hold group at seat 5.
+    /// A workout on Adductors, Hammer Strength, with Seat at 2 and Pad at 3 for the exercise and, as older workouts
+    /// could, one set at seat 5.
     private func hammerStrengthAdductors(_ settings: [ExerciseSetting], daysAgo: Double = 1) -> FinishedWorkout {
         FinishedWorkout(title: "Legs", startedAt: Date.now.addingTimeInterval(-daysAgo * 86_400), duration: 3600, exercises: [
             WorkoutExercise(name: "Adductors", brand: "Hammer Strength", restSeconds: 90, settings: settings, sets: [
-                WorkoutSet(setup: SetSetup(kind: .hold, values: ["Seat": 5]), weight: "30", amount: "40", isDone: true),
+                WorkoutSet(setup: SetSetup(kind: .reps, values: ["Seat": 5]), weight: "30", amount: "12", isDone: true),
                 WorkoutSet(setup: SetSetup(kind: .reps), weight: "45", amount: "10", isDone: true),
             ]),
         ])
@@ -313,7 +314,7 @@ struct DatabaseTests {
         let legDay = try #require(before.history.first { $0.title == "Leg day" })
         #expect(legDay.exercises[0].brand == "Technogym Pure")
         #expect(legDay.exercises[0].settings.map(\.name) == ["Seat", "Notch", "Dead stop"])
-        #expect(legDay.exercises[0].groups.first?.heading == "Hold · Notch 8")
+        #expect(legDay.exercises[0].everySetLabels(for: legDay.exercises[0].sets[0]) == ["Notch 8"])
         #expect(before.routines[0].exercises[0].brand == "Technogym Pure")
         #expect(catalog.setup(for: "Adductors", brand: "Technogym Pure").settings.map(\.name) == ["Seat", "Notch", "Dead stop"])
         #expect(catalog.setup(for: "Adductors", brand: "Technogym").settings.isEmpty)
@@ -351,12 +352,12 @@ struct DatabaseTests {
         #expect(catalog.setup(for: "Adductors", brand: "Hammer Strength").settings.isEmpty)
         #expect(!catalog.brands(for: "Adductors").contains("Hammer Strength"))
 
-        // The moved workout keeps the seat it was done at, and its hold group's override, under Technogym's Seat.
+        // The moved workout keeps the seat it was done at, and its first set's own seat, under Technogym's Seat.
         let moved = try #require(workouts.history.first { $0.title == "Legs" }?.exercises[0])
         #expect(moved.brand == "Technogym")
         #expect(moved.settings.first { $0.name == "Seat" }?.id == technogym.first { $0.name == "Seat" }?.id)
         #expect(moved.settings.first { $0.name == "Seat" }?.value == "2")
-        #expect(moved.groups.first?.heading == "Hold · Seat 5")
+        #expect(moved.sets[0].setup.values["Seat"] == 5)
         #expect(ExerciseStats.brands(for: "Adductors", in: workouts.history) == ["Technogym"])
         #expect(workouts.previousSets(name: "Adductors", brand: "Hammer Strength").isEmpty)
     }

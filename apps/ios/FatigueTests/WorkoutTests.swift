@@ -4,16 +4,23 @@ import Testing
 @testable import Fatigue
 
 @MainActor
-struct SetGroupTests {
-    @Test func groupsSplitWhereTheSetupChanges() {
+struct SetBoxTests {
+    @Test func everySetShowsTheSameBoxes() {
         let adductors = WorkoutSession.sample().exercises[0]
-        #expect(adductors.groups.map(\.heading) == ["Hold · Notch 8", "Reps"])
-        #expect(adductors.groups.map(\.setIndices) == [[0], [1, 2]])
+        #expect(adductors.setBoxes == [.weight, .amount, .setting(adductors.settings[1])])
+        let legPress = WorkoutSession.sample().exercises[1]
+        #expect(legPress.setBoxes == [.weight, .amount])
     }
 
-    @Test func plainRepSetsGetNoHeading() {
-        let legPress = WorkoutSession.sample().exercises[1]
-        #expect(legPress.groups == [SetGroup(heading: "", setIndices: [0, 1, 2])])
+    @Test func turningWeightOffHidesItsBox() {
+        let session = WorkoutSession.sample()
+        let settings = session.exercises[1].settings
+        session.applyEdit(to: 1, name: "Leg Press", settings: settings, renamedSettings: [:], measures: ExerciseMeasures(weighted: false))
+        #expect(session.exercises[1].setBoxes == [.amount])
+        // What was typed stays on the sets; a new set starts without a weight.
+        #expect(session.exercises[1].sets[0].weight == "160")
+        session.addSet(to: 1)
+        #expect(session.exercises[1].sets.last?.weight == "")
     }
 }
 
@@ -51,29 +58,17 @@ struct WorkoutSessionTests {
         let added = session.exercises[0].sets[3]
         #expect(added.kind == .reps)
         #expect(added.weight == "55")
-        #expect(added.setup == SetSetup(kind: .reps))
+        #expect(added.setup == SetSetup(kind: .reps, values: ["Notch": 7]))
         #expect(added.isDone == false)
+        #expect(session.exercises[0].sets.count == 4)
     }
 
-    @Test func addingAnExistingSetupJoinsItsGroup() {
-        let session = WorkoutSession.sample()
-        let hold = session.exercises[0].sets[0].setup
-        session.addSet(to: 0, setup: hold)
-        #expect(session.exercises[0].sets[1].setup == hold)
-        #expect(session.exercises[0].groups.map(\.setIndices) == [[0, 1], [2, 3]])
-    }
-
-    @Test func aNewSetupStartsANewGroupAtTheEnd() {
-        let session = WorkoutSession.sample()
-        session.addSet(to: 0, setup: SetSetup(kind: .reps, values: ["Notch": 9]))
-        #expect(session.exercises[0].groups.map(\.heading).last == "Reps · Notch 9")
-    }
-
-    @Test func changingAGroupsSetupMergesItWithAMatchingNeighbour() {
-        let session = WorkoutSession.sample()
-        let reps = session.exercises[0].sets[1].setup
-        session.changeSetup(of: [0], in: 0, to: reps)
-        #expect(session.exercises[0].groups.map(\.setIndices) == [[0, 1, 2]])
+    @Test func aTimedExerciseAddsHolds() {
+        let session = WorkoutSession(title: "Core", exercises: [
+            WorkoutExercise(name: "Plank", restSeconds: 60, sets: [], measures: ExerciseMeasures(amount: .hold, weighted: false)),
+        ])
+        session.addSet(to: 0)
+        #expect(session.exercises[0].sets.map(\.kind) == [.hold])
     }
 
     @Test func deletingTheOpenSetClosesItsRPEPanel() {

@@ -279,6 +279,7 @@ struct SocialStoreTests {
         let exercise = snapshot.exercises[0]
         #expect(exercise.brand == "Technogym")
         #expect(exercise.notes == ["Seat 4"])
+        #expect(exercise.groups.count == 1)
         let sets = exercise.groups.flatMap(\.sets)
         #expect(sets.map(\.mark) == ["W", "1"])
         #expect(sets[1].text(in: .kg) == "60 × 8")

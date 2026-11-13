@@ -25,16 +25,18 @@ struct RoutineExercise: Identifiable, Equatable {
     var brand: Brand?
     var restSeconds = 90
     var settings: [ExerciseSetting] = []
+    /// Reps or time, and weight or not, from the library.
+    var measures = ExerciseMeasures()
     var sets: [RoutineSet]
 
-    /// A new exercise in the routine editor: three plain rep sets with nothing filled in,
+    /// A new exercise in the routine editor: three sets with nothing filled in,
     /// and the settings saved for it with no brand.
-    static func new(named name: String, brand: Brand? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
-        RoutineExercise(name: name, brand: brand, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
+    static func new(named name: String, brand: Brand? = nil, settings: [ExerciseSetting] = [], measures: ExerciseMeasures = ExerciseMeasures()) -> RoutineExercise {
+        RoutineExercise(name: name, brand: brand, settings: settings, measures: measures, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: measures.amount)), count: 3))
     }
 }
 
-/// One planned set: its setup and the target weight and reps or seconds.
+/// One planned set: its kind and every-set values, and the target weight and reps or seconds.
 struct RoutineSet: Equatable {
     var setup: SetSetup
     var type: SetType = .normal
@@ -57,7 +59,8 @@ extension Routine {
                     settings: exercise.settings,
                     sets: exercise.sets.map { set in
                         WorkoutSet(setup: set.setup, type: set.type, weight: set.weight, amount: set.amount, previous: Self.target(set))
-                    }
+                    },
+                    measures: exercise.measures
                 )
             },
             now: now
@@ -76,6 +79,7 @@ extension Routine {
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
                 settings: exercise.settings,
+                measures: exercise.measures,
                 sets: exercise.sets.map { RoutineSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             )
         }
@@ -443,27 +447,39 @@ final class WorkoutStore {
     }
 
     /// Brings every workout in a Hevy export into history. Exercise names are matched to the library,
-    /// and ones that match nothing are added to it as custom exercises. A workout that's already in
-    /// history, because the same file was imported before, is skipped, so importing twice adds nothing.
+    /// and ones that match nothing are added to it as custom exercises, counted in time when the first workout
+    /// that has them only holds them. Holds on an exercise counted in reps go to its isometric exercise, such as
+    /// "Shoulder Press Isometric", which is made if it isn't there. A workout that's already in history,
+    /// because the same file was imported before, is skipped, so importing twice adds nothing.
     @discardableResult
     func importHevy(csv: String, catalog: ExerciseCatalog) throws -> HevyImportResult {
         let workouts = try HevyImport.parse(csv)
         var names = catalog.names
         var resolved: [String: String] = [:]
         var result = HevyImportResult()
-        func name(for hevyName: String) -> String {
-            if let name = resolved[hevyName] { return name }
+        func add(_ info: ExerciseInfo) {
+            catalog.save(info, brand: nil, setup: BrandSetup())
+            names.append(info.name)
+            result.newExercises.append(info.name)
+        }
+        func names(for exercise: HevyExercise) -> HevyExerciseNames {
             let name: String
-            if let match = HevyExerciseMatcher.match(hevyName, among: names) {
+            if let known = resolved[exercise.title] {
+                name = known
+            } else if let match = HevyExerciseMatcher.match(exercise.title, among: names) {
                 name = match
             } else {
-                name = hevyName
-                catalog.save(HevyExerciseMatcher.customExercise(named: name), brand: nil, setup: BrandSetup())
-                names.append(name)
-                result.newExercises.append(name)
+                name = exercise.title
+                add(HevyExerciseMatcher.customExercise(named: name, holds: exercise.isAllHolds))
             }
-            resolved[hevyName] = name
-            return name
+            resolved[exercise.title] = name
+            // Only an exercise with holds needs somewhere for them, so one that never has any gets no isometric twin.
+            guard exercise.sets.contains(where: { $0.kind == "hold" }), let info = catalog.info(named: name), info.measures.amount == .reps else {
+                return HevyExerciseNames(reps: name, holds: name)
+            }
+            let isometric = HevyExerciseMatcher.isometricExercise(of: info)
+            if catalog.info(named: isometric.name) == nil { add(isometric) }
+            return HevyExerciseNames(reps: name, holds: isometric.name)
         }
 
         var added: [FinishedWorkout] = []
@@ -472,7 +488,7 @@ final class WorkoutStore {
                 result.alreadyThere += 1
                 continue
             }
-            let stored = workout.stored(exerciseName: name(for:))
+            let stored = workout.stored(exerciseNames: names(for:))
             persist { try $0.save(stored) }
             added.append(FinishedWorkout(stored: stored))
             result.imported += 1
@@ -496,18 +512,19 @@ final class WorkoutStore {
 }
 
 extension WorkoutSession {
-    /// Adds exercises picked from the library, each with one empty rep set to start,
+    /// Adds exercises picked from the library, each with one empty set to start,
     /// on the brand picked when it was created (no brand otherwise), with the settings saved for it.
     func addExercises(named names: [String], brands: [String: Brand] = [:], catalog: ExerciseCatalog? = nil) {
         for name in names {
             let brand = brands[name]
             let saved = catalog?.setup(for: name, brand: brand) ?? BrandSetup()
+            let measures = catalog?.measures(for: name) ?? ExerciseMeasures()
             let last = previousLookup?(name, brand) ?? []
             // Start from last time's sets when there were any, so the cells are already filled in.
             let sets = last.isEmpty
-                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "")]
-                : last.map { WorkoutSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
-            exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets))
+                ? [WorkoutSet(setup: SetSetup(kind: measures.amount), weight: "", amount: "")]
+                : last.map { WorkoutSet(setup: SetSetup(kind: measures.amount, values: $0.setup.values), type: $0.type, weight: measures.weighted ? $0.weight : "", amount: $0.amount) }
+            exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets, measures: measures))
             fillPrevious(for: exercises.count - 1)
         }
     }
@@ -524,10 +541,12 @@ extension WorkoutSession {
     }
 
     /// Applies an edit from the exercise editor to an exercise in this workout.
-    /// Renamed settings keep their group overrides, and removed or text settings drop theirs.
-    func applyEdit(to exerciseIndex: Int, name: String, settings: [ExerciseSetting], renamedSettings: [String: String]) {
+    /// Renamed settings keep their sets' values, and removed or text settings drop theirs. Turning weight off
+    /// hides the weight box; what's typed in it stays until the set is saved without one.
+    func applyEdit(to exerciseIndex: Int, name: String, settings: [ExerciseSetting], renamedSettings: [String: String], measures: ExerciseMeasures? = nil) {
         exercises[exerciseIndex].name = name
         exercises[exerciseIndex].settings = settings
+        if let measures { exercises[exerciseIndex].measures = measures }
         let kept = Set(settings.filter { $0.kind != .text }.map(\.name))
         for setIndex in exercises[exerciseIndex].sets.indices {
             var values: [String: Double] = [:]
@@ -555,9 +574,9 @@ extension Routine {
                 name: "Adductors", brand: "Technogym", restSeconds: 120,
                 settings: ExerciseCatalog.sampleAdductorSettings,
                 sets: [
-                    RoutineSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45"),
-                    RoutineSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8"),
-                    RoutineSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8"),
+                    RoutineSet(setup: SetSetup(kind: .reps, values: ["Notch": 8]), weight: "50", amount: "8"),
+                    RoutineSet(setup: SetSetup(kind: .reps, values: ["Notch": 7]), weight: "55", amount: "8"),
+                    RoutineSet(setup: SetSetup(kind: .reps, values: ["Notch": 7]), weight: "55", amount: "8"),
                 ]
             ),
             RoutineExercise(name: "Leg Press", restSeconds: 150, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10"), count: 3)),

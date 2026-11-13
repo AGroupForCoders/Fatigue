@@ -13,7 +13,8 @@ import Observation
 final class SyncEngine {
     /// Bump with any phone migration that adds or changes a synced column, after the API has it too.
     /// The server refuses an item from a build older than the one that last wrote it.
-    static let schema = 1
+    /// 2 added exercise measures and every-set settings (`v8-measures`).
+    static let schema = 2
     /// The most items one push sends, the same as the API takes.
     static let pageSize = 100
     /// How long after a change the push waits, so several edits go up as one.

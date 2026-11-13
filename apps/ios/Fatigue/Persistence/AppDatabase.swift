@@ -7,8 +7,9 @@ import GRDB
 /// - an exercise on a brand (`exercise_brand`) owns its settings (`setting`), and their values there
 ///   are what's filled in next time;
 /// - a workout stores the value each setting had for the whole exercise (`workout_exercise_setting`)
-///   and what a group of sets changed (`workout_set_override`), both by setting id, so renaming a
-///   setting keeps its history;
+///   and each set's value for an every-set setting (`workout_set_override`), both by setting id, so
+///   renaming a setting keeps its history;
+/// - an exercise's measures (reps or time, and weight or not) sit on its row, as "weight,reps";
 /// - prebuilt workouts mirror that with `routine_*` tables.
 ///
 /// The app's model never crosses into GRDB's closures. It's turned into the plain `Stored*` values
@@ -265,6 +266,13 @@ nonisolated final class AppDatabase: Sendable {
                 t.column("deleted_at", .integer)
             }
         }
+        // What every set of an exercise records (ADR 0003): reps or time and weight or not, on the exercise, and
+        // settings typed on every set. Exercises that mixed rep sets and holds are split in two. See MeasuresMigration.
+        migrator.registerMigration("v8-measures") { db in
+            try db.alter(table: "exercise") { t in t.add(column: "measures", .text) }
+            try db.alter(table: "setting") { t in t.add(column: "every_set", .boolean).notNull().defaults(to: false) }
+            try MeasuresMigration.run(in: db)
+        }
         return migrator
     }
 
@@ -293,6 +301,8 @@ nonisolated struct StoredSetting: Sendable, Equatable {
     var rangeMax: Double?
     var splitByValue: Bool
     var factor: Double? = nil
+    /// Typed on every set, as one of the exercise's measures.
+    var everySet = false
 }
 
 nonisolated struct StoredSet: Sendable {
@@ -324,6 +334,8 @@ nonisolated struct StoredExercise: Sendable {
     var settings: [StoredSetting]
     var notes: [StoredNote]
     var sets: [StoredSet]
+    /// Read from the exercise's row. Not written with a workout: the library owns it.
+    var measures = ExerciseMeasures()
 }
 
 nonisolated struct StoredWorkout: Sendable {
@@ -359,6 +371,8 @@ nonisolated struct StoredExerciseInfo: Sendable {
     var equipment: String
     var isBuiltin: Bool
     var muscles: [StoredMuscle]
+    /// Nil leaves what's stored as it is.
+    var measures: ExerciseMeasures? = nil
 }
 
 nonisolated struct StoredSetup: Sendable {
@@ -494,15 +508,15 @@ nonisolated extension AppDatabase {
     /// so saving an old workout never overwrites what's filled in next time.
     private static func upsert(_ setting: StoredSetting, exerciseBrandId: String, position: Int, withValue: Bool, in db: Database) throws {
         try db.execute(sql: """
-            INSERT INTO setting (id, exercise_brand_id, name, kind, value, text_value, direction, range_min, range_max, split_by_value, factor, position, updated_at, deleted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            INSERT INTO setting (id, exercise_brand_id, name, kind, value, text_value, direction, range_min, range_max, split_by_value, factor, every_set, position, updated_at, deleted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
             ON CONFLICT(id) DO UPDATE SET
                 exercise_brand_id = excluded.exercise_brand_id, name = excluded.name, kind = excluded.kind,
                 direction = excluded.direction, range_min = excluded.range_min, range_max = excluded.range_max,
-                split_by_value = excluded.split_by_value, factor = excluded.factor, position = excluded.position, updated_at = excluded.updated_at,
+                split_by_value = excluded.split_by_value, factor = excluded.factor, every_set = excluded.every_set, position = excluded.position, updated_at = excluded.updated_at,
                 deleted_at = NULL\(withValue ? ", value = excluded.value, text_value = excluded.text_value" : "")
             """, arguments: [setting.id, exerciseBrandId, setting.name, setting.kind, setting.value, setting.textValue,
-                             setting.direction, setting.rangeMin, setting.rangeMax, setting.splitByValue, setting.factor, position, now])
+                             setting.direction, setting.rangeMin, setting.rangeMax, setting.splitByValue, setting.factor, setting.everySet, position, now])
     }
 
     private static func settings(_ sql: String, owner: String, in db: Database) throws -> [StoredSetting] {
@@ -510,7 +524,7 @@ nonisolated extension AppDatabase {
             StoredSetting(
                 id: row["id"], name: row["name"], kind: row["kind"], value: row["value"], textValue: row["text_value"],
                 direction: row["direction"], rangeMin: row["range_min"], rangeMax: row["range_max"], splitByValue: row["split_by_value"],
-                factor: row["factor"]
+                factor: row["factor"], everySet: row["every_set"]
             )
         }
     }
@@ -551,7 +565,7 @@ nonisolated extension AppDatabase {
 
     private static func workoutExercises(of workoutId: String, in db: Database) throws -> [StoredExercise] {
         try Row.fetchAll(db, sql: """
-            SELECT we.id, we.rest_seconds, e.name, eb.brand, eb.label FROM workout_exercise we
+            SELECT we.id, we.rest_seconds, e.name, e.equipment, e.measures, eb.brand, eb.label FROM workout_exercise we
             JOIN exercise_brand eb ON eb.id = we.exercise_brand_id JOIN exercise e ON e.id = eb.exercise_id
             WHERE we.workout_id = ? AND we.deleted_at IS NULL ORDER BY we.position
             """, arguments: [workoutId]).map { row in
@@ -559,14 +573,15 @@ nonisolated extension AppDatabase {
             return StoredExercise(
                 id: id, name: row["name"], brand: row["brand"], label: row["label"], restSeconds: row["rest_seconds"],
                 settings: try settings("""
-                    SELECT s.id, s.name, s.kind, ws.value, ws.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
+                    SELECT s.id, s.name, s.kind, ws.value, ws.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor, s.every_set
                     FROM workout_exercise_setting ws JOIN setting s ON s.id = ws.setting_id
                     WHERE ws.workout_exercise_id = ? ORDER BY s.position
                     """, owner: id, in: db),
                 notes: try Row.fetchAll(db, sql: "SELECT id, text FROM workout_exercise_note WHERE workout_exercise_id = ? ORDER BY position", arguments: [id])
                     .map { StoredNote(id: $0["id"], text: $0["text"]) },
                 sets: try sets("SELECT * FROM workout_set WHERE workout_exercise_id = ? AND deleted_at IS NULL ORDER BY position", owner: id,
-                               overrideSQL: "SELECT setting_id, value FROM workout_set_override WHERE workout_set_id = ?", in: db)
+                               overrideSQL: "SELECT setting_id, value FROM workout_set_override WHERE workout_set_id = ?", in: db),
+                measures: ExerciseCatalogNames.measures(stored: row["measures"], name: row["name"], equipment: row["equipment"])
             )
         }
     }
@@ -630,7 +645,7 @@ nonisolated extension AppDatabase {
             try Row.fetchAll(db, sql: "SELECT * FROM routine WHERE deleted_at IS NULL ORDER BY position").map { row in
                 let id: String = row["id"]
                 let exercises = try Row.fetchAll(db, sql: """
-                    SELECT re.id, re.rest_seconds, e.name, eb.brand, eb.label FROM routine_exercise re
+                    SELECT re.id, re.rest_seconds, e.name, e.equipment, e.measures, eb.brand, eb.label FROM routine_exercise re
                     JOIN exercise_brand eb ON eb.id = re.exercise_brand_id JOIN exercise e ON e.id = eb.exercise_id
                     WHERE re.routine_id = ? AND re.deleted_at IS NULL ORDER BY re.position
                     """, arguments: [id]).map { row in
@@ -638,13 +653,14 @@ nonisolated extension AppDatabase {
                     return StoredExercise(
                         id: exerciseId, name: row["name"], brand: row["brand"], label: row["label"], restSeconds: row["rest_seconds"],
                         settings: try Self.settings("""
-                            SELECT s.id, s.name, s.kind, rs.value, rs.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
+                            SELECT s.id, s.name, s.kind, rs.value, rs.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor, s.every_set
                             FROM routine_exercise_setting rs JOIN setting s ON s.id = rs.setting_id
                             WHERE rs.routine_exercise_id = ? ORDER BY s.position
                             """, owner: exerciseId, in: db),
                         notes: [],
                         sets: try Self.sets("SELECT *, NULL AS rpe, NULL AS completed_at FROM routine_set WHERE routine_exercise_id = ? AND deleted_at IS NULL ORDER BY position",
-                                            owner: exerciseId, overrideSQL: "SELECT setting_id, value FROM routine_set_override WHERE routine_set_id = ?", in: db)
+                                            owner: exerciseId, overrideSQL: "SELECT setting_id, value FROM routine_set_override WHERE routine_set_id = ?", in: db),
+                        measures: ExerciseCatalogNames.measures(stored: row["measures"], name: row["name"], equipment: row["equipment"])
                     )
                 }
                 return StoredRoutine(id: id, name: row["name"], exercises: exercises)
@@ -749,7 +765,8 @@ nonisolated extension AppDatabase {
             let exercises = try Row.fetchAll(db, sql: "SELECT * FROM exercise WHERE deleted_at IS NULL").map { row in
                 StoredExerciseInfo(
                     name: row["name"], equipment: row["equipment"], isBuiltin: row["is_builtin"],
-                    muscles: (muscles[row["id"] as String] ?? []).map { StoredMuscle(muscle: $0["muscle"], share: $0["share"]) }
+                    muscles: (muscles[row["id"] as String] ?? []).map { StoredMuscle(muscle: $0["muscle"], share: $0["share"]) },
+                    measures: ExerciseMeasures(stored: row["measures"])
                 )
             }
             let setups = try Row.fetchAll(db, sql: """
@@ -773,9 +790,10 @@ nonisolated extension AppDatabase {
                 let id = try existing.map { $0["id"] as String } ?? Self.newId(SyncID.exercise(named: exercise.name), in: "exercise", db: db)
                 let wasDeleted = existing.map { ($0["deleted_at"] as Int64?) != nil } ?? false
                 try db.execute(sql: """
-                    INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET equipment = excluded.equipment, is_builtin = excluded.is_builtin, updated_at = excluded.updated_at, deleted_at = NULL
-                    """, arguments: [id, exercise.name, exercise.equipment, exercise.isBuiltin, Self.now])
+                    INSERT INTO exercise (id, name, equipment, is_builtin, measures, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET equipment = excluded.equipment, is_builtin = excluded.is_builtin,
+                        measures = coalesce(excluded.measures, exercise.measures), updated_at = excluded.updated_at, deleted_at = NULL
+                    """, arguments: [id, exercise.name, exercise.equipment, exercise.isBuiltin, exercise.measures?.stored, Self.now])
                 if wasDeleted {
                     try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE exercise_id = ? AND deleted_at IS NOT NULL", arguments: [Self.now, id])
                 }
@@ -827,12 +845,32 @@ nonisolated extension AppDatabase {
     }
 }
 
-/// The built-in exercise names, readable off the main actor, so a new exercise row can be marked built in.
+/// The built-in exercise names and their measures, readable off the main actor, so a new exercise row can be
+/// marked built in and a built-in one whose measures were changed is told apart. Matches `ExerciseCatalog.builtIn`.
 nonisolated enum ExerciseCatalogNames {
-    static let builtIn: Set<String> = [
-        "Abductors", "Adductors", "Bench Press", "Bicep Curl", "Cable Fly", "Calf Raise", "Chest Press", "Deadlift",
-        "Hack Squat", "Hip Thrust", "Incline Dumbbell Press", "Lat Pulldown", "Lateral Raise", "Leg Curl",
-        "Leg Extension", "Leg Press", "Pec Deck", "Preacher Curl", "Pull Up", "Rear Delt Fly", "Romanian Deadlift",
-        "Seated Calf Raise", "Seated Row", "Shoulder Press", "Squat", "Triceps Pushdown",
+    /// Built-in exercises that aren't weighted reps.
+    private static let otherMeasures: [String: ExerciseMeasures] = [
+        "Dead Hang": ExerciseMeasures(amount: .hold, weighted: false),
+        "Plank": ExerciseMeasures(amount: .hold, weighted: false),
+        "Pull Up": ExerciseMeasures(weighted: false),
+        "Wall Sit": ExerciseMeasures(amount: .hold, weighted: false),
     ]
+
+    static let builtIn: Set<String> = [
+        "Abductors", "Adductors", "Bench Press", "Bicep Curl", "Cable Fly", "Calf Raise", "Chest Press", "Dead Hang", "Deadlift",
+        "Hack Squat", "Hip Thrust", "Incline Dumbbell Press", "Lat Pulldown", "Lateral Raise", "Leg Curl",
+        "Leg Extension", "Leg Press", "Pec Deck", "Plank", "Preacher Curl", "Pull Up", "Rear Delt Fly", "Romanian Deadlift",
+        "Seated Calf Raise", "Seated Row", "Shoulder Press", "Squat", "Triceps Pushdown", "Wall Sit",
+    ]
+
+    /// The measures an exercise starts with: a built-in one's own, otherwise reps, weighted unless it's bodyweight.
+    static func defaultMeasures(name: String, equipment: String) -> ExerciseMeasures {
+        if builtIn.contains(name) { return otherMeasures[name] ?? ExerciseMeasures() }
+        return ExerciseMeasures(weighted: equipment != "bodyweight")
+    }
+
+    /// The measures a row holds, or its defaults when it has none, as a row from a build before measures does.
+    static func measures(stored: String?, name: String, equipment: String) -> ExerciseMeasures {
+        ExerciseMeasures(stored: stored) ?? defaultMeasures(name: name, equipment: equipment)
+    }
 }
