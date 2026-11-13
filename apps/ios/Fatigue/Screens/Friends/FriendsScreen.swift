@@ -92,7 +92,7 @@ struct FriendsScreen: View {
             message("Nobody with a handle starting \u{201C}\(query.trimmingCharacters(in: .whitespaces))\u{201D}.")
         }
         ForEach(results) { person in
-            row(name: person.name, handle: person.handle) { searchAction(person) }
+            row(userId: person.userId, name: person.name, handle: person.handle) { searchAction(person) }
             Hairline(soft: true)
         }
     }
@@ -104,7 +104,7 @@ struct FriendsScreen: View {
         if !social.incoming.isEmpty {
             caption("Requests")
             ForEach(social.incoming) { request in
-                row(name: request.name, handle: request.handle) {
+                row(userId: request.userId, name: request.name, handle: request.handle) {
                     HStack(spacing: Tokens.Space.s) {
                         Button { run { try await social.remove(request) } } label: {
                             OutlinedLabel(text: "Decline", isMuted: true)
@@ -119,7 +119,7 @@ struct FriendsScreen: View {
         if !social.accepted.isEmpty {
             caption("Friends")
             ForEach(social.accepted) { friend in
-                row(name: friend.name, handle: friend.handle) {
+                row(userId: friend.userId, name: friend.name, handle: friend.handle) {
                     Menu {
                         Button("Remove friend", systemImage: "person.badge.minus", role: .destructive) { confirmingRemove = friend }
                     } label: {
@@ -135,7 +135,7 @@ struct FriendsScreen: View {
         if !social.outgoing.isEmpty {
             caption("Sent")
             ForEach(social.outgoing) { request in
-                row(name: request.name, handle: request.handle) {
+                row(userId: request.userId, name: request.name, handle: request.handle) {
                     Button { run { try await social.remove(request) } } label: {
                         OutlinedLabel(text: "Cancel", isMuted: true)
                     }
@@ -171,19 +171,26 @@ struct FriendsScreen: View {
         }
     }
 
-    private func row(name: String, handle: String, @ViewBuilder trailing: () -> some View) -> some View {
+    private func row(userId: String, name: String, handle: String, @ViewBuilder trailing: () -> some View) -> some View {
         HStack(spacing: Tokens.Space.m) {
-            Avatar(name: name, photo: nil, size: Tokens.Size.control)
-            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                Text(name)
-                    .textStyle(Tokens.Typography.body)
-                    .foregroundStyle(palette.foreground)
-                    .lineLimit(1)
-                Text("@\(handle)")
-                    .textStyle(Tokens.Typography.caption)
-                    .foregroundStyle(palette.foregroundMuted)
-                    .lineLimit(1)
+            NavigationLink(value: PersonRoute(userId: userId, handle: handle, name: name)) {
+                HStack(spacing: Tokens.Space.m) {
+                    Avatar(name: name, photo: nil, size: Tokens.Size.control)
+                    VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                        Text(name)
+                            .textStyle(Tokens.Typography.body)
+                            .foregroundStyle(palette.foreground)
+                            .lineLimit(1)
+                        Text("@\(handle)")
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.pressRow)
             Spacer(minLength: Tokens.Space.s)
             trailing()
         }
