@@ -5,7 +5,59 @@ description: Screenshots of the design as it changes.
 
 This page keeps a dated record of what the app looked like at each point, so we can see how the design moved and why. The newest entry goes at the top.
 
-These are mock-ups, not screenshots of a running app. Nothing here is final.
+The two entries from 12 November are mock-ups. From 13 November the app runs, and the entries describe what was built. Nothing here is final.
+
+## 13 November 2026, the first built screens
+
+The workout screen went from mock-up to a running app, and the screens around it followed in the same day: bottom nav, profile, history, the settings line, the exercise page and the Stats tab. This entry records each pass and why it landed where it did. There are no screenshots for it yet. Debug builds have launch flags for them, such as `-openProfile`, `-openHistory`, `-editSettings`, `-openExercise` and `-openStats`, and they go in `apps/docs/public/design/2026-11-13/` when taken.
+
+### Bottom nav and the running workout bar
+
+- Three tabs along the bottom: Workout, Stats and Profile. A hairline above them, one icon and a small label each, and the selected tab fills its icon. Profile had been a sheet; a tab is one tap from anywhere.
+- Every tab stays alive when you switch, so each keeps its scroll position.
+- While a workout runs, a bar sits above the nav with its name, how long it has been going and sets done. Tap it to go back in. The chevron on the workout screen minimises into that bar, so you can check the Stats tab mid-workout without losing the timer.
+- The Workout tab is "Start an empty workout" at the top, your prebuilt workouts below it, and "Create new workout" at the bottom.
+
+### Profile
+
+- The profile is about you and your training: photo, name, "Lifting since" with your workout count, and your history. Account things moved behind a gear at the top right, into Settings.
+- Settings is name and email, weight unit, theme, sign out and delete account. Each is one row with a hairline under it, matching the rest of the app.
+- Tapping the photo picks one from Photos. It is kept on the phone as a small JPEG, and signing out removes it.
+
+### History
+
+- History rows read the way Hevy lists a workout: the name, then "Sat, 7 Nov · 1 h 14 min · 16 sets · 12,705 kg", then the exercises with their set count in front. After five exercises the row says "… 2 more". Volume only counts rep sets, because a second of a hold is not a rep.
+- Tapping a row opens the workout with every set as "55 × 8 @8.5" under its setup heading. The menu has Edit sets, Edit name and description, Save as prebuilt workout and Delete workout.
+- Editing a past workout reuses the workout screen. The header shows the date instead of a timer, and ticking does not start rest.
+
+### The settings line
+
+- A row per setting took too much room on every exercise, and a bright "Yes" pulled more attention than a setting deserves. Settings are now one quiet line under the exercise name, "Seat 4 · Notch 7 · Dead stop", with a small pencil. A yes or no that is off reads "No dead stop".
+- Tap the line and it opens into editable rows, with Add setting and Done underneath. Done drops empty rows and closes it.
+- The "+ Setting" button went, so the controls under the name are back to rest, note and brand. Adding a setting lives in the exercise's menu and in the opened rows.
+- Group headings are unchanged. They still only show what a group changes, such as "Hold · Notch 8".
+
+### The exercise page
+
+- Tapping an exercise's name, mid-workout or in a past workout, opens its page as a half-height sheet you can drag up. Mid-workout you want to check what you did last time on a machine without leaving the workout.
+- It opens on the brand you are on. If you have used more than one brand, chips at the top switch between them. Brands are never mixed.
+- Four metrics as chips that scroll sideways and fade at the right edge: Set volume, Session volume, Weight, Est. 1RM. The two volumes have a Weighted / Raw switch, and every number says "weighted" or "kg" next to it so it is never a guess which one you are reading.
+- Split by draws a line per value of one setting, such as Notch 7 and Notch 8. The split is remembered per exercise.
+- Records sit under the graph in plain kilograms, with the weighted best under the two volumes. Then every past set by date.
+- With only one workout, the page says the line starts with the next one instead of drawing a single dot.
+
+### The Stats tab
+
+- History is one workout at a time, so nothing showed whether training is going anywhere. The Stats tab is this week against last, weekly volume and a trend for every exercise.
+- This week: workouts, sets and volume as large numbers, with last week's under each.
+- Weekly volume: a bar per week for the last 12 weeks. This week is in the accent colour.
+- Exercises: everything you have done, most recent first, with its most used brand, when you last did it, a small line of best set volume over the last 8 workouts, and the change across them such as "+10%". Tapping a row opens the exercise page.
+
+### Still undecided
+
+- Which mode is the main look. Both are built, and the theme row in Settings offers system, light and dark.
+- Filters on the exercise page, such as pinning a second setting while split, and tapping a point to adjust its factors.
+- A Live Activity on the Lock Screen for the rest timer. The rest notification does the job for now.
 
 ## 12 November 2026, light mode and a calmer workout screen
 
@@ -114,6 +166,6 @@ In order, these are the workout, set fields, reorder, choose machine and exercis
 
 ## Adding an entry
 
-1. Put the screenshots in `apps/docs/public/design/<date>/`, with the date written as year, month, day.
+1. Put the screenshots in `apps/docs/public/design/<date>/`, with the date written as year, month, day. For the running app, take them in the Simulator with the debug launch flags.
 2. Add a section above the previous entry with the date and a short name.
 3. Say what changed and why. The reasons are the useful part later.
