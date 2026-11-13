@@ -62,7 +62,7 @@ struct MainScreen: View {
                         routine: store.activeRoutine,
                         onFinish: { details in
                             withAnimation(.standard) {
-                                store.finish(title: details.title, description: details.description, unticked: details.unticked, updateRoutine: details.updateRoutine)
+                                store.finish(title: details.title, description: details.description, gym: details.gym, unticked: details.unticked, updateRoutine: details.updateRoutine)
                             }
                         },
                         onDeleteExercise: { store.removeFromRoutines(exerciseNamed: $0) }

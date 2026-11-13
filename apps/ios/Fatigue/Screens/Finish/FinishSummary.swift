@@ -4,6 +4,7 @@ import SwiftUI
 struct FinishDetails {
     var title: String
     var description: String
+    var gym: Gym? = nil
     var unticked: UntickedSets
     var updateRoutine: Bool
 }
@@ -26,6 +27,8 @@ struct FinishSummary: View {
     @State private var title: String
     @State private var description = ""
     @State private var updateRoutine = false
+    /// Starts as wherever you trained last, since that's usually where you are again.
+    @State private var gym: Gym?
     @FocusState private var focus: Field?
     private let finishedAt = Date.now
 
@@ -38,6 +41,7 @@ struct FinishSummary: View {
         self.history = history
         self.onSave = onSave
         _title = State(initialValue: session.title)
+        _gym = State(initialValue: Gym.recent(in: history).first)
     }
 
     private var workout: FinishedWorkout { session.preview(unticked: unticked, at: finishedAt) }
@@ -75,6 +79,8 @@ struct FinishSummary: View {
                         .lineLimit(1...6)
                         .padding(.top, Tokens.Space.s)
                         .accessibilityLabel("Description")
+                    GymButton(gym: gym, recent: Gym.recent(in: history)) { gym = $0 }
+                        .padding(.top, Tokens.Space.m)
 
                     stats
                         .padding(.top, Tokens.Space.xxl)
@@ -144,7 +150,7 @@ struct FinishSummary: View {
             // Saving waits for media still being copied in, so nothing is left behind under the running workout's id.
             let addingMedia = media.importing.contains(session.id)
             PrimaryButton(title: addingMedia ? "Adding media…" : workout.exercises.isEmpty ? "Finish without saving" : "Save workout") {
-                onSave(FinishDetails(title: title, description: description, unticked: unticked, updateRoutine: updateRoutine))
+                onSave(FinishDetails(title: title, description: description, gym: gym, unticked: unticked, updateRoutine: updateRoutine))
             }
             .disabled(addingMedia)
             .opacity(addingMedia ? 0.5 : 1)

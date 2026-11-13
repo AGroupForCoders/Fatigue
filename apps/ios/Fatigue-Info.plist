@@ -16,5 +16,8 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Asked when the gym picker opens, to list gyms nearby. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Fatigue shows the gyms near you so you can mark where you trained. Your location isn't saved, only the gym you pick.</string>
 </dict>
 </plist>

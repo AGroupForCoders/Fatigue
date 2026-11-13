@@ -261,7 +261,7 @@ final class WorkoutStore {
     ///   - unticked: Whether sets you didn't tick are dropped or counted as done.
     ///   - updateRoutine: Whether the prebuilt workout it came from takes today's exercises and sets.
     /// Photos and videos added on the finish summary move to the saved workout, or go with it when there's nothing to save.
-    func finish(title: String? = nil, description: String = "", unticked: UntickedSets = .drop, updateRoutine: Bool = false) {
+    func finish(title: String? = nil, description: String = "", gym: Gym? = nil, unticked: UntickedSets = .drop, updateRoutine: Bool = false) {
         guard let session = active else { return }
         if unticked == .count { session.tickAll() }
         if updateRoutine, let id = session.routineID, let index = routines.firstIndex(where: { $0.id == id }) {
@@ -270,6 +270,7 @@ final class WorkoutStore {
         var finished = session.finished(at: now())
         if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { finished.title = title.trimmingCharacters(in: .whitespaces) }
         finished.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        finished.gym = gym
         persist { try $0.deleteWorkout(id: session.id.uuidString) }
         if finished.setCount > 0 {
             history.insert(finished, at: 0)
@@ -300,6 +301,17 @@ final class WorkoutStore {
         let stored = workout.stored
         persist { try $0.save(stored) }
     }
+
+    /// Where a finished workout was done. Nil clears it.
+    func setGym(_ gym: Gym?, of workoutID: UUID) {
+        guard let index = history.firstIndex(where: { $0.id == workoutID }), history[index].gym != gym else { return }
+        history[index].gym = gym
+        let stored = history[index].stored
+        persist { try $0.save(stored) }
+    }
+
+    /// The gym a new workout starts with on the finish summary: wherever you trained last.
+    var lastGym: Gym? { history.max { $0.startedAt < $1.startedAt }?.gym }
 
     /// Changes how much harder a yes/no setting makes a set on an exercise and brand, re-scoring every past
     /// set there and the running workout's. Nil makes the setting stop counting. See ADR 0002.

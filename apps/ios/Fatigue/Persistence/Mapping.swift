@@ -119,7 +119,8 @@ extension FinishedWorkout {
         return StoredWorkout(
             id: id.uuidString, title: title, note: description.isEmpty ? nil : description,
             startedAt: startedAt, finishedAt: end, routineId: nil,
-            exercises: exercises.map { $0.stored(completedAt: millis(end)) }
+            exercises: exercises.map { $0.stored(completedAt: millis(end)) },
+            gymName: gym?.name, gymAddress: gym?.address, gymLatitude: gym?.latitude, gymLongitude: gym?.longitude
         )
     }
 
@@ -128,6 +129,7 @@ extension FinishedWorkout {
         self.init(
             id: uuid(stored.id), title: stored.title, description: stored.note ?? "",
             startedAt: stored.startedAt, duration: end.timeIntervalSince(stored.startedAt),
+            gym: stored.gymName.flatMap { Gym(name: $0, address: stored.gymAddress, latitude: stored.gymLatitude, longitude: stored.gymLongitude) },
             exercises: stored.exercises.map(WorkoutExercise.init(stored:))
         )
     }

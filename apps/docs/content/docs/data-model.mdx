@@ -126,6 +126,10 @@ workout ──< workout_exercise ──< workout_set ──< workout_set_overrid
 | `routine_id` | text, nullable | The routine it was started from, if any |
 | `note` | text, nullable | |
 | `import_key` | text, nullable | Where an imported workout came from, such as `hevy\|13 Nov 2025, 07:30\|Push`. Its `id` is a UUIDv5 of this, so importing the same file again finds the row. Empty for workouts logged here |
+| `gym_name` | text, nullable | Where the workout was done, such as "City Gym" or "Home". Empty when you didn't say |
+| `gym_address` | text, nullable | The gym's address, when it was picked from the map |
+| `gym_latitude` | real, nullable | Where the gym is, when it was picked from the map. Empty for a typed name |
+| `gym_longitude` | real, nullable | As above |
 
 At most one workout has no `finished_at`. That is the one the app opens into. If a pull brings in a second running workout, because you started one on each phone while offline, the app keeps the one with the most recent ticked set open and finishes the other at the time of its last ticked set. Nothing is deleted.
 
