@@ -7,16 +7,18 @@ The first version is an iOS app, in light and dark mode, on the App Store, open 
 
 ## In the first version
 
-| Area | What you can do |
-| --- | --- |
-| Logging a workout | Start empty or from a routine, add exercises, log sets, run a rest timer, finish. |
-| Brands | Optionally pick the brand for an exercise, with an optional label such as the model or the gym. |
-| Custom exercises | Create as many as you like. |
-| Flexible sets | Log rep sets and holds, with or without weight, plus your own settings such as a range-of-motion notch. Every set gets a score. |
-| Routines | Save a list of exercises and start a workout from it. |
-| History | See past workouts, and per exercise see history, records and score for each brand. |
-| Account | Sign in with an email and password, with your data backed up and synced. |
-| Hevy import | Bring in your existing history from a Hevy CSV export. |
+The Built column says where each area is today. What is left is tracked on GitHub under the [`mvp` label](https://github.com/AGroupForCoders/Fatigue/issues?q=is%3Aissue+is%3Aopen+label%3Amvp).
+
+| Area | What you can do | Built |
+| --- | --- | --- |
+| Logging a workout | Start empty or from a routine, add exercises, log sets, run a rest timer, finish. | Yes. The rest timer notifies you when the phone is locked, and the finish summary lists the records you beat. |
+| Brands | Optionally pick the brand for an exercise, with an optional label such as the model or the gym. | Picking a brand, yes. The label is not built yet. |
+| Custom exercises | Create as many as you like. | Yes. |
+| Flexible sets | Log rep sets and holds, with or without weight, plus your own settings such as a range-of-motion notch. Every set gets a score. | Yes. |
+| Routines | Save a list of exercises and start a workout from it. | Yes. The app calls them prebuilt workouts. |
+| History | See past workouts, and per exercise see history, records and score for each brand. | Yes, plus a Stats tab with this week against last, weekly volume and exercise trends. |
+| Account | Sign in with an email and password, with your data backed up and synced. | Sign in and delete account, yes. Sync is not built yet, so everything you log stays on the phone. |
+| Hevy import | Bring in your existing history from a Hevy CSV export. | Not yet. |
 
 The [requirements](/docs/requirements) page breaks each of these down.
 
@@ -24,7 +26,7 @@ The [requirements](/docs/requirements) page breaks each of these down.
 
 - Google and Apple sign-in. They come later and together, because Apple requires its own sign-in whenever Google is offered.
 - A social feed, followers and sharing.
-- Charts beyond a simple progression line per exercise.
+- Charts beyond the exercise page's graph and the Stats tab.
 - The [fatigue meter](/docs/fatigue-meter), which shows how tired each muscle is. The first version records the data it needs.
 - Apple Watch, HealthKit and a plate calculator.
 - Exercise photos, videos or animations.
