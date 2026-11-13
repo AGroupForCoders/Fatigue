@@ -1,16 +1,23 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Everything about your account and the app, opened from the gear on the profile:
-/// name and email, weight unit, theme, sign out and delete account.
+/// name and email, weight unit, theme, importing from Hevy, sign out and delete account.
 struct SettingsScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
     @Environment(AuthStore.self) private var auth
+    @Environment(WorkoutStore.self) private var store
+    @Environment(ExerciseCatalog.self) private var catalog
     @AppStorage("weightUnit") private var weightUnit = "kg"
     @State private var name = ""
     @State private var renameError: String?
     @State private var deleting = false
+    @State private var pickingHevyFile = false
+    @State private var importResult: HevyImportResult?
+    @State private var showingImportResult = false
+    @State private var importError: String?
     @FocusState private var editingName: Bool
 
     var body: some View {
@@ -86,6 +93,22 @@ struct SettingsScreen: View {
                 }
                 Hairline()
 
+                Text("Data")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundMuted)
+                    .padding(.top, Tokens.Space.xxxl + Tokens.Space.l)
+                    .padding(.bottom, Tokens.Space.s)
+                Hairline()
+                Button { pickingHevyFile = true } label: {
+                    rowLabel("Import from Hevy", color: palette.foreground)
+                }
+                .buttonStyle(.pressRow)
+                Hairline()
+                Text(importError ?? "Pick the CSV from Hevy's Export Data. Workouts already imported are skipped.")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(importError == nil ? palette.foregroundMuted : palette.accent)
+                    .padding(.top, Tokens.Space.m)
+
                 Button { Task { await auth.signOut() } } label: {
                     rowLabel("Sign out", color: palette.foreground)
                 }
@@ -111,6 +134,33 @@ struct SettingsScreen: View {
         .sheet(isPresented: $deleting) {
             DeleteAccountSheet()
                 .environment(\.palette, palette)
+        }
+        .fileImporter(isPresented: $pickingHevyFile, allowedContentTypes: [.commaSeparatedText, .plainText]) { picked in
+            switch picked {
+            case .success(let url): importHevy(from: url)
+            case .failure(let error): importError = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: $showingImportResult) {
+            if let importResult {
+                HevyImportResultSheet(result: importResult)
+                    .environment(\.palette, palette)
+            }
+        }
+    }
+
+    /// Reads the picked file and imports it. The file sits outside the app's sandbox, so it's opened with its permission first.
+    private func importHevy(from url: URL) {
+        let allowed = url.startAccessingSecurityScopedResource()
+        defer { if allowed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            let csv = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+            importResult = try store.importHevy(csv: csv, catalog: catalog)
+            importError = nil
+            showingImportResult = true
+        } catch {
+            importError = error.localizedDescription
         }
     }
 
