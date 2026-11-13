@@ -28,12 +28,37 @@ Both are Better Auth's own flows, with the emails sent through [Resend](https://
 
 Settings:
 
-| Variable | What it is | Where |
-| --- | --- | --- |
-| `BETTER_AUTH_URL` | The public URL of the API. Every link in an email starts with it. | `wrangler secret put`, `.env` locally |
-| `RESEND_API_KEY` | Resend API key. Unset means emails go to the console. | `wrangler secret put RESEND_API_KEY` |
-| `EMAIL_FROM` | Sender, such as `Fatigue <no-reply@yourdomain>`. The domain must be verified in Resend. | `wrangler.jsonc` vars, `.env` locally |
-| `APP_DEEP_LINK_SCHEME` | The iOS app's URL scheme. Defaults to `fatigue`, which matches the app. | `wrangler.jsonc` vars |
+| Variable               | What it is                                                                              | Where                                 |
+| ---------------------- | --------------------------------------------------------------------------------------- | ------------------------------------- |
+| `BETTER_AUTH_URL`      | The public URL of the API. Every link in an email starts with it.                       | `wrangler secret put`, `.env` locally |
+| `RESEND_API_KEY`       | Resend API key. Unset means emails go to the console.                                   | `wrangler secret put RESEND_API_KEY`  |
+| `EMAIL_FROM`           | Sender, such as `Fatigue <no-reply@yourdomain>`. The domain must be verified in Resend. | `wrangler.jsonc` vars, `.env` locally |
+| `APP_DEEP_LINK_SCHEME` | The iOS app's URL scheme. Defaults to `fatigue`, which matches the app.                 | `wrangler.jsonc` vars                 |
+
+## Profiles and friends
+
+Every route here needs `Authorization: Bearer <token>`. The design is on the Social docs page.
+
+- `GET /api/profiles/me` is your profile, or 404 with `no_profile` until you've picked a handle.
+- `PUT /api/profiles/me` with `{ handle?, bio?, defaultVisibility? }` creates or changes it. A handle is needed the first time. Handles are stored lowercase, 3 to 20 of `a-z`, `0-9`, `_` and `.`, and a leading `@` is dropped. A taken handle is 409 `handle_taken`.
+- `GET /api/profiles/search?q=` finds up to 20 people whose handle starts with `q`.
+- `GET /api/profiles/:handle` is someone's profile. Each person comes with `relation`: `self`, `friends`, `incoming`, `outgoing` or `none`.
+- `GET /api/friends` lists friends, then requests to you, then requests you sent.
+- `POST /api/friends/:userId` sends a request. If they already asked you, it accepts theirs.
+- `POST /api/friends/:userId/accept` accepts their request.
+- `DELETE /api/friends/:userId` declines, takes back a request, or unfriends. The row is deleted, so either person can ask again.
+
+### Shared workouts
+
+- `PUT /api/posts/:id` with `{ workoutId, caption?, visibility?, startedAt, snapshotVersion, snapshot }` shares a workout. The phone makes the ID, so sending the same share twice updates one post. Sharing a workout that already has a live post replaces its snapshot and keeps the first post's ID, which comes back in the response. `visibility` defaults to the profile's. A deleted post's ID is refused with 410.
+- `GET /api/posts/feed?cursor=` is your posts and your accepted friends' public and friends only posts, newest workout first, 20 a page. Pass the response's `nextCursor` for the next page; it's null on the last.
+- `GET /api/posts/by/:userId?cursor=` is someone's posts that you can see: all of yours, their public ones, and their friends only ones if you're friends.
+- `GET /api/posts/:id` is one post, or 404 if you can't see it.
+- `DELETE /api/posts/:id` deletes your post.
+
+The snapshot is stored as it comes, up to 256 KB. The server never reads inside it; `workoutId` is only sent back to the sharer.
+
+Service tests run against PGlite, a Postgres that runs in memory, with every migration applied (`src/db/test-db.ts`). They need no database running.
 
 ## Deploying
 
@@ -78,11 +103,11 @@ Do this once, from `apps/api`, signed in to Cloudflare with `pnpm exec wrangler 
 
 4. **GitHub secrets** (repository Settings → Secrets and variables → Actions). Put them in a `production` environment if you want to approve deploys; the workflow uses that environment name.
 
-   | Secret | Value |
-   | --- | --- |
-   | `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template. Scope it to this account. |
-   | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview, right-hand column. |
-   | `DATABASE_URL` | The Neon production **direct** URL. The workflow uses it to run migrations. |
+   | Secret                  | Value                                                                                                                         |
+   | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+   | `CLOUDFLARE_API_TOKEN`  | Cloudflare dashboard → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template. Scope it to this account. |
+   | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview, right-hand column.                                                                                  |
+   | `DATABASE_URL`          | The Neon production **direct** URL. The workflow uses it to run migrations.                                                   |
 
 5. **Point the app at it.** Set `APIConfig.productionBaseURL` in `apps/ios/Fatigue/Auth/AuthAPI.swift` to the Worker URL. Debug builds keep using localhost.
 
