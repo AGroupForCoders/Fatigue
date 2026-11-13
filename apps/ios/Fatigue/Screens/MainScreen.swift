@@ -29,6 +29,7 @@ struct MainScreen: View {
     @Environment(WorkoutStore.self) private var store
     @Environment(SocialStore.self) private var social
     @Environment(SyncEngine.self) private var sync
+    @Environment(AuthStore.self) private var auth
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Environment(\.scenePhase) private var scenePhase
     /// Launch with `-openFeed`, `-openProfile` or `-openStats` to start on that tab, for screenshots.
@@ -89,6 +90,18 @@ struct MainScreen: View {
             }
             // A workout finished just before the phone is pocketed still goes up, in the time iOS allows.
             if phase == .background { pushBeforeSuspending() }
+        }
+        // Another account's data is on this phone and some of it isn't backed up: ask before removing it.
+        .alert("Another account's data is on this phone", isPresented: Binding(get: { sync.status == .otherAccount }, set: { _ in })) {
+            Button("Remove it", role: .destructive) { sync.takeOver() }
+            Button("Sign out") {
+                Task { await auth.signOut() }
+            }
+        } message: {
+            let count = sync.otherAccountWorkouts
+            Text(count == 0
+                 ? "Some changes from the account signed in before aren't backed up. Remove them to back up and sync your own account here."
+                 : "\(count) workout\(count == 1 ? "" : "s") from the account signed in before \(count == 1 ? "isn't" : "aren't") backed up. Remove them to back up and sync your own account here.")
         }
     }
 

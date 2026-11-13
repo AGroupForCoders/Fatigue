@@ -27,6 +27,11 @@ nonisolated enum SyncID {
         uuid5("routine_set:\(exerciseId.lowercased()):\(index)").uuidString
     }
 
+    /// The ID of an account's settings row. Each account has one, the same on every phone.
+    static func userSetting(accountId: String) -> String {
+        uuid5("user_setting:" + accountId.lowercased()).uuidString
+    }
+
     static func uuid5(_ name: String, in namespace: UUID = namespace) -> UUID {
         var hasher = Insecure.SHA1()
         withUnsafeBytes(of: namespace.uuid) { hasher.update(bufferPointer: $0) }

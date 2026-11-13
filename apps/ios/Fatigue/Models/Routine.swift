@@ -409,6 +409,15 @@ final class WorkoutStore {
         }
     }
 
+    /// Forgets everything after the database was wiped, such as on sign-out. The running workout goes too.
+    func forgetAll() {
+        active?.skipRest()
+        isShowingActive = false
+        active = nil
+        history = []
+        routines = []
+    }
+
     /// Reads history and prebuilt workouts again, after a sync wrote to the database. The running workout
     /// never syncs, so it's left as it is.
     func reloadFromDatabase() {

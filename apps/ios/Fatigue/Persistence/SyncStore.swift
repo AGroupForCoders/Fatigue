@@ -149,6 +149,36 @@ nonisolated extension AppDatabase {
         }
     }
 
+    /// Saves the weight unit to the account's settings row, so other phones pick it up. Only a change you
+    /// make writes it: a fresh phone takes the unit the server has instead of pushing its default.
+    func saveWeightUnit(_ unit: String, accountId: String) throws {
+        let id = SyncID.userSetting(accountId: accountId)
+        try writer.write { db in
+            let stamp = max(Self.nowMillis, (try Int64.fetchOne(db, sql: "SELECT updated_at FROM user_setting WHERE id = ?", arguments: [id]) ?? 0) + 1)
+            try db.execute(sql: """
+                INSERT INTO user_setting (id, weight_unit, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET weight_unit = excluded.weight_unit, updated_at = excluded.updated_at, deleted_at = NULL
+                """, arguments: [id, unit, stamp])
+        }
+    }
+
+    /// How many items are waiting to go up, and how many of them are workouts, for Settings and the
+    /// sign-out warning.
+    func waitingCounts() throws -> (items: Int, workouts: Int) {
+        let waiting = try pendingSyncItems()
+        return (waiting.count, waiting.filter { $0.item.kind == .workout }.count)
+    }
+
+    /// Empties the phone: every workout, prebuilt workout, exercise, brand, setting and photo row, and what
+    /// sync knew. For signing out and for a different account on this phone. The schema stays.
+    func wipe() throws {
+        try writer.write { db in
+            try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
+            let tables = try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%'")
+            for table in tables { try db.execute(sql: "DELETE FROM \(table)") }
+        }
+    }
+
     /// The tables under synced items. A commit that touches any of them may have something to push.
     static let syncedTables: Set<String> = [
         "exercise", "exercise_muscle", "exercise_brand", "setting",

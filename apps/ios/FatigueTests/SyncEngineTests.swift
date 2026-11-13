@@ -252,4 +252,101 @@ struct SyncEngineTests {
         let titles = [first, second].map { WorkoutStore(database: $0).history.first { $0.id == workout.id }?.title }
         #expect(titles == ["Later edit", "Later edit"])
     }
+
+    // MARK: Signing out and another account
+
+    @Test func signingOutWithEverythingBackedUpHasNothingToWarnAbout() async throws {
+        let server = FakeSyncServer()
+        let database = try phone()
+        let sync = engine(database, server)
+        let waiting = await sync.prepareSignOut()
+        #expect(waiting.items == 0)
+        #expect(server.stored.count > 0)
+    }
+
+    @Test func signingOutOfflineCountsTheWorkoutsThatWouldBeLost() async throws {
+        let server = FakeSyncServer()
+        server.failures = [.offline]
+        let database = try phone()
+        let workouts = WorkoutStore(database: database).history.count
+        let waiting = await engine(database, server).prepareSignOut()
+        #expect(waiting.workouts == workouts)
+        #expect(SignOutWarning(items: waiting.items, workouts: waiting.workouts).title == "\(workouts) workouts aren't backed up yet")
+    }
+
+    @Test func wipingEmptiesThePhoneAndSigningInBringsItBack() async throws {
+        let server = FakeSyncServer()
+        let database = try phone()
+        let sync = engine(database, server)
+        await sync.syncNow()
+        let before = try database.syncItems()
+        var wiped = false
+        sync.onWiped = { wiped = true }
+
+        sync.wipe()
+        #expect(wiped)
+        #expect(try database.syncItems().isEmpty)
+        #expect(try database.syncOwner() == nil)
+        #expect(try database.syncCursor() == 0)
+
+        await sync.syncNow()
+        #expect(try database.syncItems() == before)
+    }
+
+    @Test func anotherAccountWithNothingWaitingTakesThePhoneOver() async throws {
+        let database = try phone()
+        await engine(database, FakeSyncServer()).syncNow()
+
+        let theirs = FakeSyncServer()
+        let sync = engine(database, theirs, account: "jos")
+        var wiped = false
+        sync.onWiped = { wiped = true }
+        await sync.syncNow()
+
+        #expect(wiped)
+        #expect(sync.status == .idle)
+        #expect(try database.syncOwner() == "jos")
+        #expect(theirs.stored.isEmpty)
+    }
+
+    @Test func anotherAccountWithUnsentWorkoutsAsksAndCanTakeOver() async throws {
+        let database = try phone()
+        try database.setSyncOwner("anton")
+        let theirs = FakeSyncServer()
+        let sync = engine(database, theirs, account: "jos")
+        await sync.syncNow()
+        #expect(sync.status == .otherAccount)
+        #expect(sync.otherAccountWorkouts > 0)
+
+        sync.takeOver()
+        await sync.syncNow()
+        #expect(try database.syncOwner() == "jos")
+        #expect(try database.syncItems().isEmpty)
+        #expect(theirs.stored.isEmpty)
+    }
+
+    @Test func aWeightUnitPickedOnOnePhoneReachesTheOther() async throws {
+        let server = FakeSyncServer()
+        let first = try AppDatabase.inMemory()
+        let second = try AppDatabase.inMemory()
+        let one = engine(first, server)
+        one.saveWeightUnit("lb")
+        await one.syncNow()
+
+        let two = engine(second, server)
+        var unit: String?
+        two.onPulled = { unit = $0.weightUnit }
+        await two.syncNow()
+        #expect(unit == "lb")
+    }
+
+    @Test func theSettingsLineSaysWhereBackupStands() async throws {
+        let server = FakeSyncServer()
+        let database = try phone()
+        let sync = engine(database, server)
+        sync.refreshCounts()
+        #expect(SyncStatusLine.text(for: sync, now: .now).hasSuffix("workouts waiting to back up"))
+        await sync.syncNow()
+        #expect(SyncStatusLine.text(for: sync, now: .now) == "Backed up just now")
+    }
 }

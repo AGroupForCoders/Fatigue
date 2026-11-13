@@ -33,6 +33,11 @@ struct FatigueApp: App {
             catalog.reloadFromDatabase()
             if let unit = outcome.weightUnit { UserDefaults.standard.set(unit, forKey: WeightUnit.storageKey) }
         }
+        sync.onWiped = { [workouts, catalog] in
+            workouts.forgetAll()
+            workouts.media.forgetAll()
+            catalog.reloadFromDatabase()
+        }
         _sync = State(initialValue: sync)
         // Outside the app the rest timer is followed by the "Rest done" notification and the Live Activity:
         // ticking a set starts them, ±15 moves them, and skipping, finishing or deleting the workout ends them.
