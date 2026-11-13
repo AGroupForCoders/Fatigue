@@ -6,6 +6,7 @@ import SwiftUI
 struct HistoryRow: View {
     @Environment(\.palette) private var palette
     @Environment(MediaStore.self) private var media
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let workout: FinishedWorkout
 
     static let exerciseLimit = 5
@@ -18,7 +19,7 @@ struct HistoryRow: View {
                     Text(workout.title)
                         .textStyle(Tokens.Typography.exerciseName)
                         .foregroundStyle(palette.foreground)
-                    Text(Self.summary(workout))
+                    Text(Self.summary(workout, unit: unit))
                         .textStyle(Tokens.Typography.caption)
                         .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
@@ -70,11 +71,12 @@ struct HistoryRow: View {
         return hidden > 0 ? hidden : nil
     }
 
-    /// Such as "Wed 11 Nov · 52 min · 9 sets · 4,254 kg", with "Today" or "Yesterday" for recent ones.
-    static func summary(_ workout: FinishedWorkout, now: Date = .now) -> String {
+    /// Such as "Wed 11 Nov · 52 min · 9 sets · 4,254 kg", with "Today" or "Yesterday" for recent ones
+    /// and the volume in `unit`.
+    static func summary(_ workout: FinishedWorkout, unit: WeightUnit, now: Date = .now) -> String {
         let minutes = max(1, Int((workout.duration / 60).rounded()))
         var parts = [when(workout.startedAt, now: now), duration(minutes), "\(workout.setCount) set\(workout.setCount == 1 ? "" : "s")"]
-        if workout.volume > 0 { parts.append("\(Int(workout.volume).formatted()) kg") }
+        if workout.volume > 0 { parts.append(unit.wholeLabelled(workout.volume)) }
         return parts.joined(separator: " · ")
     }
 

@@ -83,13 +83,22 @@ nonisolated struct LiveAuthAPI: AuthAPI {
 }
 
 /// Where the API lives.
+///
+/// Debug builds talk to the API running on this Mac; release builds (TestFlight, App Store) talk to
+/// the deployed Worker. Change `productionBaseURL` when the API moves, for example to a custom domain.
 nonisolated enum APIConfig {
+    /// The API running on this Mac with `pnpm api:dev`. The simulator reaches it as localhost.
+    static let localBaseURL = URL(string: "http://localhost:8787")!
+
+    /// The Worker deployed by `.github/workflows/deploy-api.yml`. The `workers.dev` subdomain is the
+    /// Cloudflare account's; it appears in the deploy log and in the dashboard under Workers & Pages.
+    /// Must match `BETTER_AUTH_URL` on the Worker, or Better Auth rejects sign-in.
+    static let productionBaseURL = URL(string: "https://fatigue-api.CHANGE-ME.workers.dev")!
+
     #if DEBUG
-    /// The API running on this Mac with `pnpm --filter @fatigue/api dev`. The simulator reaches it as localhost.
-    static let baseURL = URL(string: "http://localhost:8787")!
+    static let baseURL = localBaseURL
     #else
-    // Set once the API is deployed.
-    static let baseURL = URL(string: "https://api.fatigue.invalid")!
+    static let baseURL = productionBaseURL
     #endif
 }
 

@@ -1,6 +1,10 @@
 import { defineConfig } from "drizzle-kit";
 
-process.loadEnvFile?.(".env");
+// Local dev keeps DATABASE_URL in .env. On deploy there is no .env and the URL comes from the
+// environment, so a missing file is fine.
+try {
+  process.loadEnvFile?.(".env");
+} catch {}
 
 export default defineConfig({
   dialect: "postgresql",

@@ -2,6 +2,37 @@ import AVKit
 import PhotosUI
 import SwiftUI
 
+/// The dashed square at the end of the media row.
+/// Nonisolated so PhotosPicker's label closure can make it. The content inside reads the palette.
+private nonisolated struct AddMediaLabel: View {
+    let isFirst: Bool
+
+    var body: some View {
+        AddMediaLabelContent(isFirst: isFirst)
+    }
+}
+
+private struct AddMediaLabelContent: View {
+    @Environment(\.palette) private var palette
+    let isFirst: Bool
+
+    var body: some View {
+        VStack(spacing: Tokens.Space.xs) {
+            Image(systemName: "plus")
+                .imageScale(.medium)
+            Text(isFirst ? "Add media" : "Add")
+                .textStyle(Tokens.Typography.caption)
+        }
+        .foregroundStyle(palette.foregroundMuted)
+        .frame(width: MediaRow.thumbnailSide, height: MediaRow.thumbnailSide)
+        .overlay(
+            RoundedRectangle(cornerRadius: Tokens.Radius.control)
+                .strokeBorder(palette.borderControl, style: StrokeStyle(lineWidth: Tokens.Size.line, dash: [4, 3]))
+        )
+        .contentShape(Rectangle())
+    }
+}
+
 /// The photos and videos on a workout as a row of square thumbnails, with "Add media" at the end.
 /// Tapping one opens it full screen. Shown on the finish summary and the workout's page.
 struct MediaRow: View {
@@ -41,20 +72,10 @@ struct MediaRow: View {
                         .accessibilityHint("Opens it full screen")
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
+                    // The label is its own view: PhotosPicker's label closure isn't on the main actor,
+                    // so it can't call `textStyle` directly.
                     PhotosPicker(selection: $picks, matching: .any(of: [.images, .videos])) {
-                        VStack(spacing: Tokens.Space.xs) {
-                            Image(systemName: "plus")
-                                .imageScale(.medium)
-                            Text(items.isEmpty ? "Add media" : "Add")
-                                .textStyle(Tokens.Typography.caption)
-                        }
-                        .foregroundStyle(palette.foregroundMuted)
-                        .frame(width: Self.thumbnailSide, height: Self.thumbnailSide)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Tokens.Radius.control)
-                                .strokeBorder(palette.borderControl, style: StrokeStyle(lineWidth: Tokens.Size.line, dash: [4, 3]))
-                        )
-                        .contentShape(Rectangle())
+                        AddMediaLabel(isFirst: items.isEmpty)
                     }
                     .buttonStyle(.press)
                     .accessibilityLabel("Add media")

@@ -15,10 +15,11 @@ This is the screen people spend their time on, so it gets the most detail.
 - Each exercise has three controls under its name. They are the rest time, a note and the brand.
 - By default each set records weight and reps. [What a set records](#what-a-set-records) covers holds, unloaded sets and settings.
 - RPE is optional on any set and runs from 6 to 10 in half steps.
-- A set can be marked as a warm-up, a drop set or a set to failure. Warm-ups never count toward records or scores.
+- A set can be marked as a warm-up, a drop set or a set to failure by tapping its number. Warm-ups show W in place of a number and never count toward volume, records or scores. Drop sets and sets to failure show D or F but keep their place in the count, so the sets read W, 1, 2, D, 4.
 - Each set shows what you did last time on the same brand, so you can see what to beat without leaving the screen.
 - Ticking a set as done starts the rest timer for that exercise. You can add or remove 15 seconds, or skip it.
-- Finishing a workout saves it to your history.
+- If the phone is locked or you are in another app when rest ends, a notification tells you. While the app is open, the phone buzzes instead.
+- Finishing a workout shows a summary with the time, sets and volume, the records you beat, and a name and description to save it under. Then it goes into your history.
 - You can keep photos and videos from your library with a workout, when you finish it or later from its page. They show as a row of thumbnails on the workout's page, and the first one on its row in history. For now they stay on the phone they were added on.
 
 ## Exercises
@@ -28,6 +29,7 @@ This is the screen people spend their time on, so it gets the most detail.
 - A custom exercise needs a name, a primary muscle and an equipment type. Secondary muscles are optional. Each exercise records how much of the work each of its muscles does, so a fatigue meter can be added later.
 - There is no limit on custom exercises. They are private to your account.
 - Custom exercises behave exactly like built-in ones. They get brands, settings, history and records.
+- You can delete a custom exercise from Edit exercise. Built-in exercises can't be deleted. Deleting takes it out of the picker and every routine, and never loses logged sets: the confirmation says how many workouts use it, and those workouts keep showing it with their sets.
 
 ## Brands
 
@@ -38,7 +40,7 @@ A brand is who made the equipment, such as Technogym or Hammer Strength. "Chest 
 - A brand can have an optional free-text label, for example the model or which gym it is in.
 - When you add an exercise to a workout, it defaults to the brand you used last time, or to no brand if you have never picked one.
 - Adding a brand to history logged on no brand moves that history to the brand.
-- History and records are kept per brand. The exercise page can also show all brands together.
+- History and records are kept per brand. Brands are never shown together, because 80 kg on one machine is not 80 kg on another. The exercise page shows one brand at a time, and you switch between them. [Scores and stats](/docs/scores-and-stats) and [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) have the reasoning.
 
 ## What a set records
 
@@ -62,7 +64,7 @@ Take the adductors. One set might be a hold at notch 5 for 30 seconds with no we
 Every set gets a score, so one number shows whether you beat last time even when the progress was a deeper notch rather than more weight. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) records why.
 
 - The load is weight times reps for a rep set and weight times seconds for a hold. An unloaded set counts its weight as 1.
-- Each tracked setting multiplies the load by a factor from 1.0 at the worst end of its range to 2.0 at the best end. Yes or no settings, text and untracked numbers are left out.
+- Each tracked number setting multiplies the load by a factor from 1.0 at the worst end of its range to 2.0 at the best end. A yes or no setting multiplies by a factor you pick, from 1.0 to 2.0, when it is on. Factors multiply together and the total is capped at 3.0. Text and untracked settings are left out. [ADR 0002](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0002-settings-weight-the-score.md) records why.
 - For example, on a notch 1 to 10 setting where lower is better, 50 kg for 5 reps scores 389 at notch 5 and 417 at notch 4.
 - Scores are only compared between sets of the same shape on the same exercise and brand. The shape is whether it is a rep set or a hold, whether it is loaded, and which tracked settings it has a value for. A hold is never ranked against a rep set.
 - Adding a tracked setting to an exercise you already have history for starts a new shape. Old sets keep their records and are not compared with the new ones.
@@ -77,11 +79,11 @@ Every set gets a score, so one number shows whether you beat last time even when
 
 ## History
 
-- You can see a list of past workouts and open any of them.
-- Each exercise has a page with its best set, an estimated one-rep max, a progression line and recent sessions.
-- The page can be narrowed to one brand, and then to one value of a setting that has its own progress, such as notch 7.
-- The progression line plots one thing at a time. That can be top set weight, estimated one-rep max, hold time, score or a tracked setting such as notch.
-- Records are detected when a workout is saved and marked on the session where they happened.
+- You can see a list of past workouts and open any of them. From there you can fix the sets, rename it, save it as a routine or delete it.
+- Each exercise has a page, opened by tapping its name mid-workout or in a past workout. It shows one brand at a time, with a graph, records and every past set.
+- The graph plots one thing at a time: set volume, session volume, weight or estimated one-rep max. The two volumes can be weighted by the score or raw. Splitting by a setting draws a line per value, such as notch 7 and notch 8. [Scores and stats](/docs/scores-and-stats) covers the detail.
+- During a workout, a set that beats your best for its shape is marked on its row. The exercise page and the finish summary use four records: heaviest weight, best one-rep max, best set volume and best session volume. The finish summary lists the ones you beat.
+- A Stats tab shows this week against last, weekly volume for the last 12 weeks, and every exercise you have done with a small trend of its best set volume over the last 8 workouts. Tapping an exercise opens its page.
 
 ## Account and sync
 
@@ -91,11 +93,21 @@ Every set gets a score, so one number shows whether you beat last time even when
 - Signing in on a second device brings down all of your data.
 - You can delete your account from inside the app, which removes your data from the server.
 
+## Export
+
+- The export icon at the top right of the Profile tab writes every finished workout to one CSV file, `fatigue-export-YYYY-MM-DD.csv`, and opens the share sheet so you can save it to Files, AirDrop it or mail it.
+- One row per set. The first columns are Hevy's, with Hevy's names and order, so the file opens anywhere a Hevy export does: `title`, `start_time`, `end_time`, `description`, `exercise_title`, `superset_id`, `exercise_notes`, `set_index`, `set_type`, `weight_kg`, `reps`, `distance_km`, `duration_seconds`, `rpe`. Fatigue has no supersets or distances, so those stay empty, and every set is `normal`.
+- Then Fatigue's own columns: `brand`, `brand_label`, `settings` and `weighted_score`. `settings` is the values the set was done with, overrides applied, as `Seat=4; Notch=8; Dead stop=yes` in the order they show under the exercise name. `weighted_score` is the [score](#score), rounded to two decimals.
+- Dates read like Hevy's, `13 Nov 2025, 07:30`, in the phone's time zone. Unloaded sets leave `weight_kg` empty rather than writing 0.
+- Fields with a comma, a quote or a line break are quoted the standard CSV way, and lines end in LF.
+
 ## Hevy import
 
-- You can import a Hevy CSV export.
-- Imported exercises are matched to the built-in list by name. Anything unmatched becomes a custom exercise.
+- You can import a Hevy CSV export from Settings. The file is read on the phone and written straight into the local database.
+- Each Hevy workout becomes a finished workout with its date, description, exercises, notes and sets. Warm-up, drop and failure sets keep their type. Weights in a pounds export are converted to kilograms.
+- Imported exercises are matched to the library by name, ignoring case, punctuation and the equipment in brackets, with a short list of aliases for common Hevy names. Anything unmatched becomes a custom exercise with a guessed muscle, and the import shows you the list afterwards.
 - Hevy does not record brands, so imported exercises are on no brand. You can add a brand to them afterwards.
+- A workout's id is built from its start time and name, so importing the same file again skips what's already there.
 
 ## How it should feel
 
