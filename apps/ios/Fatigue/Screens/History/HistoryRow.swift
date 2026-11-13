@@ -23,6 +23,13 @@ struct HistoryRow: View {
                         .textStyle(Tokens.Typography.caption)
                         .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
+                    if let gym = workout.gym {
+                        Label(gym.name, systemImage: "mappin.and.ellipse")
+                            .labelStyle(.titleAndIcon)
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .lineLimit(1)
+                    }
                     if !workout.description.isEmpty {
                         Text(workout.description)
                             .textStyle(Tokens.Typography.control)

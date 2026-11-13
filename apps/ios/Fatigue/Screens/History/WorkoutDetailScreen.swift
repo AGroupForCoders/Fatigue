@@ -94,6 +94,16 @@ struct WorkoutDetailScreen: View {
                             .foregroundStyle(palette.foreground)
                             .padding(.top, Tokens.Space.s)
                     }
+                    GymButton(gym: workout.gym, recent: Gym.recent(in: store.history)) { gym in
+                        withAnimation(.standard) { store.setGym(gym, of: workout.id) }
+                    }
+                    .padding(.top, Tokens.Space.s)
+                    if let gym = workout.gym, let coordinate = gym.coordinate {
+                        GymMap(gym: gym, coordinate: coordinate)
+                            .id(gym)
+                            .padding(.top, Tokens.Space.s)
+                            .transition(.opacity)
+                    }
                 }
                 .padding(.bottom, Tokens.Space.xxl)
                 Hairline()

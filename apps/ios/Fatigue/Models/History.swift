@@ -10,14 +10,17 @@ struct FinishedWorkout: Identifiable {
     var duration: TimeInterval
     /// The exercises with the sets you ticked, in the order you did them.
     var exercises: [WorkoutExercise]
+    /// Where you trained. Nil when you didn't say.
+    var gym: Gym?
 
-    init(id: UUID = UUID(), title: String, description: String = "", startedAt: Date, duration: TimeInterval, exercises: [WorkoutExercise]) {
+    init(id: UUID = UUID(), title: String, description: String = "", startedAt: Date, duration: TimeInterval, gym: Gym? = nil, exercises: [WorkoutExercise]) {
         self.id = id
         self.title = title
         self.description = description
         self.startedAt = startedAt
         self.duration = duration
         self.exercises = exercises
+        self.gym = gym
     }
 
     var setCount: Int { exercises.reduce(0) { $0 + $1.sets.count } }
@@ -41,7 +44,7 @@ struct FinishedWorkout: Identifiable {
     /// This workout with the edits from the workout screen. Sets you unticked while editing are dropped.
     func updated(from session: WorkoutSession) -> FinishedWorkout {
         var copy = session.finished(at: startedAt.addingTimeInterval(duration))
-        copy = FinishedWorkout(id: id, title: copy.title, description: description, startedAt: startedAt, duration: duration, exercises: copy.exercises)
+        copy = FinishedWorkout(id: id, title: copy.title, description: description, startedAt: startedAt, duration: duration, gym: gym, exercises: copy.exercises)
         return copy
     }
 
@@ -110,6 +113,10 @@ extension WorkoutSession {
 
 extension FinishedWorkout {
     /// Past workouts for the spike, so the profile has history to show before the database exists.
+    /// A made-up gym for the samples, with a map location, and one typed by hand.
+    static let sampleGym = Gym(name: "City Gym", latitude: 51.5072, longitude: -0.1276)
+    static let sampleHomeGym = Gym(name: "Home")
+
     static func samples(now: Date = .now) -> [FinishedWorkout] {
         func day(_ daysAgo: Double) -> Date { now.addingTimeInterval(-daysAgo * 86_400) }
         func reps(_ weight: String, _ reps: String, rpe: [Double]) -> [WorkoutSet] {
@@ -119,17 +126,17 @@ extension FinishedWorkout {
             WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: settings, sets: sets)
         }
         return [
-            FinishedWorkout(title: "Pull", startedAt: day(2), duration: 52 * 60, exercises: [
+            FinishedWorkout(title: "Pull", startedAt: day(2), duration: 52 * 60, gym: sampleGym, exercises: [
                 exercise("Lat Pulldown", reps("65", "10", rpe: [8, 8.5, 9])),
                 exercise("Seated Row", brand: "Life Fitness", reps("60", "10", rpe: [8, 8.5, 9])),
                 exercise("Bicep Curl", reps("14", "12", rpe: [8, 9, 9.5])),
             ]),
-            FinishedWorkout(title: "Push", description: "Shoulder felt tight, kept the press light.", startedAt: day(4), duration: 47 * 60, exercises: [
+            FinishedWorkout(title: "Push", description: "Shoulder felt tight, kept the press light.", startedAt: day(4), duration: 47 * 60, gym: sampleHomeGym, exercises: [
                 exercise("Chest Press", brand: "Technogym", reps("70", "8", rpe: [8, 8.5, 9])),
                 exercise("Shoulder Press", brand: "Hammer Strength", reps("40", "10", rpe: [8, 9, 9])),
                 exercise("Triceps Pushdown", reps("30", "12", rpe: [8.5, 9])),
             ]),
-            FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 74 * 60, exercises: [
+            FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 74 * 60, gym: sampleGym, exercises: [
                 exercise("Adductors", brand: "Technogym", [
                     WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, isDone: true),
                     WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, isDone: true),
@@ -166,17 +173,17 @@ extension FinishedWorkout {
             let deadStop: Double = week == 3 || week == 5 ? 0 : 1
             let adductorSetup = SetSetup(kind: .reps, values: ["Notch": notch, "Dead stop": deadStop])
             return [
-                FinishedWorkout(title: "Pull", startedAt: day(offset + 2), duration: 50 * 60, exercises: [
+                FinishedWorkout(title: "Pull", startedAt: day(offset + 2), duration: 50 * 60, gym: sampleGym, exercises: [
                     exercise("Lat Pulldown", reps(65 - back * 2.5, 10)),
                     exercise("Seated Row", brand: "Life Fitness", reps(60 - back * 2.5, 10)),
                     exercise("Bicep Curl", reps(14 - (back >= 4 ? 2 : 0), 12)),
                 ]),
-                FinishedWorkout(title: "Push", startedAt: day(offset + 4), duration: 46 * 60, exercises: [
+                FinishedWorkout(title: "Push", startedAt: day(offset + 4), duration: 46 * 60, gym: week == 2 ? sampleHomeGym : sampleGym, exercises: [
                     exercise("Chest Press", brand: "Technogym", reps(70 - back * 2.5, 8)),
                     exercise("Shoulder Press", brand: "Hammer Strength", reps(40 - back * 1.25, 10)),
                     exercise("Triceps Pushdown", reps(30 - back * 1.25, 12, sets: 2)),
                 ]),
-                FinishedWorkout(title: "Leg day", startedAt: day(offset + 6), duration: 70 * 60, exercises: [
+                FinishedWorkout(title: "Leg day", startedAt: day(offset + 6), duration: 70 * 60, gym: sampleGym, exercises: [
                     exercise("Adductors", brand: "Technogym", [
                         WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: PlainNumber.string(40 - back * 1.25), amount: "45", rpe: 8, isDone: true),
                         WorkoutSet(setup: adductorSetup, weight: PlainNumber.string(55 - back * 2.5), amount: "8", rpe: 8.5, isDone: true),
