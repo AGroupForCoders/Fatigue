@@ -32,6 +32,10 @@ struct ProfileScreen: View {
             // A different account on this phone shouldn't see the last one's friends while loading.
             if social.myProfile?.userId != auth.account?.id { social.reset() }
             await social.load()
+            // Debug builds open the friends page with `-openFriends`, for screenshots.
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-openFriends"), path.isEmpty, social.myProfile != nil { path.append(FriendsRoute()) }
+            #endif
         }
         .sheet(isPresented: $editingProfile) {
             ProfileEditor(current: social.myProfile)
@@ -168,25 +172,32 @@ struct ProfileScreen: View {
     @ViewBuilder private var socialRow: some View {
         switch social.profile {
         case .ready(let profile):
-            HStack(spacing: Tokens.Space.s) {
-                Button { editingProfile = true } label: {
-                    OutlinedLabel(systemImage: profile.defaultVisibility.systemImage, text: "@\(profile.handle)")
-                }
-                .buttonStyle(.press)
-                .accessibilityLabel("Edit profile, @\(profile.handle)")
-                NavigationLink(value: FriendsRoute()) {
-                    OutlinedLabel(systemImage: "person.2", text: friendsText)
-                }
-                .buttonStyle(.press)
+            // Side by side when they fit, one above the other for a long handle or a lot of requests.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Tokens.Space.s) { profileButtons(profile) }
+                    .fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: Tokens.Space.s) { profileButtons(profile) }
             }
         case .needsHandle:
             Button { editingProfile = true } label: {
-                OutlinedLabel(systemImage: "at", text: "Pick a handle so friends can find you")
+                OutlinedLabel(systemImage: "at", text: "Pick a handle")
             }
             .buttonStyle(.press)
         case .unknown, .unavailable:
             EmptyView()
         }
+    }
+
+    @ViewBuilder private func profileButtons(_ profile: MyProfile) -> some View {
+        Button { editingProfile = true } label: {
+            OutlinedLabel(systemImage: profile.defaultVisibility.systemImage, text: "@\(profile.handle)")
+        }
+        .buttonStyle(.press)
+        .accessibilityLabel("Edit profile, @\(profile.handle)")
+        NavigationLink(value: FriendsRoute()) {
+            OutlinedLabel(systemImage: "person.2", text: friendsText)
+        }
+        .buttonStyle(.press)
     }
 
     private var friendsText: String {

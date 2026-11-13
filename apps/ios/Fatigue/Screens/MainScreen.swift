@@ -30,10 +30,10 @@ struct MainScreen: View {
     @Environment(SocialStore.self) private var social
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Environment(\.scenePhase) private var scenePhase
-    /// Launch with `-openProfile` or `-openStats` to start on that tab, for screenshots.
+    /// Launch with `-openFeed`, `-openProfile` or `-openStats` to start on that tab, for screenshots.
     @State private var tab: Tab = {
         let args = ProcessInfo.processInfo.arguments
-        return args.contains("-openProfile") ? .profile : args.contains("-openStats") ? .stats : .workout
+        return args.contains("-openFeed") ? .feed : args.contains("-openProfile") ? .profile : args.contains("-openStats") ? .stats : .workout
     }()
 
     var body: some View {

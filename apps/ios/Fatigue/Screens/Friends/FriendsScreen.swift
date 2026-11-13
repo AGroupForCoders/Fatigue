@@ -107,9 +107,15 @@ struct FriendsScreen: View {
                 row(userId: request.userId, name: request.name, handle: request.handle) {
                     HStack(spacing: Tokens.Space.s) {
                         Button { run { try await social.remove(request) } } label: {
-                            OutlinedLabel(text: "Decline", isMuted: true)
+                            Image(systemName: "xmark")
+                                .imageScale(.small)
+                                .foregroundStyle(palette.foregroundMuted)
+                                .frame(width: Tokens.Size.control, height: Tokens.Size.control)
+                                .overlay(Circle().strokeBorder(palette.borderControl, lineWidth: Tokens.Size.line))
+                                .contentShape(Circle())
                         }
                         .buttonStyle(.press)
+                        .accessibilityLabel("Decline @\(request.handle)")
                         PrimaryButton(title: "Accept", compact: true) { run { try await social.accept(request) } }
                     }
                 }
@@ -192,7 +198,8 @@ struct FriendsScreen: View {
             }
             .buttonStyle(.pressRow)
             Spacer(minLength: Tokens.Space.s)
-            trailing()
+            // The buttons keep their full width; a long name truncates instead.
+            trailing().fixedSize()
         }
         .frame(minHeight: Tokens.Size.setRow)
         .padding(.vertical, Tokens.Space.s)

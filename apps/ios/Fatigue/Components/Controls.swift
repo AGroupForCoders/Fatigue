@@ -25,6 +25,9 @@ struct PrimaryButton: View {
             Text(title)
                 .textStyle(Tokens.Typography.button)
                 .foregroundStyle(palette.background)
+                .lineLimit(1)
+                // A compact button sizes to its title, so a short word like "Accept" never wraps.
+                .fixedSize(horizontal: compact, vertical: false)
                 .padding(.horizontal, Tokens.Space.xl)
                 .frame(maxWidth: compact ? nil : .infinity)
                 .frame(height: compact ? Tokens.Size.control : Tokens.Size.primaryButton)
