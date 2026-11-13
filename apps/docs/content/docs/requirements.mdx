@@ -15,7 +15,7 @@ This is the screen people spend their time on, so it gets the most detail.
 - Each exercise has three controls under its name. They are the rest time, a note and the brand.
 - By default each set records weight and reps. [What a set records](#what-a-set-records) covers holds, unloaded sets and settings.
 - RPE is optional on any set and runs from 6 to 10 in half steps.
-- A set can be marked as a warm-up, a drop set or a set to failure. Warm-ups never count toward records or scores.
+- A set can be marked as a warm-up, a drop set or a set to failure by tapping its number. Warm-ups show W in place of a number and never count toward volume, records or scores. Drop sets and sets to failure show D or F but keep their place in the count, so the sets read W, 1, 2, D, 4.
 - Each set shows what you did last time on the same brand, so you can see what to beat without leaving the screen.
 - Ticking a set as done starts the rest timer for that exercise. You can add or remove 15 seconds, or skip it.
 - If the phone is locked or you are in another app when rest ends, a notification tells you. While the app is open, the phone buzzes instead.
@@ -28,6 +28,7 @@ This is the screen people spend their time on, so it gets the most detail.
 - A custom exercise needs a name, a primary muscle and an equipment type. Secondary muscles are optional. Each exercise records how much of the work each of its muscles does, so a fatigue meter can be added later.
 - There is no limit on custom exercises. They are private to your account.
 - Custom exercises behave exactly like built-in ones. They get brands, settings, history and records.
+- You can delete a custom exercise from Edit exercise. Built-in exercises can't be deleted. Deleting takes it out of the picker and every routine, and never loses logged sets: the confirmation says how many workouts use it, and those workouts keep showing it with their sets.
 
 ## Brands
 
@@ -90,6 +91,14 @@ Every set gets a score, so one number shows whether you beat last time even when
 - The app works without a connection. Changes made offline sync when the connection returns.
 - Signing in on a second device brings down all of your data.
 - You can delete your account from inside the app, which removes your data from the server.
+
+## Export
+
+- The export icon at the top right of the Profile tab writes every finished workout to one CSV file, `fatigue-export-YYYY-MM-DD.csv`, and opens the share sheet so you can save it to Files, AirDrop it or mail it.
+- One row per set. The first columns are Hevy's, with Hevy's names and order, so the file opens anywhere a Hevy export does: `title`, `start_time`, `end_time`, `description`, `exercise_title`, `superset_id`, `exercise_notes`, `set_index`, `set_type`, `weight_kg`, `reps`, `distance_km`, `duration_seconds`, `rpe`. Fatigue has no supersets or distances, so those stay empty, and every set is `normal`.
+- Then Fatigue's own columns: `brand`, `brand_label`, `settings` and `weighted_score`. `settings` is the values the set was done with, overrides applied, as `Seat=4; Notch=8; Dead stop=yes` in the order they show under the exercise name. `weighted_score` is the [score](#score), rounded to two decimals.
+- Dates read like Hevy's, `13 Nov 2025, 07:30`, in the phone's time zone. Unloaded sets leave `weight_kg` empty rather than writing 0.
+- Fields with a comma, a quote or a line break are quoted the standard CSV way, and lines end in LF.
 
 ## Hevy import
 

@@ -56,15 +56,18 @@ struct ExerciseStats {
         let workoutTitle: String
         let exercise: WorkoutExercise
         var id: Date { date }
+        /// Every ticked set, warm-ups included, for the history list.
         var sets: [WorkoutSet] { exercise.sets.filter(\.isDone) }
+        /// The ticked sets that count towards the graph and records: everything but warm-ups.
+        var countedSets: [WorkoutSet] { sets.filter(\.counts) }
     }
 
     let name: String
-    let brand: String?
+    let brand: Brand?
     /// Oldest first.
     let sessions: [Session]
 
-    init(name: String, brand: String?, history: [FinishedWorkout]) {
+    init(name: String, brand: Brand?, history: [FinishedWorkout]) {
         self.name = name
         self.brand = brand
         sessions = history
@@ -77,26 +80,30 @@ struct ExerciseStats {
     }
 
     /// The brands you've done an exercise on, most used first. Nil is no brand.
-    static func brands(for name: String, in history: [FinishedWorkout]) -> [String?] {
-        var counts: [String: (brand: String?, count: Int)] = [:]
+    static func brands(for name: String, in history: [FinishedWorkout]) -> [Brand?] {
+        var counts: [String: (brand: Brand?, count: Int)] = [:]
         for workout in history {
             for exercise in workout.exercises where exercise.name == name && exercise.sets.contains(where: \.isDone) {
-                counts[exercise.brand ?? "", default: (exercise.brand, 0)].count += 1
+                counts[exercise.brand?.key ?? "", default: (exercise.brand, 0)].count += 1
             }
         }
-        return counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : ($0.brand ?? "") < ($1.brand ?? "") }.map(\.brand)
+        return counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : ($0.brand?.display ?? "") < ($1.brand?.display ?? "") }.map(\.brand)
     }
 
     // MARK: Values
 
-    private static func weight(_ set: WorkoutSet) -> Double? { Double(set.weight) }
+    /// Nothing about a warm-up counts: not its weight, volume or 1RM.
+    private static func weight(_ set: WorkoutSet) -> Double? {
+        guard set.counts else { return nil }
+        return Double(set.weight)
+    }
 
     private static func reps(_ set: WorkoutSet) -> Double? {
-        guard set.kind == .reps, let reps = Double(set.amount), reps > 0 else { return nil }
+        guard set.counts, set.kind == .reps, let reps = Double(set.amount), reps > 0 else { return nil }
         return reps
     }
 
-    /// Weight × reps, for loaded rep sets. Holds and unloaded sets have no volume.
+    /// Weight × reps, for loaded rep sets. Holds, unloaded sets and warm-ups have no volume.
     static func volume(of set: WorkoutSet) -> Double? {
         guard let weight = weight(set), let reps = reps(set) else { return nil }
         return weight * reps
@@ -150,14 +157,14 @@ struct ExerciseStats {
         return setting.label(for: value)
     }
 
-    /// The graph's points, one per workout and line.
+    /// The graph's points, one per workout and line. Warm-ups are left out.
     func points(_ metric: StatMetric, weighted: Bool, splitBy name: String? = nil) -> [StatPoint] {
         sessions.flatMap { session -> [StatPoint] in
             guard let name else {
-                return Self.value(metric, weighted: weighted, of: session.sets, in: session.exercise)
+                return Self.value(metric, weighted: weighted, of: session.countedSets, in: session.exercise)
                     .map { [StatPoint(date: session.date, value: $0, series: "")] } ?? []
             }
-            let grouped = Dictionary(grouping: session.sets) { Self.series(of: $0, in: session.exercise, splitBy: name) }
+            let grouped = Dictionary(grouping: session.countedSets) { Self.series(of: $0, in: session.exercise, splitBy: name) }
             return grouped.compactMap { series, sets in
                 guard let series else { return nil }
                 return Self.value(metric, weighted: weighted, of: sets, in: session.exercise)
@@ -170,18 +177,18 @@ struct ExerciseStats {
     /// The lines when split, in the order they sort.
     func seriesNames(splitBy name: String?) -> [String] {
         guard let name else { return [] }
-        let names = sessions.flatMap { session in session.sets.compactMap { Self.series(of: $0, in: session.exercise, splitBy: name) } }
+        let names = sessions.flatMap { session in session.countedSets.compactMap { Self.series(of: $0, in: session.exercise, splitBy: name) } }
         return Array(Set(names)).sorted()
     }
 
     // MARK: Records
 
-    /// The records over every set, or only the sets on one line when split. Values stay in kilograms;
-    /// each record's detail reads in `unit`.
+    /// The records over every set, or only the sets on one line when split. Warm-ups never set a record.
+    /// Values stay in kilograms; each record's detail reads in `unit`.
     func records(splitBy name: String? = nil, series: String? = nil, in unit: WeightUnit) -> ExerciseRecords {
         var records = ExerciseRecords()
         for session in sessions {
-            let sets = session.sets.filter { set in
+            let sets = session.countedSets.filter { set in
                 guard let name, let series else { return true }
                 return Self.series(of: set, in: session.exercise, splitBy: name) == series
             }
@@ -218,12 +225,12 @@ struct ExerciseStats {
     /// A record a workout beat, for the finish summary.
     struct Beaten: Identifiable, Equatable {
         let exercise: String
-        let brand: String?
+        let brand: Brand?
         /// Such as "Heaviest weight" or "Best set volume, weighted".
         let record: String
         /// Such as "60 kg", "132 lb" or "1,227 weighted".
         let value: String
-        var id: String { "\(exercise)|\(brand ?? "")|\(record)" }
+        var id: String { "\(exercise)|\(brand?.key ?? "")|\(record)" }
     }
 
     /// The records each exercise in `workout` beat, against everything before it on the same exercise and brand.
@@ -232,7 +239,7 @@ struct ExerciseStats {
     static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout], in unit: WeightUnit) -> [Beaten] {
         var seen: Set<String> = []
         return workout.exercises.flatMap { exercise -> [Beaten] in
-            guard seen.insert("\(exercise.name)|\(exercise.brand ?? "")").inserted else { return [] }
+            guard seen.insert("\(exercise.name)|\(exercise.brand?.key ?? "")").inserted else { return [] }
             let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history).records(in: unit)
             let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout]).records(in: unit)
             let weighted = exercise.settings.contains(where: \.isTracked)

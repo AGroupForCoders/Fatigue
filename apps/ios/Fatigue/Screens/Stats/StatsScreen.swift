@@ -125,7 +125,7 @@ struct StatsScreen: View {
                 Text(trend.name)
                     .textStyle(Tokens.Typography.body)
                     .foregroundStyle(palette.foreground)
-                Text([trend.brand, trend.lastDone.formatted(.relative(presentation: .named))].compactMap { $0 }.joined(separator: " · "))
+                Text([trend.brand?.display, trend.lastDone.formatted(.relative(presentation: .named))].compactMap { $0 }.joined(separator: " · "))
                     .textStyle(Tokens.Typography.caption)
                     .foregroundStyle(palette.foregroundMuted)
             }

@@ -10,7 +10,7 @@ struct ExerciseStatsTests {
         WorkoutSet(setup: SetSetup(kind: hold ? .hold : .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: reps, isDone: true)
     }
 
-    private func workout(day: Double, brand: String? = "Technogym", _ sets: [WorkoutSet]) -> FinishedWorkout {
+    private func workout(day: Double, brand: Brand? = "Technogym", _ sets: [WorkoutSet]) -> FinishedWorkout {
         FinishedWorkout(title: "Legs", startedAt: Date(timeIntervalSince1970: day * 86_400), duration: 3600, exercises: [
             WorkoutExercise(name: "Adductors", brand: brand, restSeconds: 90, settings: [notch], sets: sets),
         ])

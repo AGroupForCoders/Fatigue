@@ -12,6 +12,8 @@ struct ProfileScreen: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var photo: UIImage? = ProfilePhoto.load()
     @State private var path: [UUID] = []
+    @State private var exporting = false
+    @State private var exportFile: ExportFile?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -36,14 +38,14 @@ struct ProfileScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     Spacer()
-                    // Export comes later. The button is here so the layout is settled.
-                    Button {} label: {
+                    Button(action: export) {
                         Image(systemName: "square.and.arrow.up")
-                            .foregroundStyle(palette.foregroundFaint)
+                            .foregroundStyle(exporting ? palette.foregroundFaint : palette.foreground)
                             .frame(width: Tokens.Size.control, height: Tokens.Size.control)
                     }
                     .buttonStyle(.press)
-                    .accessibilityLabel("Export your data, coming soon")
+                    .disabled(exporting)
+                    .accessibilityLabel("Export your data")
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                             .foregroundStyle(palette.foreground)
@@ -86,6 +88,10 @@ struct ProfileScreen: View {
             SettingsScreen()
                 .environment(\.palette, palette)
         }
+        .sheet(item: $exportFile) { file in
+            ShareSheet(items: [file.url])
+                .ignoresSafeArea()
+        }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             Task {
@@ -93,6 +99,25 @@ struct ProfileScreen: View {
                     withAnimation(.standard) { photo = saved }
                 }
                 photoItem = nil
+            }
+        }
+    }
+
+    /// Writes every finished workout to a CSV, one row per set, and opens the share sheet with it.
+    /// The rows are gathered here, where the model lives; the file is written off the main actor.
+    private func export() {
+        guard !exporting else { return }
+        exporting = true
+        let rows = store.exportRows()
+        Task {
+            defer { exporting = false }
+            do {
+                let url = try await Task.detached(priority: .userInitiated) { try DataExport.write(rows, on: .now) }.value
+                exportFile = ExportFile(url: url)
+            } catch {
+                #if DEBUG
+                print("Export failed: \(error)")
+                #endif
             }
         }
     }
