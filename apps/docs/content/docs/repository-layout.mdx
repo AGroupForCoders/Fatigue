@@ -22,7 +22,14 @@ Fatigue/
 └── pnpm-workspace.yaml
 ```
 
-Only `apps/docs` exists today. The other folders appear as we start each part.
+Today `apps/docs`, `apps/api`, `apps/ios` and `packages/tokens` exist. `apps/android`, `apps/web` and `packages/contract` appear as we start each part.
+
+| Folder | What is there |
+| --- | --- |
+| `apps/docs` | This site. |
+| `apps/api` | Hono on Cloudflare Workers, with Better Auth for accounts and Drizzle over Postgres. Only accounts so far. Its README says how to run it. |
+| `apps/ios` | The SwiftUI app, with its tests in `FatigueTests`. Everything you log is kept in SQLite on the phone. |
+| `packages/tokens` | `tokens.json` and the build step that generates `Tokens.swift` from it. |
 
 ## Two kinds of project in one repository
 
