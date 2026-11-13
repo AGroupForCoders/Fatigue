@@ -18,8 +18,9 @@ final class RestLiveActivity {
     func update(for rest: RestTimer?, workoutTitle: String) {
         guard let rest, rest.endsAt > .now else { return end() }
         let content = ActivityContent(state: Self.state(for: rest), staleDate: rest.endsAt)
-        if let activity = current {
-            Task { await activity.update(content) }
+        if Self.current != nil {
+            // `Activity` isn't Sendable, so the task looks it up again rather than being handed it.
+            Task.detached { await Self.current?.update(content) }
         } else if ActivityAuthorizationInfo().areActivitiesEnabled {
             _ = try? Activity.request(attributes: RestActivityAttributes(workoutTitle: workoutTitle), content: content, pushType: nil)
         }
@@ -27,14 +28,16 @@ final class RestLiveActivity {
 
     /// Takes the activity off the Lock Screen. Also ends any left over from a previous run of the app.
     func end() {
-        for activity in Activity<RestActivityAttributes>.activities {
-            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+        Task.detached {
+            for activity in Activity<RestActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
         }
     }
 
     /// The activity on screen, if there is one. Looked up each time rather than remembered, since
     /// one can outlive the app's process and still be there when it launches again.
-    private var current: Activity<RestActivityAttributes>? {
+    private nonisolated static var current: Activity<RestActivityAttributes>? {
         Activity<RestActivityAttributes>.activities.first { $0.activityState == .active || $0.activityState == .stale }
     }
 }

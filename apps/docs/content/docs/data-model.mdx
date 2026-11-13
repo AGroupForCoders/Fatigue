@@ -52,6 +52,8 @@ exercise ──< exercise_brand ──< setting
 
 Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. The server is seeded with the same rows and IDs, so synced rows that point at a built-in exercise still pass its foreign keys. Custom exercises are ordinary rows.
 
+Deleting a custom exercise sets `deleted_at` on it, its `exercise_brand` rows, their settings and its `routine_exercise` rows (with their sets), in one transaction. Its `workout_exercise` rows are left alone, so finished workouts still show it with their sets, and the exercise page and stats keep its history. Only rows without `deleted_at` show in the picker and the library. Because `name` is unique, creating an exercise with a deleted one's name clears `deleted_at` on that row instead of adding another, which brings its history back with it.
+
 **`exercise_muscle`**
 
 Which muscles an exercise works, and how much of the work each one does. A future fatigue meter needs this per muscle, and it can't be filled in for old exercises after the fact.
@@ -77,6 +79,7 @@ One row for each brand you have used for an exercise, plus one for no brand if y
 | `brand` | text, nullable | Empty means no brand. Otherwise plain text you typed or picked |
 | `label` | text, nullable | The model, the gym, or anything else that tells two of the same brand apart |
 
+- Brand and label together pick the row. Technogym with the label "City gym" and Technogym with no label are two rows, each with its own settings, history and records. Clearing the label goes back to the row with none. The app shows the two as "Technogym · City gym" and "Technogym".
 - Logging an exercise without picking a brand uses its no-brand row, and creates it the first time. An exercise has at most one no-brand row.
 - When you add an exercise to a workout, the app defaults to the row you used last time.
 - The built-in brand list only feeds the suggestions when you type one.
@@ -108,7 +111,8 @@ Seat height, notch, dead stop and anything else you set up on this exercise and 
 
 ```
 workout ──< workout_exercise ──< workout_set ──< workout_set_override
-              └──< workout_exercise_setting
+   │          └──< workout_exercise_setting
+   └──< workout_media
 ```
 
 **`workout`**
@@ -119,6 +123,7 @@ workout ──< workout_exercise ──< workout_set ──< workout_set_overrid
 | `finished_at` | integer, nullable | Empty while the workout is running |
 | `routine_id` | text, nullable | The routine it was started from, if any |
 | `note` | text, nullable | |
+| `import_key` | text, nullable | Where an imported workout came from, such as `hevy\|13 Nov 2025, 07:30\|Push`. Its `id` is a UUIDv5 of this, so importing the same file again finds the row. Empty for workouts logged here |
 
 At most one workout has no `finished_at`. That is the one the app opens into. If a pull brings in a second running workout, because you started one on each phone while offline, the app keeps the one with the most recent ticked set open and finishes the other at the time of its last ticked set. Nothing is deleted.
 
@@ -181,6 +186,22 @@ A value that a group of sets changes from the exercise's value, such as notch 8 
 - Every set in a group carries the same overrides. Groups aren't stored: the app draws a new heading wherever the kind or the overrides change from one set to the next.
 - A set's value for a setting is its override if it has one, otherwise the exercise's value in `workout_exercise_setting`. Scores and records read this value.
 - If neither has a value, the set has no value for that setting, and that is what gives it a different shape from sets that do.
+
+**`workout_media`**
+
+A photo or video kept with a workout, such as a form check or a picture of the machine's settings.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `workout_id` | text | |
+| `kind` | text | `photo` or `video` |
+| `file_name` | text | The row's ID plus the file's extension, such as `7A1C….heic` |
+| `width`, `height` | integer, nullable | Pixels, the right way up |
+| `duration_seconds` | real, nullable | Videos only |
+| `created_at` | integer | When it was added |
+
+- The file itself lives in Application Support under `media/`, with a thumbnail made once in `media/thumbnails/`. Neither is in Caches, so the system never clears them.
+- For now the files stay on the phone. The row syncs like any other, but uploading the file to the server and showing it on a second phone is a follow-up that needs storage behind the API.
 
 ## Routines
 

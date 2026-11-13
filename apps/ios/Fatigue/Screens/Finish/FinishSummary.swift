@@ -8,11 +8,13 @@ struct FinishDetails {
     var updateRoutine: Bool
 }
 
-/// Shown when you finish a workout: how it went, a name and description to save it under,
-/// and, if it started from a prebuilt workout and you changed things, whether to update that one too.
+/// Shown when you finish a workout: how it went, a name and description to save it under, photos and
+/// videos to keep with it, and, if it started from a prebuilt workout and you changed things, whether to update that one too.
 struct FinishSummary: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(MediaStore.self) private var media
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let session: WorkoutSession
     let unticked: UntickedSets
     /// The prebuilt workout it started from, only when today's workout differs from it.
@@ -93,7 +95,7 @@ struct FinishSummary: View {
                             Text(exercise.name)
                                 .foregroundStyle(palette.foreground)
                             if let brand = exercise.brand {
-                                Text(brand).foregroundStyle(palette.foregroundFaint)
+                                Text(brand.display).foregroundStyle(palette.foregroundFaint)
                             }
                         }
                         .textStyle(Tokens.Typography.control)
@@ -102,6 +104,13 @@ struct FinishSummary: View {
                     .padding(.top, Tokens.Space.m)
 
                     records
+
+                    if !workout.exercises.isEmpty {
+                        Hairline().padding(.top, Tokens.Space.xl)
+                        // Keyed by the running workout's id; finishing moves them to the saved one.
+                        MediaRow(workoutID: session.id)
+                            .padding(.top, Tokens.Space.l)
+                    }
 
                     if let changedRoutine {
                         Hairline().padding(.top, Tokens.Space.xl)
@@ -132,9 +141,14 @@ struct FinishSummary: View {
             }
             .scrollDismissesKeyboard(.interactively)
 
-            PrimaryButton(title: workout.exercises.isEmpty ? "Finish without saving" : "Save workout") {
+            // Saving waits for media still being copied in, so nothing is left behind under the running workout's id.
+            let addingMedia = media.importing.contains(session.id)
+            PrimaryButton(title: addingMedia ? "Adding media…" : workout.exercises.isEmpty ? "Finish without saving" : "Save workout") {
                 onSave(FinishDetails(title: title, description: description, unticked: unticked, updateRoutine: updateRoutine))
             }
+            .disabled(addingMedia)
+            .opacity(addingMedia ? 0.5 : 1)
+            .animation(.standard, value: addingMedia)
             .padding(.horizontal, Tokens.Space.xxl)
             .padding(.vertical, Tokens.Space.l)
         }
@@ -145,8 +159,9 @@ struct FinishSummary: View {
     }
 
     /// The records this workout beat, such as "Adductors · Heaviest weight · 60 kg". Nothing when it beat none.
+    /// An exercise whose graph is split names the line, such as "Heaviest weight at notch 8".
     @ViewBuilder private var records: some View {
-        let beaten = ExerciseStats.beaten(by: workout, history: history)
+        let beaten = ExerciseStats.beaten(by: workout, history: history, splitBy: { ExerciseSplit.remembered(for: $0) }, in: unit)
         if !beaten.isEmpty {
             Hairline().padding(.top, Tokens.Space.xl)
             Text("Records")
@@ -162,7 +177,7 @@ struct FinishSummary: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(record.record)
                             .foregroundStyle(palette.foreground)
-                        Text([record.exercise, record.brand].compactMap { $0 }.joined(separator: " · "))
+                        Text([record.exercise, record.brand?.display].compactMap { $0 }.joined(separator: " · "))
                             .textStyle(Tokens.Typography.caption)
                             .foregroundStyle(palette.foregroundMuted)
                     }
@@ -183,7 +198,7 @@ struct FinishSummary: View {
         HStack(alignment: .top, spacing: 0) {
             stat(HistoryRow.duration(max(1, Int((workout.duration / 60).rounded()))), label: "Time")
             stat("\(workout.setCount)", label: "Sets")
-            stat(workout.volume > 0 ? "\(Int(workout.volume).formatted()) kg" : "-", label: "Volume")
+            stat(workout.volume > 0 ? unit.wholeLabelled(workout.volume) : "-", label: "Volume")
         }
     }
 

@@ -14,7 +14,7 @@ struct WorkoutStoreTests {
         #expect(active.exercises.map(\.name) == routine.exercises.map(\.name))
         #expect(active.doneCount == 0)
         // Previous comes from the last Leg day in history, not the prebuilt workout's targets.
-        #expect(active.exercises[0].sets[1].previous == "55 × 8 @8.5")
+        #expect(active.exercises[0].sets[1].previous?.text(in: .kg) == "55 × 8 @8.5")
     }
 
     @Test func changesDuringTheWorkoutNeverReachTheRoutine() {

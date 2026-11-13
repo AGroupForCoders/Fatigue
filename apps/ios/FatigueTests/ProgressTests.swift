@@ -6,18 +6,18 @@ import Testing
 private let lowerNotch = ExerciseSetting(name: "Notch", value: "5", direction: .lower, rangeMin: 1, rangeMax: 10)
 
 @MainActor
-private func adductors(_ sets: [WorkoutSet], settings: [ExerciseSetting] = [lowerNotch], brand: String? = "Technogym") -> WorkoutExercise {
+private func adductors(_ sets: [WorkoutSet], settings: [ExerciseSetting] = [lowerNotch], brand: Brand? = "Technogym") -> WorkoutExercise {
     WorkoutExercise(name: "Adductors", brand: brand, restSeconds: 90, settings: settings, sets: sets)
 }
 
 @MainActor
 private func reps(_ weight: String, _ amount: String, notch: Double? = nil, done: Bool = true) -> WorkoutSet {
-    WorkoutSet(setup: SetSetup(kind: .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: amount, previous: "", isDone: done)
+    WorkoutSet(setup: SetSetup(kind: .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: amount, isDone: done)
 }
 
 @MainActor
 private func hold(_ weight: String, _ amount: String) -> WorkoutSet {
-    WorkoutSet(setup: SetSetup(kind: .hold), weight: weight, amount: amount, previous: "", isDone: true)
+    WorkoutSet(setup: SetSetup(kind: .hold), weight: weight, amount: amount, isDone: true)
 }
 
 @MainActor

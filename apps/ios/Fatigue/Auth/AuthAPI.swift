@@ -10,6 +10,12 @@ protocol AuthAPI: Sendable {
     func signOut(token: String) async throws
     func rename(to name: String, token: String) async throws
     func deleteAccount(password: String, token: String) async throws
+    /// Emails a reset link. Says the same thing whether or not the email has an account.
+    func requestPasswordReset(email: String) async throws
+    /// Sets a new password with the token from the reset link.
+    func resetPassword(token: String, newPassword: String) async throws
+    /// Emails the verification link again.
+    func sendVerificationEmail(email: String, token: String) async throws
 }
 
 /// Talks to Better Auth on the Fatigue API.
@@ -26,7 +32,8 @@ nonisolated struct LiveAuthAPI: AuthAPI {
     }
 
     func signUp(name: String, email: String, password: String) async throws -> (Account, token: String) {
-        let (data, response) = try await send("sign-up/email", body: ["name": name, "email": email, "password": password])
+        let body = ["name": name, "email": email, "password": password, "callbackURL": emailVerifiedPage]
+        let (data, response) = try await send("sign-up/email", body: body)
         return try accountAndToken(data, response)
     }
 
@@ -47,6 +54,24 @@ nonisolated struct LiveAuthAPI: AuthAPI {
     func deleteAccount(password: String, token: String) async throws {
         _ = try await send("delete-user", body: ["password": password], token: token)
     }
+
+    func requestPasswordReset(email: String) async throws {
+        _ = try await send("request-password-reset", body: ["email": email, "redirectTo": resetPasswordPage])
+    }
+
+    func resetPassword(token: String, newPassword: String) async throws {
+        _ = try await send("reset-password", body: ["token": token, "newPassword": newPassword])
+    }
+
+    func sendVerificationEmail(email: String, token: String) async throws {
+        _ = try await send("send-verification-email", body: ["email": email, "callbackURL": emailVerifiedPage], token: token)
+    }
+
+    /// Where the link in a reset email lands once the API has checked it. The page opens the app with the token.
+    private var resetPasswordPage: String { baseURL.appending(path: "auth/reset-password").absoluteString }
+
+    /// Where the link in a verification email lands once the email is verified. The page opens the app.
+    private var emailVerifiedPage: String { baseURL.appending(path: "auth/email-verified").absoluteString }
 
     private func accountAndToken(_ data: Data, _ response: HTTPURLResponse) throws -> (Account, token: String) {
         struct Body: Decodable { let user: Account }
@@ -83,13 +108,22 @@ nonisolated struct LiveAuthAPI: AuthAPI {
 }
 
 /// Where the API lives.
+///
+/// Debug builds talk to the API running on this Mac; release builds (TestFlight, App Store) talk to
+/// the deployed Worker. Change `productionBaseURL` when the API moves, for example to a custom domain.
 nonisolated enum APIConfig {
+    /// The API running on this Mac with `pnpm api:dev`. The simulator reaches it as localhost.
+    static let localBaseURL = URL(string: "http://localhost:8787")!
+
+    /// The Worker deployed by `.github/workflows/deploy-api.yml`. The `workers.dev` subdomain is the
+    /// Cloudflare account's; it appears in the deploy log and in the dashboard under Workers & Pages.
+    /// Must match `BETTER_AUTH_URL` on the Worker, or Better Auth rejects sign-in.
+    static let productionBaseURL = URL(string: "https://fatigue-api.CHANGE-ME.workers.dev")!
+
     #if DEBUG
-    /// The API running on this Mac with `pnpm --filter @fatigue/api dev`. The simulator reaches it as localhost.
-    static let baseURL = URL(string: "http://localhost:8787")!
+    static let baseURL = localBaseURL
     #else
-    // Set once the API is deployed.
-    static let baseURL = URL(string: "https://api.fatigue.invalid")!
+    static let baseURL = productionBaseURL
     #endif
 }
 
