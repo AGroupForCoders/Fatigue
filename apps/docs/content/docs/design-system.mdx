@@ -80,7 +80,7 @@ The components built so far, in `apps/ios/Fatigue/Components` and alongside the 
 | `NumberCell`, `RPECell`, `TickBox` | One set row: weight and reps in soft filled cells, the RPE cell that opens the RPE panel, and the tick that marks a set done with a light haptic. |
 | `LineField` | A form field drawn as a label above the text and a hairline under it, with no box. The line darkens while the field has the cursor. |
 | `OptionLabel` | An option chip: outlined when off, filled when picked. Used for muscles, the setting editor's choices, Yes and No on the finish summary, and the brand and metric chips on the exercise page. |
-| Chips row | On the exercise page, a row of `OptionLabel` chips that scrolls sideways when it does not fit and fades at the right edge. Brands, metrics, Weighted / Raw and Split by all use it. |
+| Chips row | On the exercise page, a row of `OptionLabel` chips. The brand and metric rows scroll sideways when they do not fit and fade at the right edge. Weighted / Raw is the same row without the scroll, and Split by is a menu behind an `OutlinedLabel`. |
 | Settings line | An exercise's settings as one quiet line under its name, such as "Seat 4 · Notch 7 · Dead stop", with a small pencil. Tapping it opens the settings into editable rows, then Add setting and Done. With no settings, the line does not show. |
 | `SwipeToDelete` | Slide a row left to reveal a trash button behind it. Tap it, or keep sliding past half the row, to delete. The row follows the finger 1:1 and settles with a spring that starts at the finger's speed. Vertical scrolling is never caught by a row. |
 | `BottomNav` | A hairline, then one icon and label per tab: Workout, Stats and Profile. The selected tab fills its icon. |
