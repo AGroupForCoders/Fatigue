@@ -66,7 +66,7 @@ Better Auth's tables in `src/db/schema/auth.ts` are generated. After changing it
 
 ## Deploying
 
-The API runs as the `fatigue-api` Worker on Cloudflare Workers (paid plan), against a Postgres on Neon. `.github/workflows/deploy-api.yml` deploys it on every push to `main` that touches `apps/api`, and can be run by hand from the Actions tab. Each deploy type checks, tests, runs the migrations against production, then uploads the Worker and checks `/health`.
+The API runs as the `fatigue-api` Worker on Cloudflare Workers (paid plan) at https://api.fatigue.agroupforcoders.com, against a Postgres on Neon. The address is a Workers custom domain (`routes` in `wrangler.jsonc`): the first deploy makes its DNS record and certificate. `.github/workflows/deploy-api.yml` deploys it on every push to `main` that touches `apps/api`, and can be run by hand from the Actions tab. Each deploy type checks, tests, runs the migrations against production, then uploads the Worker and checks `/health`.
 
 Local dev is untouched by any of this: `.env` and your dev Neon branch (or Docker) stay as they are. Only `wrangler deploy` and the workflow reach production.
 
@@ -76,12 +76,12 @@ Everything production needs lives in the `production` environment on GitHub (Set
 
 | Name                    | Kind     | What it is                                                                                  |
 | ----------------------- | -------- | ------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`  | secret   | Deploys the Worker. Cloudflare's "Edit Cloudflare Workers" token template.                  |
+| `CLOUDFLARE_API_TOKEN`  | secret   | Deploys the Worker. Cloudflare's "Edit Cloudflare Workers" template, with Workers Routes: Edit on the account's zones. |
 | `CLOUDFLARE_ACCOUNT_ID` | secret   | The Cloudflare account. Also makes up the R2 endpoint, as the Worker's `R2_ACCOUNT_ID`.     |
 | `DIRECT_DATABASE_URL`   | secret   | Neon production branch, direct connection. Only the migration step uses it.                |
 | `DATABASE_URL`          | secret   | Neon production branch, **pooled** (host contains `-pooler`). The Worker opens one per request. |
 | `BETTER_AUTH_SECRET`    | secret   | Signs sessions. Random, and not the one in your `.env`. Changing it signs everybody out.   |
-| `BETTER_AUTH_URL`       | variable | `https://fatigue-api.<subdomain>.workers.dev`, no trailing slash. Must match `APIConfig.productionBaseURL`. |
+| `BETTER_AUTH_URL`       | variable | `https://api.fatigue.agroupforcoders.com`, no trailing slash. Must match `APIConfig.productionBaseURL`. |
 | `R2_BUCKET`             | variable | The private media bucket, `fatigue-media`.                                                  |
 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | secrets | S3 keys from an R2 token with Object Read & Write on that bucket alone. The deploy checks they can list it. |
 | `RESEND_API_KEY`        | secret   | Resend key with sending access to the verified domain.                                      |
@@ -97,11 +97,11 @@ Run the setup wizard from the repository root, signed in to `gh` as someone who 
 scripts/setup-production.sh
 ```
 
-It opens each dashboard in turn, says what to click, and saves what you paste straight into the `production` environment with `gh`. Nothing is written to disk, and secrets are typed hidden. In order: a Cloudflare API token, the account and its workers.dev URL (looked up with the token), the Neon production branch's two URLs (Anton's Neon project), a generated `BETTER_AUTH_SECRET`, the `fatigue-media` R2 bucket (Oceania location hint) and its keys, a Resend sending domain and key. Last, it offers to start the deploy.
+It opens each dashboard in turn, says what to click, and saves what you paste straight into the `production` environment with `gh`. Nothing is written to disk, and secrets are typed hidden. In order: a Cloudflare API token, the account (looked up with the token) and the API address, the Neon production branch's two URLs (Anton's Neon project), a generated `BETTER_AUTH_SECRET`, the `fatigue-media` R2 bucket (Oceania location hint) and its keys, a Resend sending domain and key. Last, it offers to start the deploy.
 
 Running it again is safe: for anything already saved, Enter keeps it.
 
-Then set `APIConfig.productionBaseURL` in `apps/ios/Fatigue/Auth/AuthAPI.swift` to the `BETTER_AUTH_URL` it printed. Debug builds keep using localhost.
+`APIConfig.productionBaseURL` in `apps/ios/Fatigue/Auth/AuthAPI.swift` already points at the same address. Debug builds keep using localhost.
 
 ### Migrations
 
@@ -117,7 +117,7 @@ DATABASE_URL='postgres://...neon.tech/neondb?sslmode=require' pnpm api:migrate
 
 ### Checking a deploy
 
-- `curl https://fatigue-api.<subdomain>.workers.dev/health` answers `{"ok":true}`.
+- `curl https://api.fatigue.agroupforcoders.com/health` answers `{"ok":true}`.
 - `pnpm exec wrangler secret list` shows `DATABASE_URL`, `BETTER_AUTH_SECRET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `RESEND_API_KEY`.
 - `pnpm exec wrangler tail` streams live requests; the dashboard's Logs tab keeps them (observability is on in `wrangler.jsonc`).
 - From a TestFlight build on a real phone: sign up with a new email, sign out, sign in again, then delete the account from the profile screen. Each step should succeed, and the row should be gone from `user` in the Neon production branch afterwards.
@@ -125,4 +125,4 @@ DATABASE_URL='postgres://...neon.tech/neondb?sslmode=require' pnpm api:migrate
 
 ### Changing the URL later
 
-A custom domain is a one-line `routes` entry in `wrangler.jsonc` plus updating the `BETTER_AUTH_URL` variable on GitHub and `APIConfig.productionBaseURL`. Ship the app update and the Worker change together, since release builds only know one URL.
+Moving to another address means changing `routes` in `wrangler.jsonc`, the wizard's `API_HOST`, the `BETTER_AUTH_URL` variable on GitHub and `APIConfig.productionBaseURL`. Ship the app update and the Worker change together, since release builds only know one URL.

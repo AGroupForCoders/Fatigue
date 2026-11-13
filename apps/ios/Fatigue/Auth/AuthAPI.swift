@@ -115,10 +115,9 @@ nonisolated enum APIConfig {
     /// The API running on this Mac with `pnpm api:dev`. The simulator reaches it as localhost.
     static let localBaseURL = URL(string: "http://localhost:8787")!
 
-    /// The Worker deployed by `.github/workflows/deploy-api.yml`. The `workers.dev` subdomain is the
-    /// Cloudflare account's; it appears in the deploy log and in the dashboard under Workers & Pages.
+    /// The Worker deployed by `.github/workflows/deploy-api.yml`, on the custom domain in `apps/api/wrangler.jsonc`.
     /// Must match `BETTER_AUTH_URL` on the Worker, or Better Auth rejects sign-in.
-    static let productionBaseURL = URL(string: "https://fatigue-api.CHANGE-ME.workers.dev")!
+    static let productionBaseURL = URL(string: "https://api.fatigue.agroupforcoders.com")!
 
     #if DEBUG
     static let baseURL = localBaseURL

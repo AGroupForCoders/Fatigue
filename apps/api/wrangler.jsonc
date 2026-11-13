@@ -5,8 +5,11 @@
   "compatibility_date": "2026-11-01",
   // postgres.js needs Node's net and crypto modules, which Workers provide behind this flag.
   "compatibility_flags": ["nodejs_compat"],
-  // Serve the Worker at https://fatigue-api.<account>.workers.dev until there is a custom domain.
-  "workers_dev": true,
+  // Serve the Worker on our own domain. Cloudflare makes the DNS record and certificate on deploy. It must match
+  // BETTER_AUTH_URL and the iOS app's APIConfig.productionBaseURL; release builds only know this one URL.
+  "routes": [{ "pattern": "api.fatigue.agroupforcoders.com", "custom_domain": true }],
+  // One public URL only, so nothing signs in through a second address Better Auth doesn't expect.
+  "workers_dev": false,
   // Keep request logs and errors in the Cloudflare dashboard. Workers Logs is included on the paid plan.
   "observability": { "enabled": true },
   // Readable stack traces in those logs.

@@ -208,7 +208,7 @@ finish() {
 
 REPO="AGroupForCoders/Fatigue"
 ENVIRONMENT="production"
-WORKER="fatigue-api"
+API_HOST="api.fatigue.agroupforcoders.com"   # matches routes in apps/api/wrangler.jsonc
 BUCKET_DEFAULT="fatigue-media"
 CF_API="https://api.cloudflare.com/client/v4"
 
@@ -306,7 +306,9 @@ pause
 stage "Cloudflare: an API token for deploying"
 open_url "https://dash.cloudflare.com/profile/api-tokens"
 step "Create Token → 'Edit Cloudflare Workers' → Use template."
-step "Account Resources: Include → your account. Zone Resources: All zones from that account."
+step "Account policy: Include → your account (leave its permissions as the template set them)."
+step "Zone policy: Include → All zones from an account → your account."
+step "Then make sure Developer Platform → Workers Routes → Edit is ticked (it serves $API_HOST)."
 step "Continue to summary → Create Token → copy it (it's shown once)."
 CLOUDFLARE_API_TOKEN=""
 secret_or_keep CLOUDFLARE_API_TOKEN "Paste the token:"
@@ -324,9 +326,8 @@ fi
 pause
 
 # ── 3 ──────────────────────────────────────────────────────────────────────
-stage "Cloudflare: account and Worker URL"
+stage "Cloudflare: account and API address"
 CLOUDFLARE_ACCOUNT_ID=""
-SUBDOMAIN=""
 if [[ -n "$CLOUDFLARE_API_TOKEN" ]]; then
   accounts=$(cf_get /accounts | jq -r '.result[]? | "\(.id)  \(.name)"')
   if [[ $(grep -c . <<<"$accounts") -eq 1 ]]; then
@@ -343,18 +344,10 @@ if [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
   ask CLOUDFLARE_ACCOUNT_ID "Paste the account ID:"
 fi
 env_secret CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
-if [[ -n "$CLOUDFLARE_API_TOKEN" ]]; then
-  SUBDOMAIN=$(cf_get "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain // empty')
-fi
-if [[ -z "$SUBDOMAIN" ]]; then
-  open_url "https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/workers-and-pages"
-  step "Find your workers.dev subdomain (Workers & Pages → right-hand column). Pick one if it asks."
-  ask SUBDOMAIN "The subdomain (the part before .workers.dev):"
-fi
-BETTER_AUTH_URL="https://$WORKER.$SUBDOMAIN.workers.dev"
-say "The API will live at $BETTER_AUTH_URL"
+BETTER_AUTH_URL="https://$API_HOST"
+say "The API will live at $BETTER_AUTH_URL. The first deploy makes its DNS record and certificate."
+note "If $API_HOST already has a DNS record, delete it in Cloudflare first, or the deploy can't claim it."
 env_var BETTER_AUTH_URL "$BETTER_AUTH_URL"
-note "Set APIConfig.productionBaseURL in the iOS app to this same URL."
 pause
 
 # ── 4 ──────────────────────────────────────────────────────────────────────
@@ -433,7 +426,7 @@ pause
 stage "Resend: a sending domain"
 say "Emails go from a subdomain, so Fatigue's mail stays apart from the main domain's."
 open_url "https://resend.com/domains"
-step "Add domain → e.g. mail.agroupforcoders.com. Region: the closest to you (Tokyo for NZ)."
+step "Add domain → e.g. mail.fatigue.agroupforcoders.com. Region: the closest to you (Tokyo for NZ)."
 step "Add the DNS records it shows. If the domain is on Cloudflare, use its Cloudflare auto-configure"
 step "button; otherwise add each one under Cloudflare → DNS → Records."
 step "Click verify and wait until the domain says Verified. It usually takes a few minutes."
