@@ -34,7 +34,11 @@ struct SyncTwoPhoneTests {
         return (database, sync)
     }
 
-    private func history(_ database: AppDatabase) -> [FinishedWorkout] { WorkoutStore(database: database).history }
+    /// Finished workouts straight from the database, newest first. Not through `WorkoutStore`, which fills an
+    /// empty database with sample workouts in debug builds.
+    private func history(_ database: AppDatabase) -> [FinishedWorkout] {
+        ((try? database.workouts()) ?? []).filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:)).sorted { $0.startedAt > $1.startedAt }
+    }
 
     private func edit(_ database: AppDatabase, workout id: UUID, title: String, at time: Int64) async throws {
         try await database.writer.write {
