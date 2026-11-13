@@ -48,16 +48,39 @@ struct SyncStatusLine: View {
     }
 }
 
-/// What the sign-out warning says: how much would be lost.
+/// What the sign-out warning says: what would be lost, most important first.
 struct SignOutWarning: Equatable {
-    let items: Int
-    let workouts: Int
+    let unsaved: UnsavedOnPhone
 
+    /// The first thing that would be lost.
     var title: String {
-        switch workouts {
-        case 0: items == 1 ? "1 change isn't backed up yet" : "\(items) changes aren't backed up yet"
-        case 1: "1 workout isn't backed up yet"
-        default: "\(workouts) workouts aren't backed up yet"
+        lines.first ?? "Some of this phone's data isn't backed up"
+    }
+
+    /// Everything that would be lost, one sentence each.
+    var lines: [String] {
+        var lines: [String] = []
+        let u = unsaved
+        if u.workouts > 0 {
+            lines.append(u.workouts == 1 ? "1 workout isn't backed up yet" : "\(u.workouts) workouts aren't backed up yet")
+        } else if u.items > 0 {
+            lines.append(u.items == 1 ? "1 change isn't backed up yet" : "\(u.items) changes aren't backed up yet")
         }
+        if u.running { lines.append("A workout is still running") }
+        if u.refused > 0 { lines.append(u.refused == 1 ? "1 change couldn't be backed up" : "\(u.refused) changes couldn't be backed up") }
+        if u.media > 0 { lines.append(u.media == 1 ? "1 photo or video is only on this phone" : "\(u.media) photos and videos are only on this phone") }
+        return lines
+    }
+
+    /// The rest after the title, for the dialog's message.
+    var message: String {
+        let rest = lines.dropFirst().map { $0 + "." }
+        return (rest + ["Signing out removes them from this phone for good. Everything else comes back when you sign in again."]).joined(separator: " ")
+    }
+
+    /// What the alert says when another account's data on this phone would be lost by taking it over.
+    var otherAccountMessage: String {
+        let all = lines.map { $0 + "." }.joined(separator: " ")
+        return "From the account signed in before: \(all) Remove them to back up and sync your own account here."
     }
 }

@@ -280,7 +280,7 @@ struct SyncEngineTests {
         let database = try phone()
         let sync = engine(database, server)
         let waiting = await sync.prepareSignOut()
-        #expect(waiting.items == 0)
+        #expect(waiting.isEmpty)
         #expect(server.stored.count > 0)
     }
 
@@ -291,7 +291,7 @@ struct SyncEngineTests {
         let workouts = WorkoutStore(database: database).history.count
         let waiting = await engine(database, server).prepareSignOut()
         #expect(waiting.workouts == workouts)
-        #expect(SignOutWarning(items: waiting.items, workouts: waiting.workouts).title == "\(workouts) workouts aren't backed up yet")
+        #expect(SignOutWarning(unsaved: waiting).title == "\(workouts) workouts aren't backed up yet")
     }
 
     @Test func wipingEmptiesThePhoneAndSigningInBringsItBack() async throws {
@@ -336,13 +336,101 @@ struct SyncEngineTests {
         let sync = engine(database, theirs, account: "jos")
         await sync.syncNow()
         #expect(sync.status == .otherAccount)
-        #expect(sync.otherAccountWorkouts > 0)
+        #expect(sync.otherAccountUnsaved.workouts > 0)
 
         sync.takeOver()
         await sync.syncNow()
         #expect(try database.syncOwner() == "jos")
         #expect(try database.syncItems().isEmpty)
         #expect(theirs.stored.isEmpty)
+    }
+
+    // What a wipe would lose besides changes waiting to go up.
+
+    @Test func signingOutWarnsAboutAChangeTheServerRefused() async throws {
+        let server = FakeSyncServer()
+        let database = try phone()
+        let refused = try #require(try database.pendingSyncItems().first { $0.item.kind == .workout }).item.key
+        server.statuses = [refused: .invalid]
+
+        let unsaved = await engine(database, server).prepareSignOut()
+
+        // Nothing is waiting, since a refused item isn't offered again until it changes. It's still only here.
+        #expect(unsaved.items == 0)
+        #expect(unsaved.refused == 1)
+        #expect(!unsaved.isEmpty)
+        #expect(SignOutWarning(unsaved: unsaved).title == "1 change couldn't be backed up")
+    }
+
+    @Test func signingOutWarnsAboutARunningWorkout() async throws {
+        let server = FakeSyncServer()
+        let database = try phone()
+        let workouts = WorkoutStore(database: database)
+        workouts.startEmpty()
+        workouts.saveActive()
+
+        let unsaved = await engine(database, server).prepareSignOut()
+
+        #expect(unsaved.running)
+        #expect(!unsaved.isEmpty)
+        #expect(SignOutWarning(unsaved: unsaved).title == "A workout is still running")
+    }
+
+    @Test func signingOutWarnsAboutPhotosAndVideos() async throws {
+        let server = FakeSyncServer()
+        let database = try phone()
+        let workout = try #require(WorkoutStore(database: database).history.first).id.uuidString
+        for second in 0..<2 {
+            try database.insert(StoredMedia(id: UUID().uuidString, workoutId: workout, kind: "photo", fileName: "a.heic",
+                                            createdAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(second))))
+        }
+
+        let unsaved = await engine(database, server).prepareSignOut()
+
+        #expect(unsaved.media == 2)
+        #expect(!unsaved.isEmpty)
+        let warning = SignOutWarning(unsaved: unsaved)
+        #expect(warning.title == "2 photos and videos are only on this phone")
+        #expect(warning.message.hasSuffix("Everything else comes back when you sign in again."))
+    }
+
+    @Test func theWarningListsEverythingThatWouldBeLost() {
+        let warning = SignOutWarning(unsaved: UnsavedOnPhone(items: 4, workouts: 3, refused: 1, running: true, media: 1))
+        #expect(warning.lines == [
+            "3 workouts aren't backed up yet", "A workout is still running", "1 change couldn't be backed up", "1 photo or video is only on this phone",
+        ])
+        #expect(warning.title == "3 workouts aren't backed up yet")
+        #expect(warning.message.hasPrefix("A workout is still running. 1 change couldn't be backed up. 1 photo or video is only on this phone."))
+    }
+
+    @Test func anotherAccountAsksBeforeRemovingAPhotoNothingElseWouldLose() async throws {
+        let database = try phone()
+        await engine(database, FakeSyncServer()).syncNow()
+        let workout = try #require(WorkoutStore(database: database).history.first).id.uuidString
+        try database.insert(StoredMedia(id: UUID().uuidString, workoutId: workout, kind: "video", fileName: "a.mov", createdAt: .now))
+
+        let sync = engine(database, FakeSyncServer(), account: "jos")
+        await sync.syncNow()
+
+        #expect(sync.status == .otherAccount)
+        #expect(sync.otherAccountUnsaved.media == 1)
+        #expect(try database.syncOwner() == "anton")
+        #expect(SignOutWarning(unsaved: sync.otherAccountUnsaved).otherAccountMessage.contains("1 photo or video is only on this phone."))
+    }
+
+    @Test func aWipedPhoneIsNotFilledWithSamplesAgain() async throws {
+        let database = try phone()
+        let sync = engine(database, FakeSyncServer())
+        await sync.syncNow()
+        sync.wipe()
+
+        #expect(try database.wasWiped())
+        // As the app does on its next launch.
+        let workouts = WorkoutStore(database: database)
+        #expect(workouts.history.isEmpty)
+        #expect(workouts.routines.isEmpty)
+        #expect(ExerciseCatalog.load(from: database).savedSetups.isEmpty)
+        #expect(try database.pendingSyncItems().isEmpty)
     }
 
     @Test func aWeightUnitPickedOnOnePhoneReachesTheOther() async throws {

@@ -155,7 +155,7 @@ struct SettingsScreen: View {
             }
             Button("Stay signed in", role: .cancel) {}
         } message: {
-            Text("Signing out removes everything from this phone. It comes back when you sign in again, apart from what isn't backed up.")
+            Text(unsent?.message ?? "")
         }
         .task {
             // The link in the verification email may have been opened on another device.
@@ -184,14 +184,16 @@ struct SettingsScreen: View {
     /// Backs up what's waiting, then signs out and empties the phone. Asks first if something couldn't go up.
     private func signOut() {
         signingOut = true
+        // The running workout is saved a moment after each change. Save it now so it's counted.
+        store.saveActive()
         Task {
-            let waiting = await sync.prepareSignOut()
+            let unsaved = await sync.prepareSignOut()
             signingOut = false
-            if waiting.items == 0 {
+            if unsaved.isEmpty {
                 sync.wipe()
                 await auth.signOut()
             } else {
-                unsent = SignOutWarning(items: waiting.items, workouts: waiting.workouts)
+                unsent = SignOutWarning(unsaved: unsaved)
             }
         }
     }

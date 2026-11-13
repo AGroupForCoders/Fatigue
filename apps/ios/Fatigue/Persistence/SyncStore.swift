@@ -7,6 +7,22 @@ nonisolated struct LocalSyncItem: Equatable, Sendable {
     var hash: String
 }
 
+/// What's on the phone and nowhere else, so a wipe would lose it.
+nonisolated struct UnsavedOnPhone: Equatable, Sendable {
+    /// Changes waiting to go up.
+    var items = 0
+    /// How many of those are workouts.
+    var workouts = 0
+    /// Items the server refused.
+    var refused = 0
+    /// Whether a workout is running. It syncs only once it's finished.
+    var running = false
+    /// Photos and videos on workouts, which aren't backed up yet.
+    var media = 0
+
+    var isEmpty: Bool { items == 0 && refused == 0 && !running && media == 0 }
+}
+
 /// What applying a pull did.
 nonisolated struct PullOutcome: Equatable, Sendable {
     /// Items written to the database.
@@ -169,14 +185,42 @@ nonisolated extension AppDatabase {
         return (waiting.count, waiting.filter { $0.item.kind == .workout }.count)
     }
 
+    /// Everything a wipe would lose for good, because the server doesn't have it. Signing out and another
+    /// account taking over both ask first when this isn't empty.
+    func unsavedOnPhone() throws -> UnsavedOnPhone {
+        let waiting = try waitingCounts()
+        return try writer.read { db in
+            UnsavedOnPhone(
+                items: waiting.items,
+                workouts: waiting.workouts,
+                // Refused items aren't waiting, since they aren't offered again until they change, but the
+                // server doesn't have them either.
+                refused: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sync_item WHERE failed_hash IS NOT NULL") ?? 0,
+                // The running workout never syncs. It goes up once it's finished.
+                running: try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM workout WHERE finished_at IS NULL AND deleted_at IS NULL)") ?? false,
+                // Photos and videos on workouts stay on this phone until media backup is built.
+                media: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM workout_media WHERE deleted_at IS NULL") ?? 0
+            )
+        }
+    }
+
     /// Empties the phone: every workout, prebuilt workout, exercise, brand, setting and photo row, and what
     /// sync knew. For signing out and for a different account on this phone. The schema stays.
+    ///
+    /// It leaves one mark behind, so the app knows this database was emptied on purpose and doesn't fill it
+    /// with samples again, which the next account to sign in would then back up as its own.
     func wipe() throws {
         try writer.write { db in
             try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
             let tables = try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%'")
             for table in tables { try db.execute(sql: "DELETE FROM \(table)") }
+            try db.execute(sql: "INSERT INTO sync_state (key, value) VALUES ('wiped', '1')")
         }
+    }
+
+    /// Whether this database was emptied by `wipe()`, rather than being new.
+    func wasWiped() throws -> Bool {
+        try writer.read { try Bool.fetchOne($0, sql: "SELECT EXISTS (SELECT 1 FROM sync_state WHERE key = 'wiped')") ?? false }
     }
 
     /// The tables under synced items. A commit that touches any of them may have something to push.

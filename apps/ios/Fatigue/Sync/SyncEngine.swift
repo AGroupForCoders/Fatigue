@@ -45,8 +45,8 @@ final class SyncEngine {
     private(set) var waiting: (items: Int, workouts: Int) = (0, 0)
     /// Items the server refused, for Settings.
     private(set) var failedCount = 0
-    /// When the phone's data belongs to another account: how many of its workouts aren't backed up.
-    private(set) var otherAccountWorkouts = 0
+    /// When the phone's data belongs to another account: what of theirs would be lost by taking over.
+    private(set) var otherAccountUnsaved = UnsavedOnPhone()
 
     /// The signed-in account, set by the app. Nil while signed out, when nothing syncs.
     var account: String? {
@@ -174,12 +174,12 @@ final class SyncEngine {
         guard let database, let account, let token = token() else { return }
 
         // The data on this phone belongs to whoever first synced it. The first run adopts the signed-in account.
-        // Another account gets the phone once nothing of the first one's is waiting; otherwise it asks first.
+        // Another account gets the phone once nothing of the first one's would be lost; otherwise it asks first.
         do {
             if let owner = try database.syncOwner(), owner != account {
-                let counts = try database.waitingCounts()
-                guard counts.items == 0 else {
-                    otherAccountWorkouts = counts.workouts
+                let unsaved = try database.unsavedOnPhone()
+                guard unsaved.isEmpty else {
+                    otherAccountUnsaved = unsaved
                     status = .otherAccount
                     return
                 }
@@ -216,12 +216,17 @@ final class SyncEngine {
 
     // MARK: Signing out and wiping
 
-    /// Pushes what's waiting, then says what still is, for the sign-out warning. Nothing waiting means it's
-    /// safe to wipe without asking.
-    func prepareSignOut() async -> (items: Int, workouts: Int) {
+    /// Pushes what's waiting, then says what a wipe would still lose, for the sign-out warning. Nothing
+    /// means it's safe to wipe without asking.
+    ///
+    /// On top of what's waiting, that's items the server refused, a running workout and photos and videos,
+    /// none of which the server has.
+    func prepareSignOut() async -> UnsavedOnPhone {
         await pushNow()
         refreshCounts()
-        return waiting
+        guard let database else { return UnsavedOnPhone() }
+        // If the count can't be read, assume the worst rather than wipe without asking.
+        return (try? database.unsavedOnPhone()) ?? UnsavedOnPhone(items: max(waiting.items, 1))
     }
 
     /// Empties the phone's data and forgets what sync knew. For signing out, deleting the account, and
@@ -234,7 +239,7 @@ final class SyncEngine {
         updateNeeded = false
         waiting = (0, 0)
         failedCount = 0
-        otherAccountWorkouts = 0
+        otherAccountUnsaved = UnsavedOnPhone()
         if status == .otherAccount { status = .idle }
         onWiped()
     }

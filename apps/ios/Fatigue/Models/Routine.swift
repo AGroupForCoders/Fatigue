@@ -145,7 +145,8 @@ final class WorkoutStore {
         history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:))
         active = workouts.first { $0.finishedAt == nil }.map { WorkoutSession(stored: $0, now: now) }
         #if DEBUG
-        if routines.isEmpty, history.isEmpty, active == nil {
+        // Not after a sign-out emptied the phone: the next account to sign in would back the samples up as its own.
+        if routines.isEmpty, history.isEmpty, active == nil, !((try? database.wasWiped()) ?? false) {
             routines = Routine.samples
             // With six earlier weeks, so the app opens with history to graph.
             history = (FinishedWorkout.samples() + FinishedWorkout.earlierSamples()).sorted { $0.startedAt > $1.startedAt }

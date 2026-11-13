@@ -98,10 +98,7 @@ struct MainScreen: View {
                 Task { await auth.signOut() }
             }
         } message: {
-            let count = sync.otherAccountWorkouts
-            Text(count == 0
-                 ? "Some changes from the account signed in before aren't backed up. Remove them to back up and sync your own account here."
-                 : "\(count) workout\(count == 1 ? "" : "s") from the account signed in before \(count == 1 ? "isn't" : "aren't") backed up. Remove them to back up and sync your own account here.")
+            Text(SignOutWarning(unsaved: sync.otherAccountUnsaved).otherAccountMessage)
         }
     }
 
