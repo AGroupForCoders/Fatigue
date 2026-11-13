@@ -102,9 +102,9 @@ struct WorkoutScreen: View {
         .task(id: session.rest?.endsAt) {
             guard let endsAt = session.rest?.endsAt else { return }
             try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
-            if !Task.isCancelled { restFinished = session.finishRestIfDue() }
+            if !Task.isCancelled, session.finishRestIfDue() { restsFinished += 1 }
         }
-        .sensoryFeedback(.impact(weight: .medium), trigger: restFinished) { _, finished in finished }
+        .sensoryFeedback(.impact(weight: .medium), trigger: restsFinished)
         .confirmationDialog(
             "\(session.untickedCount) set\(session.untickedCount == 1 ? " isn't" : "s aren't") ticked",
             isPresented: $confirmingUnticked,
@@ -149,7 +149,8 @@ struct WorkoutScreen: View {
         }
     }
 
-    @State private var restFinished = false
+    /// Counts rests that ended on this screen, so each one gets its haptic.
+    @State private var restsFinished = 0
 
     /// The panel pinned to the bottom: the RPE scale while picking an RPE, otherwise the rest timer.
     /// The container rises from the bottom edge when the first of them appears. Switching between

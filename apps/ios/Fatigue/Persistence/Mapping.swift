@@ -142,8 +142,8 @@ extension WorkoutSession {
         )
     }
 
-    convenience init(stored: StoredWorkout) {
-        self.init(title: stored.title, exercises: stored.exercises.map(WorkoutExercise.init(stored:)), startedAt: stored.startedAt)
+    convenience init(stored: StoredWorkout, now: @escaping () -> Date = Date.init) {
+        self.init(title: stored.title, exercises: stored.exercises.map(WorkoutExercise.init(stored:)), startedAt: stored.startedAt, now: now)
         id = uuid(stored.id)
         routineID = stored.routineId.map(uuid)
     }
