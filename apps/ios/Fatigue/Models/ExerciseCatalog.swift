@@ -117,6 +117,26 @@ final class ExerciseCatalog {
         persist()
     }
 
+    /// Moves the settings saved for an exercise on one brand onto another, as part of moving its history
+    /// (see `WorkoutStore.moveBrand`). Settings both brands have keep the destination's; the rest come along.
+    /// With a database the move is done there, and the library is read back.
+    func moveBrand(for name: String, from: Brand?, to: Brand?) {
+        guard from != to else { return }
+        if let database {
+            try? database.moveBrand(exercise: name, from: from, to: to)
+            let reloaded = ExerciseCatalog(stored: (try? database.library()) ?? StoredLibrary())
+            exercises = reloaded.exercises
+            setups = reloaded.setups
+            return
+        }
+        guard let source = setups.removeValue(forKey: Self.key(name, from)) else { return }
+        var merged = setups[Self.key(name, to)] ?? BrandSetup()
+        for setting in source.settings where !merged.settings.contains(where: { $0.name.caseInsensitiveCompare(setting.name) == .orderedSame }) {
+            merged.settings.append(setting)
+        }
+        setups[Self.key(name, to)] = merged
+    }
+
     /// Changes a yes/no setting's factor in what's saved for an exercise and brand, so the next workout there
     /// scores with it. Nil makes the setting stop counting.
     func setFactor(_ factor: Double?, ofSetting setting: String, for name: String, brand: Brand?) {

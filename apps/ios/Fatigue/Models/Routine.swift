@@ -349,6 +349,35 @@ final class WorkoutStore {
         }
     }
 
+    /// Moves everything you've logged on one brand of an exercise onto another, then reloads history,
+    /// prebuilt workouts and the running workout so records and the exercise page show it.
+    /// Without a database only the brand changes in memory. The catalog does its own part for settings.
+    func moveBrand(exercise name: String, from: Brand?, to: Brand?) {
+        guard from != to else { return }
+        guard let database else {
+            for w in history.indices {
+                for e in history[w].exercises.indices where history[w].exercises[e].name == name && history[w].exercises[e].brand == from {
+                    history[w].exercises[e].brand = to
+                }
+            }
+            for r in routines.indices {
+                for e in routines[r].exercises.indices where routines[r].exercises[e].name == name && routines[r].exercises[e].brand == from {
+                    routines[r].exercises[e].brand = to
+                }
+            }
+            return
+        }
+        saveActive()
+        persist { try $0.moveBrand(exercise: name, from: from, to: to) }
+        let workouts = (try? database.workouts()) ?? []
+        history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:))
+        routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
+        if let active, let stored = workouts.first(where: { $0.id == active.id.uuidString }) {
+            active.exercises = stored.exercises.map(WorkoutExercise.init(stored:))
+            for index in active.exercises.indices { active.fillPrevious(for: index) }
+        }
+    }
+
     func deleteFromHistory(_ workoutID: UUID) {
         history.removeAll { $0.id == workoutID }
         persist { try $0.deleteWorkout(id: workoutID.uuidString) }
