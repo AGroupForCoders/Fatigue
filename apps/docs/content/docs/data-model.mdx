@@ -17,7 +17,7 @@ This page is a draft. Nothing is built yet.
 | `updated_at` | integer | Milliseconds since 1970. Set when the item or anything under it changes. When the same item changed on two devices, the later one wins. |
 | `deleted_at` | integer, nullable | Set instead of deleting the row, so the deletion syncs like any other change. |
 
-The rows under a top row have none of these for sync. They travel with it. On the server, every top row also has a `user_id` and a `version`. The phone does not store either.
+The rows under a top row have none of these for sync. They travel with it. On the server, every row also has a `user_id`, and every top row a `version`. The phone does not store either.
 
 Some rows must be unique, and a random ID can't guarantee that. Two phones offline would each make their own row, and sync would keep both. These rows build their ID from what makes them unique instead, as a UUIDv5 of the parts listed. Two phones then produce the same ID, and sync treats them as one item.
 
@@ -50,7 +50,7 @@ exercise ──< exercise_brand ──< setting
 | `equipment` | text | |
 | `is_builtin` | integer | 1 for the built-in list |
 
-Built-in exercises ship with the app and have fixed IDs, built from their names like any other exercise, so they are the same on every phone and never sync. The server is seeded with the same rows and IDs, so synced rows that point at a built-in exercise still pass its foreign keys. Custom exercises are ordinary rows.
+Built-in exercises ship with the app and have fixed IDs, built from their names like any other exercise, so they are the same on every phone and never sync. The server keeps no rows for them. A brand there points at a built-in exercise by its ID alone. Custom exercises are ordinary rows.
 
 Deleting a custom exercise sets `deleted_at` on it, its `exercise_brand` rows and their settings, and takes it out of every routine, in one transaction. Its `workout_exercise` rows are left alone, so finished workouts still show it with their sets, and the exercise page and stats keep its history. Only rows without `deleted_at` show in the picker and the library. Because `name` is unique, creating an exercise with a deleted one's name clears `deleted_at` on that row instead of adding another, which brings its history back with it.
 
