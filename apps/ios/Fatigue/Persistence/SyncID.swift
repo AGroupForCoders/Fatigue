@@ -21,6 +21,12 @@ nonisolated enum SyncID {
         uuid5("exercise_brand:" + exerciseId.lowercased()).uuidString
     }
 
+    /// The ID of a planned set, from the routine exercise it's in and its place there. Planned sets have no
+    /// ID in the app, and this keeps a prebuilt workout that didn't change the same from one save to the next.
+    static func routineSet(exerciseId: String, index: Int) -> String {
+        uuid5("routine_set:\(exerciseId.lowercased()):\(index)").uuidString
+    }
+
     static func uuid5(_ name: String, in namespace: UUID = namespace) -> UUID {
         var hasher = Insecure.SHA1()
         withUnsafeBytes(of: namespace.uuid) { hasher.update(bufferPointer: $0) }

@@ -237,6 +237,34 @@ nonisolated final class AppDatabase: Sendable {
                 }
             }
         }
+        // What sync keeps on the phone (see SyncStore), and the one setting that syncs. None of the first two
+        // ever leave the phone.
+        migrator.registerMigration("v7-sync") { db in
+            // The fingerprint of each item as the phone and the server last agreed on it, and the time it had
+            // then. An item whose fingerprint differs now has changed and needs pushing. `failed_hash` is the
+            // fingerprint the server refused, with why, so the same thing isn't pushed again and again.
+            try db.create(table: "sync_item") { t in
+                t.column("kind", .text).notNull()
+                t.column("id", .text).notNull()
+                t.column("hash", .text)
+                t.column("updated_at", .integer)
+                t.column("failed_hash", .text)
+                t.column("error", .text)
+                t.primaryKey(["kind", "id"])
+            }
+            // The cursor from the last pull, and later the account the database belongs to.
+            try db.create(table: "sync_state") { t in
+                t.primaryKey("key", .text)
+                t.column("value", .text).notNull()
+            }
+            // One row per account, with an ID built from the account's.
+            try db.create(table: "user_setting") { t in
+                t.primaryKey("id", .text)
+                t.column("weight_unit", .text).notNull()
+                t.column("updated_at", .integer).notNull().defaults(to: 0)
+                t.column("deleted_at", .integer)
+            }
+        }
         return migrator
     }
 
