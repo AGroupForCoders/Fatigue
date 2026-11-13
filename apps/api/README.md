@@ -48,6 +48,16 @@ Every route here needs `Authorization: Bearer <token>`. The design is on the Soc
 - `POST /api/friends/:userId/accept` accepts their request.
 - `DELETE /api/friends/:userId` declines, takes back a request, or unfriends. The row is deleted, so either person can ask again.
 
+### Shared workouts
+
+- `PUT /api/posts/:id` with `{ workoutId, caption?, visibility?, startedAt, snapshotVersion, snapshot }` shares a workout. The phone makes the ID, so sending the same share twice updates one post. Sharing a workout that already has a live post replaces its snapshot and keeps the first post's ID, which comes back in the response. `visibility` defaults to the profile's. A deleted post's ID is refused with 410.
+- `GET /api/posts/feed?cursor=` is your posts and your accepted friends' public and friends only posts, newest workout first, 20 a page. Pass the response's `nextCursor` for the next page; it's null on the last.
+- `GET /api/posts/by/:userId?cursor=` is someone's posts that you can see: all of yours, their public ones, and their friends only ones if you're friends.
+- `GET /api/posts/:id` is one post, or 404 if you can't see it.
+- `DELETE /api/posts/:id` deletes your post.
+
+The snapshot is stored as it comes, up to 256 KB. The server never reads inside it; `workoutId` is only sent back to the sharer.
+
 Service tests run against PGlite, a Postgres that runs in memory, with every migration applied (`src/db/test-db.ts`). They need no database running.
 
 ## Deploying
