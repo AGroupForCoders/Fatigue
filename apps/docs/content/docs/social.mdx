@@ -177,6 +177,16 @@ Your feed is your own posts, posts you can see from your friends and posts you'r
 
 Public posts from people who aren't your friends show on their profile, not in your feed.
 
+## Storing photos and videos
+
+Files go in a private Cloudflare R2 bucket, through R2's S3-compatible API rather than a Workers binding, so the API can move host without rewriting this part. The tech stack page explains why.
+
+- **Uploads go straight to R2.** The phone asks the API for an upload link for each file, then sends the file to that link. The file never passes through the Worker, which keeps big videos off it. Links last 15 minutes and only accept the size and type the phone said.
+- **Downloads use short-lived links too.** The feed hands back a signed link for each file, valid for an hour, and only to people allowed to see the post. Nothing in the bucket is public.
+- **Keys say who owns the file:** `users/<user id>/posts/<post id>/<media id>` and `users/<user id>/profile/<photo id>`. Deleting an account then removes everything under `users/<user id>/`.
+- **The phone shrinks files first,** the way the profile photo already is: photos to 2048 pixels on the long side as JPEG, videos to 1080p.
+- **A post only shows media once it has uploaded.** If an upload never finishes, the row stays hidden and a daily clean-up removes it.
+
 ## API modules
 
 Following [API structure](/docs/api-structure), these are new modules:
@@ -197,7 +207,7 @@ Very little:
 
 - `post.workout_id` and `post_media.id` reuse the IDs the phone already makes.
 - Deleting an account has to clear social rows and stored media as well as synced rows.
-- Both need somewhere to store files. The tech stack keeps the API off Cloudflare's own storage products, so the provider still needs picking. Sync will want the same one if it backs up workout media.
+- Files go in Cloudflare R2, which sync can share if it backs up workout media. See below.
 
 ## Building it
 
@@ -212,5 +222,4 @@ Comparing yourself with a friend is tracked in [#91](https://github.com/AGroupFo
 ## Still open
 
 - **The gym on public posts.** A public post with the gym's map, shared three times a week, shows strangers where you are most evenings. The proposal is that public posts show the gym's name without the map, and friends see the map.
-- **Where files are stored.** See above.
 - **Moderation.** Who reads reports, and how fast. For a small app that is probably us, with an email for every new report.
