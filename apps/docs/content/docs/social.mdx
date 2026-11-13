@@ -15,7 +15,8 @@ You finish a workout and share it. Your friends see it in a feed, like it and co
 - **Only finished workouts are shared.** Sharing happens on the finish summary, or later from a workout in history. There is no live view of a workout in progress.
 - **A post is a snapshot.** Sharing copies the workout into the post as it was at that moment: title, description, exercises with their brands, settings, notes and sets, records hit, duration and gym. Friends never read your synced tables. Editing the workout afterwards does not change the post unless you share it again, which replaces the snapshot.
 - **Posts are public by default.** Friends only and private are opt-ins. Your profile picks the default and each post can change it.
-- **Photos and videos are uploaded when you share.** You pick which of the workout's media go on the post, and only those leave the phone.
+- **Photos and videos come later.** The first version of sharing posts the workout without media. When media lands, you pick which of the workout's photos and videos go on the post when you share, and only those leave the phone.
+- **Public posts show the gym and its map.** The same as friends see. Anyone who'd rather not can make the post friends only or private.
 - **Social stays out of sync.** None of these tables are in SQLite or the sync outbox. The phone reads the feed online, and likes and comments show on screen straight away while the request is sent. Sharing while offline waits until there is a connection.
 - **Report and block ship with comments.** App Store guideline 1.2 asks any app with content from other people to let you report it and block whoever posted it.
 
@@ -179,7 +180,7 @@ Public posts from people who aren't your friends show on their profile, not in y
 
 ## Storing photos and videos
 
-Files go in a private Cloudflare R2 bucket, through R2's S3-compatible API rather than a Workers binding, so the API can move host without rewriting this part. The tech stack page explains why.
+This comes after sharing works without media. Files go in a private Cloudflare R2 bucket, through R2's S3-compatible API rather than a Workers binding, so the API can move host without rewriting this part. The tech stack page explains why.
 
 - **Uploads go straight to R2.** The phone asks the API for an upload link for each file, then sends the file to that link. The file never passes through the Worker, which keeps big videos off it. Links last 15 minutes and only accept the size and type the phone said.
 - **Downloads use short-lived links too.** The feed hands back a signed link for each file, valid for an hour, and only to people allowed to see the post. Nothing in the bucket is public.
@@ -212,14 +213,14 @@ Very little:
 ## Building it
 
 1. Profiles and friends: handles, search, requests and the friends list, on the Profile tab.
-2. Sharing and the feed: sharing from the finish summary and history, media upload, a feed tab.
+2. Sharing and the feed: sharing from the finish summary and history, and a feed tab. No media yet.
 3. Likes and comments, with report and block in the same change.
 4. Tagging who you trained with.
 5. Notifications, in the app first and then push.
+6. Photos and videos on posts, and profile photos, through R2.
 
 Comparing yourself with a friend is tracked in [#91](https://github.com/AGroupForCoders/Fatigue/issues/91).
 
 ## Still open
 
-- **The gym on public posts.** A public post with the gym's map, shared three times a week, shows strangers where you are most evenings. The proposal is that public posts show the gym's name without the map, and friends see the map.
 - **Moderation.** Who reads reports, and how fast. For a small app that is probably us, with an email for every new report.
