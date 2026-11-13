@@ -19,7 +19,6 @@ apps/api/src/
 │   ├── auth/
 │   ├── sync/
 │   ├── exercises/
-│   ├── import/
 │   └── account/
 │       ├── account.routes.ts
 │       ├── account.service.ts
@@ -53,14 +52,13 @@ There is no separate repository layer for database access. Services call Drizzle
 
 Most of what the app does never reaches a dedicated endpoint. Workouts, sets, routines and custom exercises are written to SQLite on the phone and reach the server through the sync module, which has one endpoint to push changes and one to pull them.
 
-That leaves five modules:
+That leaves four modules:
 
 | Module | What it does |
 | --- | --- |
 | `auth` | Sign-up, sign-in, sessions, password reset and email verification, through Better Auth. The pages the email links land on live here too. |
-| `sync` | Accepts changed rows from a device and returns rows changed since its last sync. |
+| `sync` | Accepts changed items from a device and returns items changed since its last sync. The [sync](/docs/sync) page has the rules. |
 | `exercises` | Serves the built-in exercise and brand lists. |
-| `import` | Takes a Hevy CSV export and turns it into workouts. |
 | `account` | Deletes an account and its data. |
 
 The website will need read endpoints for history later. Those would be new modules, added when the website starts.

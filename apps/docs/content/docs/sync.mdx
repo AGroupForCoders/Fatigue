@@ -1,0 +1,163 @@
+---
+title: Sync
+description: How data moves between the phone and the server.
+---
+
+Sync copies what you log from SQLite on the phone to Postgres on the server, and from there to your other devices. This page is the plan we agreed on. None of it is built yet, and [issue 39](https://github.com/AGroupForCoders/Fatigue/issues/39) tracks the work.
+
+## What syncs
+
+Sync moves whole items. An item is one top row and everything under it, sent and stored together.
+
+| Item | Top table | Travels with it |
+| --- | --- | --- |
+| Exercise | `exercise` | Its muscles. Custom exercises only |
+| Brand | `exercise_brand` | Its settings, with their next-time values |
+| Routine | `routine` | Its exercises, setting values, sets and overrides |
+| Workout | `workout` | Its exercises, notes, setting values, sets and overrides |
+| User setting | `user_setting` | Nothing |
+
+These stay on the phone:
+
+- **The running workout.** A workout syncs once it is finished. Autosave writes the running workout after every change, and none of that needs the network. It also means two phones can never disagree about which workout is running. The cost is that an unfinished workout has no backup and can't be continued on another phone.
+- **Photos and videos.** See [media](#media-comes-later).
+- **Records and scores.** Each phone works them out from the sets.
+- **Built-in exercises.** They ship with the app under fixed IDs, and the server is seeded with the same rows.
+- **The profile photo and view choices** such as the theme.
+
+## Why whole items
+
+The app already saves this way. Saving a workout replaces the workout and every row under it in one transaction, and a routine is saved the same way. Syncing the same unit means a pull can reuse the save the app already has.
+
+It also gives the result people expect. If you fix the same workout on two phones while both are offline, you get the version from the later edit. Merging row by row would produce a mix of the two that neither phone ever showed.
+
+The cost is that two edits to different parts of one item can't both survive. The [data model](/docs/data-model#still-open) page records the case we know about, a brand's settings changed on two phones.
+
+## On the phone
+
+- Every top row has an `id`, an `updated_at` and a `deleted_at`. The [data model](/docs/data-model#rules-every-table-follows) page has the detail.
+- `sync_outbox` lists the items waiting to be pushed. Each entry is the kind, the ID and whether the item was deleted.
+- A save adds an item to the outbox only when its content changed. The app compares a hash of the item with the hash from its last save. Saving all routines, which the app does when one changes, then queues only the one that changed.
+- A pull writes each item through the same save the app uses, without adding it to the outbox.
+- `sync_state` holds the cursor from the last pull and the ID of the account the database belongs to.
+
+## On the server
+
+Postgres holds the same tables as the phone. Every top row also has a `user_id` and a `version`.
+
+`POST /api/sync/push` takes up to 100 items. For each one, in a single transaction:
+
+1. If the server's copy has a later `updated_at`, the item is skipped. The phone gets the server's copy on its next pull.
+2. Otherwise the server replaces the top row and the rows under it, the way the phone's save does.
+3. The item gets the next `version` from a counter kept per account.
+
+The counter is a row the push locks and increments. A database sequence or a timestamp would be simpler, but two phones pushing at once could then commit out of order. A third pull in between would move its cursor past a row that had not landed yet and never see it. Locking the counter makes one account's pushes take turns.
+
+An `updated_at` in the future is pulled back to the server's time, so a phone with a wrong clock can't win every conflict from then on.
+
+`GET /api/sync/pull?cursor=` returns the account's items with a `version` above the cursor, in pages, with the cursor to use next time.
+
+Items go up in dependency order, exercises first, then brands, then routines and workouts, so every row a workout points at is already there. A pull can still deliver a workout before the brand it uses, when that brand was edited later. The phone downloads every page first, then writes them in one transaction that checks foreign keys at the end, and saves the new cursor in the same transaction.
+
+IDs are lowercase on the wire and on the server.
+
+## When it syncs
+
+A sync is a push of what is waiting, then a pull of what is new. One runs at a time. A request that arrives during a sync runs one more afterwards.
+
+A sync starts:
+
+- after sign-in, when the first pull brings everything down
+- on launch and each time the app comes to the foreground
+- about two seconds after a change is queued, so several edits go up as one push
+- when the connection comes back
+- when the app goes to the background, in the short time iOS allows, so a workout finished just before the phone is pocketed still goes up
+
+Nothing syncs while the app is closed. A second phone sees new workouts the next time it is opened.
+
+## When it fails
+
+An item leaves the outbox only when the server confirms it. Pushing the same item twice changes nothing, so every failure can be retried.
+
+| What went wrong | What the app does |
+| --- | --- |
+| No connection | Waits. The connection coming back starts a sync |
+| Server error or timeout | Tries again after 2 seconds, 8 seconds, 30 seconds and 2 minutes, then every 5 minutes while the app is open |
+| Session expired | Stops and asks you to sign in again. The data and the outbox stay on the phone |
+| The build is too old for an item | Keeps the item in the outbox and shows "Update the app to keep syncing" |
+| The server rejects one item | Marks that item failed and carries on with the rest, so one bad workout can't block the ones behind it |
+| The app is killed during a pull | Nothing was written, so the next sync pulls again from the old cursor |
+
+## Conflicts
+
+The later `updated_at` wins, for the whole item.
+
+- A pull that brings an item with an unsent edit on this phone keeps whichever is later. If the phone's edit wins it stays in the outbox and goes up on the next push.
+- A delete is a change like any other. Deleting a workout on one phone and then editing it on another brings it back, because the edit is later.
+- Deleting a workout or a routine removes the rows under it and keeps the top row with `deleted_at` set. The server keeps that row for good, so a phone that was off for a year still learns about the deletion.
+- A deleted exercise or brand keeps the rows under it, because finished workouts still show them.
+- Merging two brands edits every workout that used the one merged away, so each of those workouts is pushed again.
+
+## Old builds
+
+A build that doesn't know a newer column would pull an item, lose that column when saving it, and push the item back without it.
+
+Every push says which schema the build has, and the server remembers the schema each item was last written with. The server refuses an item from a build older than the one that last wrote it. The item waits in the outbox and goes up after the update.
+
+A phone migration that adds a synced column needs a Drizzle migration and an API deploy first. That is the price of real tables on the server, and we accepted it so the website can read history with plain SQL.
+
+## Signing out
+
+Signing out wipes the database on the phone. Signing in again pulls everything back down.
+
+1. The app pushes what is in the outbox.
+2. If the outbox is then empty, it wipes and signs out.
+3. If something is still waiting, because the phone is offline or the server is down, it asks first: "3 workouts aren't backed up yet. Sign out anyway and lose them?"
+
+An expired session is not a sign-out and wipes nothing. If a different account then signs in on that phone, the app shows the same warning when anything is waiting, and wipes before the new account's first pull. Without this, one person's workouts would be pushed to another person's account.
+
+Deleting the account wipes without asking. On the server every synced table has a `user_id` that cascades from the user row, so deleting the user removes everything.
+
+## Showing it
+
+Settings has one line that says where sync is, such as "Backed up just now" or "3 workouts waiting to back up", and says so when an item failed. Nothing shows on the main screens.
+
+## Tests
+
+Sync bugs lose data without any error, so it gets three layers of tests.
+
+- **API.** The push and pull rules against a real Postgres. The later edit wins, the cursor never skips an item, and one account can't read or write another's rows.
+- **iOS.** The outbox and the pull against a fake server. Retries, the failed item, and a pull cut short.
+- **Both together.** Two in-memory phone databases and one server in a single test, running scripted cases such as offline edits on both phones, a delete on one and an edit on the other, and a sign-out with items waiting.
+
+## What has to change first
+
+- Exercises get an ID built from their name, and the no-brand row from its exercise. A migration gives the rows already on a phone their new IDs.
+- Deleting a workout or a routine keeps the top row with `deleted_at`. Today both are removed outright.
+- Items refer to exercises, brands and settings by ID. The save code finds them by name today.
+- The weight unit moves from `UserDefaults` into `user_setting`.
+- A migration queues everything already on the phone, so the first push sends it.
+
+## Media comes later
+
+Photos and videos stay on the phone until this is built. It comes after sync ships.
+
+- Files go to Cloudflare R2 through its S3 interface, not the Workers binding. Any S3 storage could then take its place, which keeps the API portable as the [tech stack](/docs/tech-stack#hosting-on-workers-kept-portable) page asks.
+- The phone asks the API for a signed URL that lasts a few minutes and uploads straight to storage. Files never pass through the Worker. Downloads work the same way, and the bucket is private.
+- Videos are shrunk to 720p before upload.
+- A workout holds at most three photos or videos. The app enforces this already, before any of them leave the phone.
+- A file has a hard size limit: 10 MB for a photo and 50 MB for a video, after shrinking. The phone tells the API the file's size when it asks for the signed URL. The API refuses to sign above the limit and signs the URL for that exact size, so storage rejects a bigger upload. Whether R2 enforces a signed size is still to check when this is built.
+- The `workout_media` row syncs only once its file is uploaded, so another phone never gets a row it can't show.
+
+Photos would then leave the phone, so the [privacy policy](/docs/privacy) and the App Store answers change with that release.
+
+## What we considered
+
+| Option | Why not |
+| --- | --- |
+| Syncing row by row | Finer merges and smaller pushes. It needs sync columns on every table, a save that works out which rows changed, and parents sent before children on both sides |
+| Whole items stored as JSON on the server | No server migration when the phone's schema changes. The website would have no tables to query until we built them from the JSON |
+| A sync service | Less code of ours. A monthly cost, and it replicates rows, so it needs the row by row work anyway |
+| CloudKit | No server to run. Apple only, so no Android app or website |
+| Uploading the SQLite file | A backup, but two phones would overwrite each other |
+| CRDTs or a log of operations | Merges field by field. Far more than one person editing their own data needs |

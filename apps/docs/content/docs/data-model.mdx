@@ -9,31 +9,31 @@ This page is a draft. Nothing is built yet.
 
 ## Rules every table follows
 
-Every table that holds your data has the same three columns, so sync can treat all of them the same way.
+[Sync](/docs/sync) moves whole items, not single rows. An item is a top row and everything under it. The top tables are `exercise`, `exercise_brand`, `routine`, `workout` and `user_setting`, and each has the same three columns.
 
 | Column | Type | What it is |
 | --- | --- | --- |
-| `id` | text | Made on the phone, so rows never need the server to get an ID. Usually a random UUIDv7. See below for the rows that build it from their contents. |
-| `updated_at` | integer | Milliseconds since 1970. Set on every change. When the same row changed on two devices, the later one wins. |
+| `id` | text | Made on the phone, so rows never need the server to get an ID. Usually a random UUID. See below for the rows that build it from their contents. |
+| `updated_at` | integer | Milliseconds since 1970. Set when the item or anything under it changes. When the same item changed on two devices, the later one wins. |
 | `deleted_at` | integer, nullable | Set instead of deleting the row, so the deletion syncs like any other change. |
 
-On the server, every row also has a `user_id` and a sync cursor. The phone does not store either.
+The rows under a top row have none of these for sync. They travel with it. On the server, every top row also has a `user_id` and a `version`. The phone does not store either.
 
-Some rows must be unique, and a random ID can't guarantee that. Two phones offline would each make their own row, and sync would keep both. These rows build their ID from what makes them unique instead, as a UUIDv5 of the parts listed. Two phones then produce the same ID, and sync merges them like any other edit to one row.
+Some rows must be unique, and a random ID can't guarantee that. Two phones offline would each make their own row, and sync would keep both. These rows build their ID from what makes them unique instead, as a UUIDv5 of the parts listed. Two phones then produce the same ID, and sync treats them as one item.
 
 | Table | ID built from |
 | --- | --- |
-| `user_setting` | The account ID |
+| `exercise` | Its name in lower case, when it is created. Renaming keeps the ID. If the ID is taken, because another exercise was renamed away from that name, the new one gets a random ID |
 | `exercise_brand`, no-brand row only | The exercise ID |
-| `workout_exercise_setting` | The workout exercise ID and the setting ID |
-| `workout_set_override` | The set ID and the setting ID |
-| `routine_exercise_setting` | The routine exercise ID and the setting ID |
-| `routine_set_override` | The routine set ID and the setting ID |
+| `user_setting` | The account ID |
+| `workout`, imported only | Its `import_key` |
+
+Setting values and overrides have no ID of their own. The row they belong to and the setting pick them out.
 
 - Weight is always stored in kilograms. A setting picks whether you see and type kg or lb.
 - Durations are stored in whole seconds.
-- Order within a list is a `position` number. When you drag an exercise between two others, it gets the number halfway between theirs, so a reorder changes one row and not the whole list. After many drags between the same two rows the gap gets too small to halve, so when that happens the app renumbers that one list.
-- Deleting a row also sets `deleted_at` on every row under it in the same transaction. Deleting a workout marks its exercises, setting values, sets and overrides deleted too, so any table can be read without checking its parents.
+- Order within a list is a `position` number, counted from the top. Saving an item writes the positions again.
+- Deleting a workout or a routine sets `deleted_at` on its top row and removes the rows under it. A deleted exercise or brand keeps its rows, because finished workouts still show them.
 
 ## Exercises and brands
 
@@ -50,9 +50,9 @@ exercise ──< exercise_brand ──< setting
 | `equipment` | text | |
 | `is_builtin` | integer | 1 for the built-in list |
 
-Built-in exercises ship with the app and have fixed IDs, so they are the same on every phone and never sync. The server is seeded with the same rows and IDs, so synced rows that point at a built-in exercise still pass its foreign keys. Custom exercises are ordinary rows.
+Built-in exercises ship with the app and have fixed IDs, built from their names like any other exercise, so they are the same on every phone and never sync. The server is seeded with the same rows and IDs, so synced rows that point at a built-in exercise still pass its foreign keys. Custom exercises are ordinary rows.
 
-Deleting a custom exercise sets `deleted_at` on it, its `exercise_brand` rows, their settings and its `routine_exercise` rows (with their sets), in one transaction. Its `workout_exercise` rows are left alone, so finished workouts still show it with their sets, and the exercise page and stats keep its history. Only rows without `deleted_at` show in the picker and the library. Because `name` is unique, creating an exercise with a deleted one's name clears `deleted_at` on that row instead of adding another, which brings its history back with it.
+Deleting a custom exercise sets `deleted_at` on it, its `exercise_brand` rows and their settings, and takes it out of every routine, in one transaction. Its `workout_exercise` rows are left alone, so finished workouts still show it with their sets, and the exercise page and stats keep its history. Only rows without `deleted_at` show in the picker and the library. Because `name` is unique, creating an exercise with a deleted one's name clears `deleted_at` on that row instead of adding another, which brings its history back with it.
 
 **`exercise_muscle`**
 
@@ -104,6 +104,7 @@ Seat height, notch, dead stop and anything else you set up on this exercise and 
 | `split_by_value` | integer | 1 gives each value its own progress |
 | `factor` | real, nullable | For `yes_no` only: how much harder the set is when it's on, above 1 and at most 2, such as 1.5 for a dead stop. Null means it doesn't count (ADR 0002) |
 | `position` | real | The order on the settings line and in headings |
+| `deleted_at` | integer, nullable | Set when the setting is removed. The row stays for the workouts that used it, and travels with its brand like any other column |
 
 - `value` and `text_value` are what the app fills in the next time you add this exercise on this brand. Finishing a workout copies the values it used back here, and so does editing them from Edit exercise.
 - These are only defaults. What a past workout used lives in `workout_exercise_setting`, so changing a setting's value never changes history.
@@ -131,7 +132,7 @@ workout ──< workout_exercise ──< workout_set ──< workout_set_overrid
 | `gym_latitude` | real, nullable | Where the gym is, when it was picked from the map. Empty for a typed name |
 | `gym_longitude` | real, nullable | As above |
 
-At most one workout has no `finished_at`. That is the one the app opens into. If a pull brings in a second running workout, because you started one on each phone while offline, the app keeps the one with the most recent ticked set open and finishes the other at the time of its last ticked set. Nothing is deleted.
+At most one workout has no `finished_at`. That is the one the app opens into. A running workout stays on the phone and syncs once it is finished, so a pull never brings in a second one.
 
 **`workout_exercise`**
 
@@ -206,8 +207,9 @@ A photo or video kept with a workout, such as a form check or a picture of the m
 | `duration_seconds` | real, nullable | Videos only |
 | `created_at` | integer | When it was added |
 
+- A workout has at most three. The app stops the picker at what is left.
 - The file itself lives in Application Support under `media/`, with a thumbnail made once in `media/thumbnails/`. Neither is in Caches, so the system never clears them.
-- For now the files stay on the phone. The row syncs like any other, but uploading the file to the server and showing it on a second phone is a follow-up that needs storage behind the API.
+- For now the rows and the files stay on the phone, and neither syncs. The row has its own `updated_at` and `deleted_at`, ready for when it does. [Sync](/docs/sync#media-comes-later) has the plan for storing the files.
 
 ## Routines
 
@@ -240,9 +242,9 @@ These tables never sync.
 
 | Table | What it holds |
 | --- | --- |
-| `sync_outbox` | Rows changed since the last push. Each row is the table name and the row ID. |
-| `sync_state` | The cursor from the last pull. |
-| `record` | The best weight, reps, time, tracked setting value and score for each exercise, brand and shape, with the set it came from. For a setting with its own progress per value, the value is part of the key, so notch 7 and notch 8 keep separate records. Rebuilt from the sets when a workout is saved, when a setting's range, direction or own progress per value changes, and after a pull that brought in sets, setting values or overrides. |
+| `sync_outbox` | Items changed since the last push. Each row is the kind of item, its ID and whether it was deleted. |
+| `sync_state` | The cursor from the last pull, and the account the database belongs to. |
+| `record` | The best weight, reps, time, tracked setting value and score for each exercise, brand and shape, with the set it came from. For a setting with its own progress per value, the value is part of the key, so notch 7 and notch 8 keep separate records. Rebuilt from the sets when a workout is saved, when a setting's range, direction or own progress per value changes, and after a pull that brought in workouts or brands. |
 
 Records and scores are worked out from the sets, so they are never synced and two devices cannot disagree about them. [ADR 0001](https://github.com/AGroupForCoders/Fatigue/blob/main/docs/adr/0001-combined-set-score.md) explains the score.
 
@@ -251,4 +253,5 @@ Records and scores are worked out from the sets, so they are never synced and tw
 - **Changing the brand mid-workout.** The app swaps in the new brand's settings and keeps the logged sets. In the database, that means replacing the `workout_exercise_setting` rows and dropping overrides whose setting isn't on the new brand, even on sets already ticked. The other option is to only allow the switch before any set is ticked.
 - **Deleting a setting.** Proposed: the setting is marked deleted and its values and overrides in past workouts stay, so history and records don't change. It stops showing on new workouts. During a running workout the app already drops its overrides, which matches.
 - **Splitting shoulders.** The muscle list has one `shoulders`, which mixes front delts (pressing) with rear delts (pulling). A fatigue meter would want them apart. Splitting later means deciding the split for every exercise that uses `shoulders`, so it is cheaper to decide before the built-in list is seeded.
+- **A brand and its settings sync as one item.** If one phone renames a setting and another, offline, changes a different setting on the same exercise and brand, the later change wins and the other is lost. We accepted that for the first version because it is rare and easy to redo. Syncing each setting on its own would fix it.
 - **Merging duplicates.** Two phones could each add Technogym to adductors while offline, giving the same exercise and brand twice. Allowed in v1. The brand merge above fixes it by hand; whether sync should merge them automatically is still open.
