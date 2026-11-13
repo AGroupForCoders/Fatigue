@@ -27,6 +27,7 @@ Some rows must be unique, and a random ID can't guarantee that. Two phones offli
 | `exercise_brand`, no-brand row only | The exercise ID |
 | `user_setting` | The account ID |
 | `workout`, imported only | Its `import_key` |
+| `routine_set` | The routine exercise ID and the set's place in it |
 
 Setting values and overrides have no ID of their own. The row they belong to and the setting pick them out.
 
@@ -242,7 +243,7 @@ These tables never sync.
 
 | Table | What it holds |
 | --- | --- |
-| `sync_outbox` | Items changed since the last push. Each row is the kind of item, its ID and whether it was deleted. |
+| `sync_item` | For each item, the hash of what it held the last time the phone and the server agreed on it, and the time it had then. An item whose hash differs now needs pushing. Also the hash the server refused, with why. |
 | `sync_state` | The cursor from the last pull, and the account the database belongs to. |
 | `record` | The best weight, reps, time, tracked setting value and score for each exercise, brand and shape, with the set it came from. For a setting with its own progress per value, the value is part of the key, so notch 7 and notch 8 keep separate records. Rebuilt from the sets when a workout is saved, when a setting's range, direction or own progress per value changes, and after a pull that brought in workouts or brands. |
 
