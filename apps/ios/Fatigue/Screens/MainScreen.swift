@@ -132,12 +132,16 @@ struct BottomNav: View {
 
 /// The running workout, sitting above the bottom nav while you're elsewhere in the app:
 /// its name, how long it's been going and sets done. Tap to go back to it, or delete it.
+/// It also ends the rest timer when its time is up, with the same haptic as the workout screen,
+/// so a rest that ends while the workout is minimised is still felt.
 struct ActiveWorkoutBar: View {
     @Environment(\.palette) private var palette
     let session: WorkoutSession
     let onOpen: () -> Void
     let onDiscard: () -> Void
     @State private var confirmingDiscard = false
+    /// Counts rests that ended from here, so each one gets its haptic.
+    @State private var restsFinished = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -180,6 +184,14 @@ struct ActiveWorkoutBar: View {
             .padding(.vertical, Tokens.Space.m)
         }
         .background(palette.surface)
+        // The workout screen does the same while it's open. Whichever clears the timer first gets the
+        // haptic, so it only ever plays once.
+        .task(id: session.rest?.endsAt) {
+            guard let endsAt = session.rest?.endsAt else { return }
+            try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
+            if !Task.isCancelled, session.finishRestIfDue() { restsFinished += 1 }
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: restsFinished)
         .confirmationDialog("Delete \(session.title)?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("Delete workout", role: .destructive, action: onDiscard)
         } message: {
