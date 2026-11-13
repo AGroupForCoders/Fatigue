@@ -28,6 +28,94 @@ struct StatPoint: Identifiable, Equatable {
     var id: String { "\(date.timeIntervalSince1970)|\(series)" }
 }
 
+/// How one set's score was worked out, for the sum shown when a point on the graph is tapped:
+/// "460 × 1.78 × 1.5 = 1,227". See ADR 0002.
+struct ScoreBreakdown: Equatable {
+    /// One setting's part in the score.
+    struct Term: Equatable {
+        let setting: String
+        let kind: ExerciseSetting.Kind
+        /// Such as "Notch 8" or "Dead stop".
+        let label: String
+        let factor: Double
+    }
+
+    /// The set, as "57.5 kg × 8".
+    let set: String
+    /// Weight × reps, or weight × seconds for a hold.
+    let load: Double
+    /// Every tracked setting with a value on the set, in the exercise's order. A yes/no setting that's off is ×1 and left out.
+    let terms: [Term]
+    /// Whether the factors together ran past ×3 and were held there.
+    let isCapped: Bool
+    let total: Double
+
+    init?(of set: WorkoutSet, in exercise: WorkoutExercise) {
+        guard let amount = Double(set.amount), amount > 0, let total = SetScore.score(of: set, in: exercise) else { return nil }
+        // In kilograms whatever the unit, since the score is worked out from kilograms and the sum has to add up.
+        self.set = ExerciseStats.describe(set, in: .kg)
+        load = (Double(set.weight) ?? 1) * amount
+        terms = exercise.settings.compactMap { setting -> Term? in
+            guard setting.isTracked, let value = exercise.value(of: setting, in: set.setup) else { return nil }
+            let factor: Double
+            switch setting.kind {
+            case .number: factor = 1 + (SetScore.position(of: setting, for: set, in: exercise) ?? 0)
+            case .yesNo:
+                guard value == 1, let picked = setting.factor else { return nil }
+                factor = min(picked, 2)
+            case .text: return nil
+            }
+            return Term(setting: setting.name, kind: setting.kind, label: setting.label(for: value), factor: factor)
+        }
+        isCapped = terms.reduce(1.0) { $0 * $1.factor } > SetScore.maxFactor
+        self.total = total
+    }
+
+    /// A factor as it reads in the sum, such as "1.78" or "1.5".
+    static func format(factor: Double) -> String {
+        factor.formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    /// The whole sum on one line, such as "460 × 1.78 × 1.5 = 1,227", or "460 × 2 × 2, capped at ×3 = 1,380".
+    var text: String {
+        let parts = [load.formatted(.number.precision(.fractionLength(0...1)))] + terms.map { Self.format(factor: $0.factor) }
+        var sum = parts.joined(separator: " × ")
+        if isCapped { sum += ", capped at ×\(PlainNumber.string(SetScore.maxFactor))" }
+        return "\(sum) = \(total.formatted(.number.precision(.fractionLength(0))))"
+    }
+}
+
+/// The sets behind one point on the graph, with their sums, and the exercise as it was that day,
+/// whose settings are what the factors can be changed on.
+struct PointDetail: Equatable {
+    let date: Date
+    let series: String
+    let value: Double
+    let exercise: WorkoutExercise
+    let breakdowns: [ScoreBreakdown]
+    /// The yes/no settings that were on for a set behind the point, whose factor can be changed from here.
+    /// One that doesn't count yet is included, so it can be made to.
+    let adjustable: [ExerciseSetting]
+
+    static func == (lhs: PointDetail, rhs: PointDetail) -> Bool {
+        lhs.date == rhs.date && lhs.series == rhs.series && lhs.value == rhs.value && lhs.breakdowns == rhs.breakdowns && lhs.adjustable == rhs.adjustable
+    }
+}
+
+/// The split the exercise page is on for each exercise, remembered between visits. The finish summary
+/// reads it too, so a record names the line it was on.
+enum ExerciseSplit {
+    static func key(_ name: String) -> String { "exerciseSplit.\(name)" }
+
+    static func remembered(for name: String, defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: key(name))
+    }
+
+    static func remember(_ split: String?, for name: String, defaults: UserDefaults = .standard) {
+        defaults.set(split, forKey: key(name))
+    }
+}
+
 /// A best, with when it happened and the set or day behind it.
 struct StatRecord: Equatable {
     let value: Double
@@ -149,6 +237,11 @@ struct ExerciseStats {
         return names
     }
 
+    /// The settings you can pin while split by another: every splittable setting but the split.
+    func filterableSettings(splitBy split: String?) -> [String] {
+        splittableSettings.filter { $0 != split }
+    }
+
     /// The line a set is on when split by a setting, such as "Notch 8", "Dead stop" or "No dead stop".
     /// Nil when the set's workout didn't have that setting or gave it no value.
     static func series(of set: WorkoutSet, in exercise: WorkoutExercise, splitBy name: String) -> String? {
@@ -157,14 +250,22 @@ struct ExerciseStats {
         return setting.label(for: value)
     }
 
-    /// The graph's points, one per workout and line. Warm-ups are left out.
-    func points(_ metric: StatMetric, weighted: Bool, splitBy name: String? = nil) -> [StatPoint] {
+    /// Whether a set is on every pinned line: with `["Dead stop": "Dead stop"]`, only sets with the dead stop on.
+    /// A set whose workout didn't have a pinned setting is left out.
+    static func matches(_ set: WorkoutSet, in exercise: WorkoutExercise, pinned: [String: String]) -> Bool {
+        pinned.allSatisfy { name, line in series(of: set, in: exercise, splitBy: name) == line }
+    }
+
+    /// The graph's points, one per workout and line. Warm-ups are left out. `pinned` keeps only the sets on those lines, such as
+    /// notch lines with the dead stop on.
+    func points(_ metric: StatMetric, weighted: Bool, splitBy name: String? = nil, pinned: [String: String] = [:]) -> [StatPoint] {
         sessions.flatMap { session -> [StatPoint] in
+            let sets = session.countedSets.filter { Self.matches($0, in: session.exercise, pinned: pinned) }
             guard let name else {
-                return Self.value(metric, weighted: weighted, of: session.countedSets, in: session.exercise)
+                return Self.value(metric, weighted: weighted, of: sets, in: session.exercise)
                     .map { [StatPoint(date: session.date, value: $0, series: "")] } ?? []
             }
-            let grouped = Dictionary(grouping: session.countedSets) { Self.series(of: $0, in: session.exercise, splitBy: name) }
+            let grouped = Dictionary(grouping: sets) { Self.series(of: $0, in: session.exercise, splitBy: name) }
             return grouped.compactMap { series, sets in
                 guard let series else { return nil }
                 return Self.value(metric, weighted: weighted, of: sets, in: session.exercise)
@@ -174,21 +275,57 @@ struct ExerciseStats {
         }
     }
 
-    /// The lines when split, in the order they sort.
-    func seriesNames(splitBy name: String?) -> [String] {
+    /// The lines when split, in the order they sort. With `pinned`, only the lines that still have a set.
+    func seriesNames(splitBy name: String?, pinned: [String: String] = [:]) -> [String] {
         guard let name else { return [] }
-        let names = sessions.flatMap { session in session.countedSets.compactMap { Self.series(of: $0, in: session.exercise, splitBy: name) } }
+        let names = sessions.flatMap { session in
+            session.countedSets
+                .filter { Self.matches($0, in: session.exercise, pinned: pinned) }
+                .compactMap { Self.series(of: $0, in: session.exercise, splitBy: name) }
+        }
         return Array(Set(names)).sorted()
+    }
+
+    /// The sets behind a point, with how each was scored: the best set for set volume, weight and 1RM, and
+    /// every counted set for session volume. Nil when there's no workout on that day.
+    func detail(
+        of metric: StatMetric, weighted: Bool, at date: Date, series: String = "", splitBy name: String? = nil, pinned: [String: String] = [:]
+    ) -> PointDetail? {
+        guard let session = sessions.first(where: { $0.date == date }) else { return nil }
+        let sets = session.countedSets.filter { set in
+            guard Self.matches(set, in: session.exercise, pinned: pinned) else { return false }
+            guard let name else { return true }
+            return Self.series(of: set, in: session.exercise, splitBy: name) == series
+        }
+        guard let value = Self.value(metric, weighted: weighted, of: sets, in: session.exercise) else { return nil }
+        let counted: [WorkoutSet]
+        switch metric {
+        case .sessionVolume:
+            counted = sets.filter { Self.volume(of: $0) != nil }
+        case .setVolume, .weight, .oneRepMax:
+            let best = sets.compactMap { set in Self.value(metric, weighted: weighted, of: [set], in: session.exercise).map { (set, $0) } }
+                .first { $0.1 == value }
+            counted = best.map { [$0.0] } ?? []
+        }
+        return PointDetail(
+            date: date, series: series, value: value, exercise: session.exercise,
+            breakdowns: counted.compactMap { ScoreBreakdown(of: $0, in: session.exercise) },
+            adjustable: session.exercise.settings.filter { setting in
+                setting.kind == .yesNo && counted.contains { session.exercise.value(of: setting, in: $0.setup) == 1 }
+            }
+        )
     }
 
     // MARK: Records
 
     /// The records over every set, or only the sets on one line when split. Warm-ups never set a record.
-    /// Values stay in kilograms; each record's detail reads in `unit`.
-    func records(splitBy name: String? = nil, series: String? = nil, in unit: WeightUnit) -> ExerciseRecords {
+    /// `pinned` counts only the sets on those lines, as the graph does. Values stay in kilograms;
+    /// each record's detail reads in `unit`.
+    func records(splitBy name: String? = nil, series: String? = nil, pinned: [String: String] = [:], in unit: WeightUnit) -> ExerciseRecords {
         var records = ExerciseRecords()
         for session in sessions {
             let sets = session.countedSets.filter { set in
+                guard Self.matches(set, in: session.exercise, pinned: pinned) else { return false }
                 guard let name, let series else { return true }
                 return Self.series(of: set, in: session.exercise, splitBy: name) == series
             }
@@ -235,30 +372,71 @@ struct ExerciseStats {
 
     /// The records each exercise in `workout` beat, against everything before it on the same exercise and brand.
     /// Doing an exercise or brand for the first time has nothing to beat, so it sets no records.
-    /// Weights read in `unit`; weighted scores are unitless.
-    static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout], in unit: WeightUnit) -> [Beaten] {
+    /// Weights read in `unit`; weighted scores are unitless. `splitBy` is the setting the exercise page splits an exercise by, if any. When it's split, records are
+    /// checked per line and named after it, such as "Heaviest weight at notch 8".
+    static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout], splitBy: (String) -> String? = { _ in nil }, in unit: WeightUnit) -> [Beaten] {
         var seen: Set<String> = []
         return workout.exercises.flatMap { exercise -> [Beaten] in
             guard seen.insert("\(exercise.name)|\(exercise.brand?.key ?? "")").inserted else { return [] }
-            let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history).records(in: unit)
-            let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout]).records(in: unit)
+            let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history)
+            let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout])
             let weighted = exercise.settings.contains(where: \.isTracked)
-            // Scores are unitless, so only the plain records convert.
-            let checks: [(String, KeyPath<ExerciseRecords, StatRecord?>, Bool, Bool)] = [
-                ("Heaviest weight", \.heaviestWeight, false, false),
-                ("Best 1RM", \.bestOneRepMax, false, false),
-                ("Best set volume", \.bestSetVolume, false, true),
-                ("Best session volume", \.bestSessionVolume, false, true),
-                ("Best set volume, weighted", \.weightedSetVolume, true, true),
-                ("Best session volume, weighted", \.weightedSessionVolume, true, true),
-            ]
-            return checks.compactMap { title, path, isScore, whole in
-                if isScore, !weighted { return nil }
-                guard let old = before[keyPath: path], let new = after[keyPath: path], new.value > old.value else { return nil }
-                let value = isScore ? new.value : unit.amount(fromKilograms: new.value)
-                let number = value.formatted(.number.precision(.fractionLength(0...(whole ? 0 : 1))))
-                return Beaten(exercise: exercise.name, brand: exercise.brand, record: title, value: "\(number) \(isScore ? "weighted" : unit.rawValue)")
+            let split = splitBy(exercise.name).flatMap { name in after.splittableSettings.contains(name) ? name : nil }
+            let setting = split.flatMap { name in exercise.settings.first { $0.name == name } }
+            let lines: [String?] = split.map { after.seriesNames(splitBy: $0).map(Optional.some) } ?? [nil]
+            return lines.flatMap { line -> [Beaten] in
+                let suffix = line.flatMap { line in setting.map { " \(Self.describeLine(line, of: $0))" } } ?? ""
+                return Self.beaten(
+                    exercise: exercise, weighted: weighted, suffix: suffix, unit: unit,
+                    before: before.records(splitBy: split, series: line, in: unit), after: after.records(splitBy: split, series: line, in: unit)
+                )
             }
+        }
+    }
+
+    private static func beaten(
+        exercise: WorkoutExercise, weighted: Bool, suffix: String, unit: WeightUnit, before: ExerciseRecords, after: ExerciseRecords
+    ) -> [Beaten] {
+        // Scores are unitless, so only the plain records convert.
+        let checks: [(String, KeyPath<ExerciseRecords, StatRecord?>, Bool, Bool)] = [
+            ("Heaviest weight", \.heaviestWeight, false, false),
+            ("Best 1RM", \.bestOneRepMax, false, false),
+            ("Best set volume", \.bestSetVolume, false, true),
+            ("Best session volume", \.bestSessionVolume, false, true),
+            ("Best set volume, weighted", \.weightedSetVolume, true, true),
+            ("Best session volume, weighted", \.weightedSessionVolume, true, true),
+        ]
+        return checks.compactMap { title, path, isScore, whole in
+            if isScore, !weighted { return nil }
+            guard let old = before[keyPath: path], let new = after[keyPath: path], new.value > old.value else { return nil }
+            let value = isScore ? new.value : unit.amount(fromKilograms: new.value)
+            let number = value.formatted(.number.precision(.fractionLength(0...(whole ? 0 : 1))))
+            let name = isScore ? title.replacingOccurrences(of: ", weighted", with: "\(suffix), weighted") : title + suffix
+            return Beaten(exercise: exercise.name, brand: exercise.brand, record: name, value: "\(number) \(isScore ? "weighted" : unit.rawValue)")
+        }
+    }
+
+    /// How a line reads after a record's name: "at notch 8", "with dead stop" or "with no dead stop".
+    static func describeLine(_ line: String, of setting: ExerciseSetting) -> String {
+        switch setting.kind {
+        case .number, .text: "at \(line.prefix(1).lowercased() + line.dropFirst())"
+        case .yesNo: "with \(line.prefix(1).lowercased() + line.dropFirst())"
+        }
+    }
+
+    // MARK: Factors
+
+    /// `history` with a yes/no setting's factor changed on one exercise and brand, so every past set there is
+    /// re-scored with it. Nil makes the setting stop counting. Workouts that don't have the setting are untouched.
+    static func rescored(_ history: [FinishedWorkout], exercise name: String, brand: Brand?, setting: String, factor: Double?) -> [FinishedWorkout] {
+        history.map { workout in
+            var workout = workout
+            for e in workout.exercises.indices where workout.exercises[e].name == name && workout.exercises[e].brand == brand {
+                for s in workout.exercises[e].settings.indices where workout.exercises[e].settings[s].name == setting && workout.exercises[e].settings[s].kind == .yesNo {
+                    workout.exercises[e].settings[s].factor = factor
+                }
+            }
+            return workout
         }
     }
 

@@ -897,6 +897,7 @@ private struct ReorderExercises: View {
 
 #Preview("Light") {
     WorkoutScreen(session: .sample())
+        .environment(WorkoutStore())
         .environment(ExerciseCatalog())
         .environment(MediaStore())
         .environment(\.palette, .light)
@@ -905,6 +906,7 @@ private struct ReorderExercises: View {
 
 #Preview("Dark") {
     WorkoutScreen(session: .sample())
+        .environment(WorkoutStore())
         .environment(ExerciseCatalog())
         .environment(MediaStore())
         .environment(\.palette, .dark)
