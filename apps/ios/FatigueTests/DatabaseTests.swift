@@ -105,6 +105,52 @@ struct DatabaseTests {
         #expect(reopened.history[0].title == "Pull, heavy")
     }
 
+    @Test func aDeletedWorkoutKeepsAMarkedRowAndNothingUnderIt() throws {
+        let database = try AppDatabase.inMemory()
+        let first = store(database)
+        let deleted = first.history[1].id
+        first.deleteFromHistory(deleted)
+
+        #expect(try database.deletedWorkoutIds() == [deleted.uuidString])
+        let left = try database.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM workout_exercise WHERE workout_id = ?", arguments: [deleted.uuidString])
+        }
+        #expect(left == 0)
+        #expect(!store(database).history.contains { $0.id == deleted })
+    }
+
+    @Test func aDiscardedRunningWorkoutLeavesNoRow() throws {
+        let database = try AppDatabase.inMemory()
+        let first = store(database)
+        first.startEmpty()
+        let running = try #require(first.active?.id)
+        first.saveActive()
+        first.discard()
+
+        #expect(try database.deletedWorkoutIds().isEmpty)
+        let rows = try database.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM workout WHERE id = ?", arguments: [running.uuidString])
+        }
+        #expect(rows == 0)
+    }
+
+    @Test func aDeletedPrebuiltWorkoutKeepsAMarkedRowAndComesBackWhenSavedAgain() throws {
+        let database = try AppDatabase.inMemory()
+        let first = store(database)
+        let routine = first.routines[0]
+        let countBefore = first.routines.count
+        first.delete(routine.id)
+
+        #expect(try database.deletedRoutineIds() == [routine.id.uuidString])
+        #expect(store(database).routines.count == countBefore - 1)
+        #expect(store(database).routines.map(\.id).contains(routine.id) == false)
+
+        let again = store(database)
+        again.routines.append(routine)
+        #expect(try database.deletedRoutineIds().isEmpty)
+        #expect(store(database).routines.last?.exercises.count == routine.exercises.count)
+    }
+
     @Test func customExercisesAndSettingsAreSaved() throws {
         let database = try AppDatabase.inMemory()
         let catalog = ExerciseCatalog.load(from: database)
