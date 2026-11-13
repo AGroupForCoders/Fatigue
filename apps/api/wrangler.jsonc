@@ -4,5 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   // postgres.js needs Node's net and crypto modules, which Workers provide behind this flag.
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  // Plain settings for the deployed Worker; the URL and sender are placeholders until the API is deployed
+  // (see README). Locally, .env overrides them. Secrets (DATABASE_URL, BETTER_AUTH_SECRET, RESEND_API_KEY)
+  // are never here: set them with `wrangler secret put`.
+  "vars": {
+    "BETTER_AUTH_URL": "https://fatigue-api.example.workers.dev",
+    "EMAIL_FROM": "Fatigue <no-reply@example.com>",
+    "APP_DEEP_LINK_SCHEME": "fatigue"
+  }
 }
