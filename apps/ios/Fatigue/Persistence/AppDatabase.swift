@@ -180,6 +180,10 @@ nonisolated final class AppDatabase: Sendable {
         migrator.registerMigration("v2-setting-factor") { db in
             try db.alter(table: "setting") { t in t.add(column: "factor", .double) }
         }
+        // Where an imported workout came from, such as "hevy|13 Nov 2025, 07:30|Push", so importing the same file again finds it.
+        migrator.registerMigration("v3-workout-import-key") { db in
+            try db.alter(table: "workout") { t in t.add(column: "import_key", .text).indexed() }
+        }
         return migrator
     }
 }
@@ -240,6 +244,8 @@ nonisolated struct StoredWorkout: Sendable {
     var finishedAt: Date?
     var routineId: String?
     var exercises: [StoredExercise]
+    /// Set on workouts brought in from another app. Nil for ones logged here.
+    var importKey: String? = nil
 }
 
 nonisolated struct StoredRoutine: Sendable {
@@ -353,7 +359,7 @@ nonisolated extension AppDatabase {
                 return StoredWorkout(
                     id: id, title: row["title"], note: row["note"], startedAt: Self.date(row["started_at"]),
                     finishedAt: finished.map(Self.date), routineId: row["routine_id"],
-                    exercises: try Self.workoutExercises(of: id, in: db)
+                    exercises: try Self.workoutExercises(of: id, in: db), importKey: row["import_key"]
                 )
             }
         }
@@ -381,12 +387,13 @@ nonisolated extension AppDatabase {
         }
     }
 
-    /// Replaces one workout and everything under it.
+    /// Replaces one workout and everything under it. An imported workout keeps where it came from when it's edited.
     func save(_ workout: StoredWorkout) throws {
         try writer.write { db in
+            let importKey = try workout.importKey ?? String.fetchOne(db, sql: "SELECT import_key FROM workout WHERE id = ?", arguments: [workout.id])
             try db.execute(sql: "DELETE FROM workout WHERE id = ?", arguments: [workout.id])
-            try db.execute(sql: "INSERT INTO workout (id, title, note, started_at, finished_at, routine_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                           arguments: [workout.id, workout.title, workout.note, Self.millis(workout.startedAt), workout.finishedAt.map(Self.millis), workout.routineId, Self.now])
+            try db.execute(sql: "INSERT INTO workout (id, title, note, started_at, finished_at, routine_id, import_key, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                           arguments: [workout.id, workout.title, workout.note, Self.millis(workout.startedAt), workout.finishedAt.map(Self.millis), workout.routineId, importKey, Self.now])
             for (position, exercise) in workout.exercises.enumerated() {
                 let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, label: exercise.label, in: db)
                 try db.execute(sql: "INSERT INTO workout_exercise (id, workout_id, exercise_brand_id, position, rest_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?)",

@@ -300,6 +300,47 @@ final class WorkoutStore {
         routines.removeAll { $0.id == routineID }
     }
 
+    /// Brings every workout in a Hevy export into history. Exercise names are matched to the library,
+    /// and ones that match nothing are added to it as custom exercises. A workout that's already in
+    /// history, because the same file was imported before, is skipped, so importing twice adds nothing.
+    @discardableResult
+    func importHevy(csv: String, catalog: ExerciseCatalog) throws -> HevyImportResult {
+        let workouts = try HevyImport.parse(csv)
+        var names = catalog.names
+        var resolved: [String: String] = [:]
+        var result = HevyImportResult()
+        func name(for hevyName: String) -> String {
+            if let name = resolved[hevyName] { return name }
+            let name: String
+            if let match = HevyExerciseMatcher.match(hevyName, among: names) {
+                name = match
+            } else {
+                name = hevyName
+                catalog.save(HevyExerciseMatcher.customExercise(named: name), brand: nil, setup: BrandSetup())
+                names.append(name)
+                result.newExercises.append(name)
+            }
+            resolved[hevyName] = name
+            return name
+        }
+
+        var added: [FinishedWorkout] = []
+        for workout in workouts {
+            if history.contains(where: { $0.id == workout.id }) || added.contains(where: { $0.id == workout.id }) {
+                result.alreadyThere += 1
+                continue
+            }
+            let stored = workout.stored(exerciseName: name(for:))
+            persist { try $0.save(stored) }
+            added.append(FinishedWorkout(stored: stored))
+            result.imported += 1
+        }
+        if !added.isEmpty {
+            history = (history + added).sorted { $0.startedAt > $1.startedAt }
+        }
+        return result
+    }
+
     /// Takes an exercise out of every prebuilt workout, after it's deleted from the library.
     /// Finished workouts aren't touched, so nothing you logged on it is lost.
     func removeFromRoutines(exerciseNamed name: String) {
