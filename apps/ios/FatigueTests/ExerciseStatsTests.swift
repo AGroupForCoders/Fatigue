@@ -7,10 +7,10 @@ struct ExerciseStatsTests {
     private let notch = ExerciseSetting(name: "Notch", value: "7", direction: .higher, rangeMin: 1, rangeMax: 10, splitByValue: true)
 
     private func set(_ weight: String, _ reps: String, notch: Double? = nil, hold: Bool = false) -> WorkoutSet {
-        WorkoutSet(setup: SetSetup(kind: hold ? .hold : .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: reps, previous: "", isDone: true)
+        WorkoutSet(setup: SetSetup(kind: hold ? .hold : .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: reps, isDone: true)
     }
 
-    private func workout(day: Double, brand: String? = "Technogym", _ sets: [WorkoutSet]) -> FinishedWorkout {
+    private func workout(day: Double, brand: Brand? = "Technogym", _ sets: [WorkoutSet]) -> FinishedWorkout {
         FinishedWorkout(title: "Legs", startedAt: Date(timeIntervalSince1970: day * 86_400), duration: 3600, exercises: [
             WorkoutExercise(name: "Adductors", brand: brand, restSeconds: 90, settings: [notch], sets: sets),
         ])
@@ -32,7 +32,7 @@ struct ExerciseStatsTests {
             workout(day: 1, [set("50", "10")]), workout(day: 2, brand: "Matrix", [set("90", "10")]),
         ])
         #expect(stats.sessions.count == 1)
-        #expect(stats.records().heaviestWeight?.value == 50)
+        #expect(stats.records(in: .kg).heaviestWeight?.value == 50)
     }
 
     @Test func holdsHaveNoVolume() {
@@ -44,12 +44,12 @@ struct ExerciseStatsTests {
         let stats = ExerciseStats(name: "Adductors", brand: "Technogym", history: [workout(day: 1, [set("55", "8", notch: 8), set("60", "8")])])
         #expect(stats.seriesNames(splitBy: "Notch") == ["Notch 7", "Notch 8"])
         #expect(stats.points(.setVolume, weighted: false, splitBy: "Notch").map(\.value) == [480, 440])
-        #expect(stats.records(splitBy: "Notch", series: "Notch 8").heaviestWeight?.value == 55)
+        #expect(stats.records(splitBy: "Notch", series: "Notch 8", in: .kg).heaviestWeight?.value == 55)
     }
 
     @Test func theWeightedBestCanBeALighterSetOnAHarderNotch() {
         let stats = ExerciseStats(name: "Adductors", brand: "Technogym", history: [workout(day: 1, [set("55", "8", notch: 10), set("60", "8")])])
-        let records = stats.records()
+        let records = stats.records(in: .kg)
         #expect(records.bestSetVolume?.value == 480)
         #expect(records.weightedSetVolume?.detail == "55 kg × 8 · Notch 10")
     }
@@ -75,7 +75,7 @@ struct PinnedSettingTests {
         var values: [String: Double] = [:]
         if let notch { values["Notch"] = notch }
         if let deadStop { values["Dead stop"] = deadStop ? 1 : 0 }
-        return WorkoutSet(setup: SetSetup(kind: .reps, values: values), weight: weight, amount: reps, previous: "", isDone: true)
+        return WorkoutSet(setup: SetSetup(kind: .reps, values: values), weight: weight, amount: reps, isDone: true)
     }
 
     private func workout(day: Double, _ sets: [WorkoutSet], settings: [ExerciseSetting]? = nil) -> FinishedWorkout {
@@ -92,8 +92,8 @@ struct PinnedSettingTests {
         let pinned = ["Dead stop": "Dead stop"]
         #expect(stats.seriesNames(splitBy: "Notch", pinned: pinned) == ["Notch 7", "Notch 8"])
         #expect(stats.points(.weight, weighted: false, splitBy: "Notch", pinned: pinned).map(\.value) == [70, 50])
-        #expect(stats.records(splitBy: "Notch", series: "Notch 8", pinned: pinned).heaviestWeight?.value == 50)
-        #expect(stats.records(splitBy: "Notch", series: "Notch 8").heaviestWeight?.value == 60)
+        #expect(stats.records(splitBy: "Notch", series: "Notch 8", pinned: pinned, in: .kg).heaviestWeight?.value == 50)
+        #expect(stats.records(splitBy: "Notch", series: "Notch 8", in: .kg).heaviestWeight?.value == 60)
         #expect(stats.points(.weight, weighted: false, pinned: ["Dead stop": "No dead stop"]).map(\.value) == [60])
     }
 
@@ -159,15 +159,15 @@ struct PinnedSettingTests {
     @Test func theFinishSummaryNamesTheLineARecordWasOn() {
         let history = [workout(day: 1, [set("50", "10", notch: 8), set("60", "10", notch: 7)])]
         let today = workout(day: 2, [set("55", "10", notch: 8, deadStop: true)])
-        let plain = ExerciseStats.beaten(by: today, history: history)
+        let plain = ExerciseStats.beaten(by: today, history: history, in: .kg)
         #expect(plain.map(\.record) == ["Best set volume, weighted"])
-        let split = ExerciseStats.beaten(by: today, history: history, splitBy: { $0 == "Adductors" ? "Notch" : nil })
+        let split = ExerciseStats.beaten(by: today, history: history, splitBy: { $0 == "Adductors" ? "Notch" : nil }, in: .kg)
         #expect(split.map(\.record) == [
             "Heaviest weight at notch 8", "Best 1RM at notch 8", "Best set volume at notch 8", "Best session volume at notch 8",
             "Best set volume at notch 8, weighted", "Best session volume at notch 8, weighted",
         ])
         #expect(split[0].value == "55 kg")
-        let byDeadStop = ExerciseStats.beaten(by: today, history: history, splitBy: { _ in "Dead stop" })
+        let byDeadStop = ExerciseStats.beaten(by: today, history: history, splitBy: { _ in "Dead stop" }, in: .kg)
         #expect(byDeadStop.isEmpty)
         #expect(ExerciseStats.describeLine("No dead stop", of: deadStop) == "with no dead stop")
     }
@@ -185,7 +185,7 @@ struct PinnedSettingTests {
 @MainActor
 struct ScoreFactorTests {
     private func exercise(_ settings: [ExerciseSetting], values: [String: Double] = [:]) -> (WorkoutSet, WorkoutExercise) {
-        let set = WorkoutSet(setup: SetSetup(kind: .reps, values: values), weight: "57.5", amount: "8", previous: "", isDone: true)
+        let set = WorkoutSet(setup: SetSetup(kind: .reps, values: values), weight: "57.5", amount: "8", isDone: true)
         return (set, WorkoutExercise(name: "Adductors", brand: "Technogym", restSeconds: 90, settings: settings, sets: [set]))
     }
 
@@ -219,12 +219,12 @@ struct ScoreFactorTests {
     @Test func theFinishSummaryListsTheRecordsYouBeat() {
         func workout(_ day: Double, _ weight: String) -> FinishedWorkout {
             FinishedWorkout(title: "Legs", startedAt: Date(timeIntervalSince1970: day * 86_400), duration: 3600, exercises: [
-                WorkoutExercise(name: "Leg Press", restSeconds: 90, sets: [WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "10", previous: "", isDone: true)]),
+                WorkoutExercise(name: "Leg Press", restSeconds: 90, sets: [WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "10", isDone: true)]),
             ])
         }
-        let beaten = ExerciseStats.beaten(by: workout(2, "170"), history: [workout(1, "160")])
+        let beaten = ExerciseStats.beaten(by: workout(2, "170"), history: [workout(1, "160")], in: .kg)
         #expect(beaten.map(\.record) == ["Heaviest weight", "Best 1RM", "Best set volume", "Best session volume"])
         #expect(beaten[0].value == "170 kg")
-        #expect(ExerciseStats.beaten(by: workout(1, "160"), history: []).isEmpty)
+        #expect(ExerciseStats.beaten(by: workout(1, "160"), history: [], in: .kg).isEmpty)
     }
 }
