@@ -8,20 +8,20 @@ struct BrandTests {
         FinishedWorkout(
             title: "Legs", startedAt: Date(timeIntervalSince1970: 1_000_000 - daysAgo * 86_400), duration: 3600,
             exercises: [WorkoutExercise(name: "Adductors", brand: brand, restSeconds: 90, sets: [
-                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "8", previous: "", isDone: done),
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "8", isDone: done),
             ])]
         )
     }
 
     @Test func brandsComeNewestFirstWithTheLastSetOnEach() {
         let history = [workout(14, brand: "Hammer Strength", weight: "50"), workout(3, brand: "Technogym", weight: "55"), workout(20, brand: "Technogym", weight: "40")]
-        let brands = KnownBrand.list(for: "Adductors", history: history, saved: [], now: Date(timeIntervalSince1970: 1_000_000))
+        let brands = KnownBrand.list(for: "Adductors", history: history, saved: [], unit: .kg, now: Date(timeIntervalSince1970: 1_000_000))
         #expect(brands.map(\.name) == ["Technogym", "Hammer Strength"])
         #expect(brands[0].lastSet == "55 × 8")
     }
 
     @Test func savedBrandsWithNoSetsComeLast() {
-        let brands = KnownBrand.list(for: "Adductors", history: [workout(3, brand: nil, weight: "45")], saved: ["Matrix"])
+        let brands = KnownBrand.list(for: "Adductors", history: [workout(3, brand: nil, weight: "45")], saved: ["Matrix"], unit: .kg)
         #expect(brands.map(\.name) == [nil, "Matrix"])
         #expect(brands[1].lastSet.isEmpty)
     }
