@@ -22,10 +22,11 @@ struct FinishedWorkout: Identifiable {
 
     var setCount: Int { exercises.reduce(0) { $0 + $1.sets.count } }
 
-    /// Total kilograms moved across rep sets, as weight × reps. Holds are left out, since a second isn't a rep.
+    /// Total kilograms moved across rep sets, as weight × reps. Holds are left out, since a second isn't a rep,
+    /// and so are warm-ups.
     var volume: Double {
         exercises.flatMap(\.sets).reduce(0) { total, set in
-            guard set.kind == .reps, let weight = Double(set.weight), let reps = Double(set.amount) else { return total }
+            guard set.counts, set.kind == .reps, let weight = Double(set.weight), let reps = Double(set.amount) else { return total }
             return total + weight * reps
         }
     }
@@ -52,7 +53,7 @@ struct FinishedWorkout: Identifiable {
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
                 settings: exercise.settings,
-                sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
+                sets: exercise.sets.map { RoutineSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             )
         })
     }

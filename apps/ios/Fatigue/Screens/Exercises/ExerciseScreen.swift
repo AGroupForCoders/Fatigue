@@ -299,9 +299,10 @@ struct ExerciseScreen: View {
                     .padding(.bottom, Tokens.Space.xs)
                     ForEach(Array(session.sets.enumerated()), id: \.element.id) { index, set in
                         HStack(spacing: Tokens.Space.m) {
-                            Text("\(index + 1)")
-                                .foregroundStyle(palette.foregroundFaint)
+                            Text(session.sets.mark(at: index))
+                                .foregroundStyle(set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
                                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
+                                .accessibilityLabel(session.sets.spokenName(at: index))
                             Text(ExerciseStats.describe(set) + (set.rpe.map { " @\(PlainNumber.string($0))" } ?? ""))
                                 .foregroundStyle(palette.foreground)
                             Text(([set.kind == .hold ? "Hold" : nil].compactMap { $0 } + session.exercise.labels(for: set.setup)).joined(separator: " · "))

@@ -4,12 +4,13 @@ import Foundation
 /// unloaded set counting its weight as 1) multiplied by each tracked setting's factor, capped at ×3 in total.
 /// A number setting's factor is `1 + position in range`. A yes/no setting's is the factor you picked, when it's on.
 /// Worked out whenever it's shown and never stored, so changing a factor rescores every past set.
+/// A warm-up has no score.
 enum SetScore {
     /// The most the settings together can multiply a set's load by.
     static let maxFactor = 3.0
 
     static func score(of set: WorkoutSet, in exercise: WorkoutExercise) -> Double? {
-        guard let amount = Double(set.amount), amount > 0 else { return nil }
+        guard set.counts, let amount = Double(set.amount), amount > 0 else { return nil }
         let load = (Double(set.weight) ?? 1) * amount
         return load * factor(of: set, in: exercise)
     }
@@ -74,6 +75,7 @@ enum RecordKind: Hashable {
 
 /// The best of everything so far, per shape, for spotting records.
 /// A set is a record when it beats the best before it. The first set of a shape has nothing to beat, so it isn't one.
+/// Warm-ups are never records and never set a best for later sets to beat.
 struct RecordBook {
     private struct Bests {
         var weight: Double?
@@ -89,14 +91,14 @@ struct RecordBook {
     init(history: [FinishedWorkout] = []) {
         for workout in history {
             for exercise in workout.exercises {
-                for set in exercise.sets where set.isDone { add(set, in: exercise) }
+                for set in exercise.sets where set.isDone && set.counts { add(set, in: exercise) }
             }
         }
     }
 
     /// The records this set sets against everything added so far.
     func records(for set: WorkoutSet, in exercise: WorkoutExercise) -> Set<RecordKind> {
-        guard let best = bests[SetShape(of: set, in: exercise)] else { return [] }
+        guard set.counts, let best = bests[SetShape(of: set, in: exercise)] else { return [] }
         let values = Self.values(of: set, in: exercise)
         var records: Set<RecordKind> = []
         if Self.beats(values.weight, best.weight) { records.insert(.weight) }
@@ -108,6 +110,7 @@ struct RecordBook {
     }
 
     mutating func add(_ set: WorkoutSet, in exercise: WorkoutExercise) {
+        guard set.counts else { return }
         let values = Self.values(of: set, in: exercise)
         var best = bests[SetShape(of: set, in: exercise), default: Bests()]
         best.weight = Self.better(values.weight, best.weight)
@@ -124,7 +127,7 @@ struct RecordBook {
         var book = RecordBook(history: history)
         var marks: [UUID: Set<RecordKind>] = [:]
         for exercise in exercises {
-            for set in exercise.sets where set.isDone {
+            for set in exercise.sets where set.isDone && set.counts {
                 let records = book.records(for: set, in: exercise)
                 if !records.isEmpty { marks[set.id] = records }
                 book.add(set, in: exercise)
