@@ -108,7 +108,8 @@ final class WorkoutStore {
     /// The workout running now, if any. Only one runs at a time.
     private(set) var active: WorkoutSession?
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
-    /// Debug builds open a running workout on launch with `-openWorkout`, for screenshots.
+    /// A workout restored from the database opens full screen on launch. Debug builds also
+    /// start one open with `-openWorkout`, for screenshots.
     var isShowingActive = ProcessInfo.processInfo.arguments.contains("-openWorkout")
     private let now: () -> Date
     /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
@@ -142,6 +143,9 @@ final class WorkoutStore {
             // Previous isn't stored, since it comes from history; fill it in again.
             active.previousLookup = previousSets
             for index in active.exercises.indices { active.fillPrevious(for: index) }
+            // The app opens straight into a running workout. The store is only built on a cold
+            // launch, so coming back from the background leaves a minimised workout minimised.
+            isShowingActive = true
         }
     }
 
