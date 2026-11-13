@@ -6,6 +6,7 @@ import SwiftUI
 struct StatsScreen: View {
     @Environment(\.palette) private var palette
     @Environment(WorkoutStore.self) private var store
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @State private var opened: TrainingStats.ExerciseTrend?
 
     private var stats: TrainingStats { TrainingStats(history: store.history) }
@@ -47,7 +48,7 @@ struct StatsScreen: View {
             HStack(alignment: .top, spacing: 0) {
                 stat("\(stats.thisWeek.workouts)", label: "Workouts", last: "\(stats.lastWeek.workouts)")
                 stat("\(stats.thisWeek.sets)", label: "Sets", last: "\(stats.lastWeek.sets)")
-                stat(Self.kilos(stats.thisWeek.volume), label: "Volume", last: Self.kilos(stats.lastWeek.volume))
+                stat(Self.volume(stats.thisWeek.volume, in: unit), label: "Volume", last: Self.volume(stats.lastWeek.volume, in: unit))
             }
         }
     }
@@ -81,7 +82,7 @@ struct StatsScreen: View {
         VStack(alignment: .leading, spacing: Tokens.Space.m) {
             caption("Weekly volume, last 12 weeks")
             Chart(stats.weeks) { week in
-                BarMark(x: .value("Week", week.start, unit: .weekOfYear), y: .value("Volume", week.volume))
+                BarMark(x: .value("Week", week.start, unit: .weekOfYear), y: .value("Volume", unit.amount(fromKilograms: week.volume)))
                     .foregroundStyle(week.id == stats.weeks.last?.id ? palette.accent : palette.foreground)
                     .cornerRadius(2)
             }
@@ -97,7 +98,7 @@ struct StatsScreen: View {
                 }
             }
             .frame(height: 160)
-            .accessibilityLabel("Weekly volume in kilograms for the last 12 weeks")
+            .accessibilityLabel("Weekly volume in \(unit.name) for the last 12 weeks")
         }
         .padding(.top, Tokens.Space.xxxl)
     }
@@ -162,7 +163,8 @@ struct StatsScreen: View {
             .foregroundStyle(palette.foregroundMuted)
     }
 
-    static func kilos(_ value: Double) -> String { value > 0 ? "\(Int(value).formatted()) kg" : "0 kg" }
+    /// A volume in kilograms shown in `unit`, such as "4,254 kg" or "0 lb".
+    static func volume(_ kilograms: Double, in unit: WeightUnit) -> String { unit.wholeLabelled(max(0, kilograms)) }
 
     /// Such as "+12%", "-3%" or "0%".
     static func percent(_ change: Double) -> String {

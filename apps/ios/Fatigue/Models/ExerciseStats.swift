@@ -15,7 +15,7 @@ enum StatMetric: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Only the volumes have a Weighted / Raw switch. Weight and 1RM are always plain kilograms.
+    /// Only the volumes have a Weighted / Raw switch. Weight and 1RM are always plain weights.
     var canBeWeighted: Bool { self == .setVolume || self == .sessionVolume }
 }
 
@@ -32,11 +32,12 @@ struct StatPoint: Identifiable, Equatable {
 struct StatRecord: Equatable {
     let value: Double
     let date: Date
-    /// Such as "57.5 kg × 8".
+    /// Such as "57.5 kg × 8", in the unit the records were asked for.
     let detail: String
 }
 
-/// The four records under the graph, in plain kilograms, plus the weighted best for the two volumes.
+/// The four records under the graph, in plain kilograms (their details in the unit asked for), plus the
+/// weighted best for the two volumes.
 struct ExerciseRecords: Equatable {
     var heaviestWeight: StatRecord?
     var bestOneRepMax: StatRecord?
@@ -175,8 +176,9 @@ struct ExerciseStats {
 
     // MARK: Records
 
-    /// The records over every set, or only the sets on one line when split.
-    func records(splitBy name: String? = nil, series: String? = nil) -> ExerciseRecords {
+    /// The records over every set, or only the sets on one line when split. Values stay in kilograms;
+    /// each record's detail reads in `unit`.
+    func records(splitBy name: String? = nil, series: String? = nil, in unit: WeightUnit) -> ExerciseRecords {
         var records = ExerciseRecords()
         for session in sessions {
             let sets = session.sets.filter { set in
@@ -185,19 +187,19 @@ struct ExerciseStats {
             }
             for set in sets {
                 if let weight = Self.weight(set) {
-                    Self.keepBest(&records.heaviestWeight, StatRecord(value: weight, date: session.date, detail: Self.describe(set)))
+                    Self.keepBest(&records.heaviestWeight, StatRecord(value: weight, date: session.date, detail: Self.describe(set, in: unit)))
                 }
                 if let value = Self.oneRepMax(of: set) {
-                    Self.keepBest(&records.bestOneRepMax, StatRecord(value: value, date: session.date, detail: Self.describe(set)))
+                    Self.keepBest(&records.bestOneRepMax, StatRecord(value: value, date: session.date, detail: Self.describe(set, in: unit)))
                 }
                 if let value = Self.volume(of: set) {
-                    Self.keepBest(&records.bestSetVolume, StatRecord(value: value, date: session.date, detail: Self.describe(set)))
+                    Self.keepBest(&records.bestSetVolume, StatRecord(value: value, date: session.date, detail: Self.describe(set, in: unit)))
                 }
                 if let value = Self.weightedVolume(of: set, in: session.exercise) {
                     let labels = session.exercise.settings
                         .filter(\.isTracked)
                         .compactMap { setting in session.exercise.value(of: setting, in: set.setup).map { setting.label(for: $0) } }
-                    let detail = ([Self.describe(set)] + labels).joined(separator: " · ")
+                    let detail = ([Self.describe(set, in: unit)] + labels).joined(separator: " · ")
                     Self.keepBest(&records.weightedSetVolume, StatRecord(value: value, date: session.date, detail: detail))
                 }
             }
@@ -219,33 +221,36 @@ struct ExerciseStats {
         let brand: String?
         /// Such as "Heaviest weight" or "Best set volume, weighted".
         let record: String
-        /// Such as "60 kg" or "1,227 weighted".
+        /// Such as "60 kg", "132 lb" or "1,227 weighted".
         let value: String
         var id: String { "\(exercise)|\(brand ?? "")|\(record)" }
     }
 
     /// The records each exercise in `workout` beat, against everything before it on the same exercise and brand.
     /// Doing an exercise or brand for the first time has nothing to beat, so it sets no records.
-    static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout]) -> [Beaten] {
+    /// Weights read in `unit`; weighted scores are unitless.
+    static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout], in unit: WeightUnit) -> [Beaten] {
         var seen: Set<String> = []
         return workout.exercises.flatMap { exercise -> [Beaten] in
             guard seen.insert("\(exercise.name)|\(exercise.brand ?? "")").inserted else { return [] }
-            let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history).records()
-            let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout]).records()
+            let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history).records(in: unit)
+            let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout]).records(in: unit)
             let weighted = exercise.settings.contains(where: \.isTracked)
-            let checks: [(String, KeyPath<ExerciseRecords, StatRecord?>, String, Bool)] = [
-                ("Heaviest weight", \.heaviestWeight, "kg", false),
-                ("Best 1RM", \.bestOneRepMax, "kg", false),
-                ("Best set volume", \.bestSetVolume, "kg", true),
-                ("Best session volume", \.bestSessionVolume, "kg", true),
-                ("Best set volume, weighted", \.weightedSetVolume, "weighted", true),
-                ("Best session volume, weighted", \.weightedSessionVolume, "weighted", true),
+            // Scores are unitless, so only the plain records convert.
+            let checks: [(String, KeyPath<ExerciseRecords, StatRecord?>, Bool, Bool)] = [
+                ("Heaviest weight", \.heaviestWeight, false, false),
+                ("Best 1RM", \.bestOneRepMax, false, false),
+                ("Best set volume", \.bestSetVolume, false, true),
+                ("Best session volume", \.bestSessionVolume, false, true),
+                ("Best set volume, weighted", \.weightedSetVolume, true, true),
+                ("Best session volume, weighted", \.weightedSessionVolume, true, true),
             ]
-            return checks.compactMap { title, path, unit, whole in
-                if unit == "weighted", !weighted { return nil }
+            return checks.compactMap { title, path, isScore, whole in
+                if isScore, !weighted { return nil }
                 guard let old = before[keyPath: path], let new = after[keyPath: path], new.value > old.value else { return nil }
-                let number = new.value.formatted(.number.precision(.fractionLength(0...(whole ? 0 : 1))))
-                return Beaten(exercise: exercise.name, brand: exercise.brand, record: title, value: "\(number) \(unit)")
+                let value = isScore ? new.value : unit.amount(fromKilograms: new.value)
+                let number = value.formatted(.number.precision(.fractionLength(0...(whole ? 0 : 1))))
+                return Beaten(exercise: exercise.name, brand: exercise.brand, record: title, value: "\(number) \(isScore ? "weighted" : unit.rawValue)")
             }
         }
     }
@@ -255,8 +260,8 @@ struct ExerciseStats {
         if best == nil || candidate.value > best!.value { best = candidate }
     }
 
-    /// A set as "57.5 kg × 8", or "40 kg × 45s" for a hold.
-    static func describe(_ set: WorkoutSet) -> String {
-        "\(set.weight.isEmpty ? "-" : "\(set.weight) kg") × \(set.amount)\(set.kind == .hold ? "s" : "")"
+    /// A set as "57.5 kg × 8" (or "127 lb × 8"), or "40 kg × 45s" for a hold.
+    static func describe(_ set: WorkoutSet, in unit: WeightUnit) -> String {
+        "\(Double(set.weight).map(unit.labelled) ?? "-") × \(set.amount)\(set.kind == .hold ? "s" : "")"
     }
 }

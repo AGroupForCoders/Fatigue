@@ -102,7 +102,7 @@ extension WorkoutExercise {
                 WorkoutSet(
                     id: uuid(set.id), setup: setup(kind: set.kind, overrides: set.overrides, settings: stored.settings),
                     weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set), rpe: set.rpe,
-                    previous: "", isDone: set.completedAt != nil
+                    isDone: set.completedAt != nil
                 )
             }
         )

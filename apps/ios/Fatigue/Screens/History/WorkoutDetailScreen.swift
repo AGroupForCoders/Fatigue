@@ -111,6 +111,7 @@ struct WorkoutDetailScreen: View {
 /// One exercise of a finished workout: name and brand, notes, then its sets under their setup headings.
 private struct ExerciseRecord: View {
     @Environment(\.palette) private var palette
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let exercise: WorkoutExercise
     let history: [FinishedWorkout]
     @State private var showingStats = false
@@ -168,7 +169,7 @@ private struct ExerciseRecord: View {
             Text("\(number)")
                 .foregroundStyle(palette.foregroundFaint)
                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
-            Text("\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")")
+            Text(PreviousSet(kind: set.kind, weightKg: Double(set.weight), amount: set.amount).text(in: unit))
                 .foregroundStyle(palette.foreground)
             if let rpe = set.rpe {
                 Text("@\(PlainNumber.string(rpe))")
