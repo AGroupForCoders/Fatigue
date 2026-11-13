@@ -23,6 +23,8 @@ struct WorkoutScreen: View {
     var routine: Routine? = nil
     /// Called from the finish summary when live, or from Save when editing a past workout.
     var onFinish: (FinishDetails) -> Void = { _ in }
+    /// Called with an exercise's name after it's deleted from the library, to take it out of prebuilt workouts.
+    var onDeleteExercise: (String) -> Void = { _ in }
     @State private var confirmingUnticked = false
     @State private var reordering = false
     @State private var finishing: Finishing?
@@ -62,7 +64,10 @@ struct WorkoutScreen: View {
                 let records = RecordBook.marks(for: session.exercises, after: history.filter { $0.startedAt < session.startedAt })
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(session.exercises) { exercise in
-                        ExerciseSection(session: session, exerciseID: exercise.id, records: records, history: history, focus: $focused, onReorder: { reordering = true })
+                        ExerciseSection(
+                            session: session, exerciseID: exercise.id, records: records, history: history, focus: $focused,
+                            onReorder: { reordering = true }, onDeleteExercise: onDeleteExercise
+                        )
                         Hairline()
                     }
                     if session.exercises.isEmpty {
@@ -261,6 +266,8 @@ private struct ExerciseSection: View {
     let history: [FinishedWorkout]
     var focus: FocusState<FocusedCell?>.Binding
     var onReorder: () -> Void = {}
+    /// Takes a deleted exercise out of prebuilt workouts. The library and this workout are handled here.
+    var onDeleteExercise: (String) -> Void = { _ in }
 
     private var exerciseIndex: Int { session.exercises.firstIndex { $0.id == exerciseID } ?? 0 }
     @State private var editingExercise = false
@@ -433,13 +440,16 @@ private struct ExerciseSection: View {
             catalog.saveSettings(settings, for: exercise.name, brand: exercise.brand)
         }
         .sheet(isPresented: $editingExercise) {
+            let known = catalog.info(named: exercise.name)
             ExerciseEditor(
-                editing: catalog.info(named: exercise.name) ?? ExerciseInfo(name: exercise.name, equipment: .other, primaryMuscle: .chest, isCustom: true),
+                editing: known ?? ExerciseInfo(name: exercise.name, equipment: .other, primaryMuscle: .chest, isCustom: true),
                 brand: exercise.brand,
                 setup: BrandSetup(settings: exercise.settings),
                 existingNames: catalog.names,
                 knownBrands: knownBrands,
-                savedSetup: { [name = exercise.name] brand in catalog.setup(for: name, brand: brand) }
+                savedSetup: { [name = exercise.name] brand in catalog.setup(for: name, brand: brand) },
+                workoutsUsingIt: history.count(using: exercise.name),
+                onDelete: known == nil ? nil : { deleteExercise() }
             ) { edit in
                 let oldBrand = exercise.brand
                 catalog.save(edit.info, renamedFrom: exercise.name, brand: edit.brand, setup: edit.setup)
@@ -462,6 +472,17 @@ private struct ExerciseSection: View {
                 }
             }
             .environment(\.palette, palette)
+        }
+    }
+
+    /// Deletes this exercise from the library and prebuilt workouts. It leaves this workout too, unless
+    /// you've ticked sets on it: those stay, and are saved under its name like any other history.
+    private func deleteExercise() {
+        let name = exercise.name
+        guard catalog.delete(exerciseNamed: name) else { return }
+        onDeleteExercise(name)
+        if !exercise.sets.contains(where: \.isDone) {
+            withAnimation(.standard) { session.removeExercise(at: exerciseIndex) }
         }
     }
 

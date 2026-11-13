@@ -480,7 +480,8 @@ nonisolated extension AppDatabase {
                 )
             }
             let setups = try Row.fetchAll(db, sql: """
-                SELECT eb.id, e.name, eb.brand FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id WHERE eb.deleted_at IS NULL
+                SELECT eb.id, e.name, eb.brand FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id
+                WHERE eb.deleted_at IS NULL AND e.deleted_at IS NULL
                 """).map { row in
                 StoredSetup(name: row["name"], brand: row["brand"],
                             settings: try Self.settings("SELECT * FROM setting WHERE exercise_brand_id = ? AND deleted_at IS NULL ORDER BY position", owner: row["id"], in: db))
@@ -491,14 +492,20 @@ nonisolated extension AppDatabase {
 
     /// Saves the library's exercises, and each exercise-and-brand's settings with their next-time values.
     /// A setting that's gone from an exercise is marked deleted rather than removed, so past workouts keep it.
+    /// Creating an exercise with the name of a deleted one brings that row back, since names are unique.
     func save(_ library: StoredLibrary) throws {
         try writer.write { db in
             for exercise in library.exercises {
-                let id = try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [exercise.name]) ?? UUID().uuidString
+                let existing = try Row.fetchOne(db, sql: "SELECT id, deleted_at FROM exercise WHERE name = ?", arguments: [exercise.name])
+                let id = existing.map { $0["id"] as String } ?? UUID().uuidString
+                let wasDeleted = existing.map { ($0["deleted_at"] as Int64?) != nil } ?? false
                 try db.execute(sql: """
                     INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET equipment = excluded.equipment, is_builtin = excluded.is_builtin, updated_at = excluded.updated_at
+                    ON CONFLICT(id) DO UPDATE SET equipment = excluded.equipment, is_builtin = excluded.is_builtin, updated_at = excluded.updated_at, deleted_at = NULL
                     """, arguments: [id, exercise.name, exercise.equipment, exercise.isBuiltin, Self.now])
+                if wasDeleted {
+                    try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE exercise_id = ? AND deleted_at IS NOT NULL", arguments: [Self.now, id])
+                }
                 try db.execute(sql: "DELETE FROM exercise_muscle WHERE exercise_id = ?", arguments: [id])
                 for muscle in exercise.muscles {
                     try db.execute(sql: "INSERT INTO exercise_muscle (exercise_id, muscle, share) VALUES (?, ?, ?)", arguments: [id, muscle.muscle, muscle.share])
@@ -516,6 +523,33 @@ nonisolated extension AppDatabase {
                     arguments: StatementArguments([Self.now, brandId] as [any DatabaseValueConvertible] + kept.map { $0 as any DatabaseValueConvertible })
                 )
             }
+        }
+    }
+
+    /// Marks a custom exercise deleted, along with its brands, their settings and its rows in prebuilt
+    /// workouts, all in one transaction as the data model says. Workouts that used it are left alone,
+    /// so history still shows its name and sets. A built-in exercise is left as it is.
+    func deleteExercise(named name: String) throws {
+        try writer.write { db in
+            guard let id = try String.fetchOne(
+                db, sql: "SELECT id FROM exercise WHERE name = ? AND is_builtin = 0 AND deleted_at IS NULL", arguments: [name]
+            ) else { return }
+            let now = Self.now
+            try db.execute(sql: "UPDATE exercise SET deleted_at = ?, updated_at = ? WHERE id = ?", arguments: [now, now, id])
+            try db.execute(sql: """
+                UPDATE routine_set SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND routine_exercise_id IN (
+                    SELECT re.id FROM routine_exercise re JOIN exercise_brand eb ON eb.id = re.exercise_brand_id WHERE eb.exercise_id = ?
+                )
+                """, arguments: [now, now, id])
+            try db.execute(sql: """
+                UPDATE routine_exercise SET deleted_at = ?, updated_at = ?
+                WHERE deleted_at IS NULL AND exercise_brand_id IN (SELECT id FROM exercise_brand WHERE exercise_id = ?)
+                """, arguments: [now, now, id])
+            try db.execute(sql: """
+                UPDATE setting SET deleted_at = ?, updated_at = ?
+                WHERE deleted_at IS NULL AND exercise_brand_id IN (SELECT id FROM exercise_brand WHERE exercise_id = ?)
+                """, arguments: [now, now, id])
+            try db.execute(sql: "UPDATE exercise_brand SET deleted_at = ?, updated_at = ? WHERE exercise_id = ? AND deleted_at IS NULL", arguments: [now, now, id])
         }
     }
 }

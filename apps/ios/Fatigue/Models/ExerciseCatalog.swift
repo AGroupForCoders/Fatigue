@@ -116,6 +116,17 @@ final class ExerciseCatalog {
         persist()
     }
 
+    /// Takes a custom exercise out of the library. It's marked deleted rather than removed, so workouts
+    /// that used it keep their sets and still show its name. Built-in exercises can't be deleted.
+    @discardableResult
+    func delete(exerciseNamed name: String) -> Bool {
+        guard let index = exercises.firstIndex(where: { $0.name == name }), exercises[index].isCustom else { return false }
+        exercises.remove(at: index)
+        for key in setups.keys where key.hasPrefix(name + "|") { setups[key] = nil }
+        try? database?.deleteExercise(named: name)
+        return true
+    }
+
     private static func key(_ name: String, _ brand: String?) -> String { "\(name)|\(brand ?? "")" }
 }
 
