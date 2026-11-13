@@ -6,27 +6,32 @@ import SwiftUI
 struct ExerciseScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(WorkoutStore.self) private var store
+    @Environment(ExerciseCatalog.self) private var catalog
+    @AppStorage(WeightUnit.storageKey) private var weightUnit: WeightUnit = .kg
     let name: String
     let history: [FinishedWorkout]
 
-    @State private var brand: String?
+    @State private var brand: Brand?
     @State private var metric: StatMetric = .setVolume
     @State private var weighted = true
     /// The setting the graph is split by. Remembered per exercise.
     @State private var splitBy: String?
+    /// Other settings pinned to one line, such as ["Dead stop": "Dead stop"] for notch lines with the dead stop on.
+    @State private var pinned: [String: String] = [:]
+    /// Where on the graph's x axis a finger is, from tapping or dragging. Snapped to the nearest workout.
+    @State private var selection: Date?
 
     /// Opens on `brand`, the one you're on now, or the one you've used most if you've never done it there.
-    init(name: String, brand: String?, history: [FinishedWorkout]) {
+    init(name: String, brand: Brand?, history: [FinishedWorkout]) {
         self.name = name
         self.history = history
         let brands = ExerciseStats.brands(for: name, in: history)
         _brand = State(initialValue: brands.contains(brand) || brands.isEmpty ? brand : brands[0])
-        _splitBy = State(initialValue: UserDefaults.standard.string(forKey: Self.splitKey(name)))
+        _splitBy = State(initialValue: ExerciseSplit.remembered(for: name))
     }
 
-    private static func splitKey(_ name: String) -> String { "exerciseSplit.\(name)" }
-
-    private var brands: [String?] {
+    private var brands: [Brand?] {
         let used = ExerciseStats.brands(for: name, in: history)
         return used.contains(brand) ? used : [brand] + used
     }
@@ -45,13 +50,19 @@ struct ExerciseScreen: View {
         splitBy.flatMap { stats.splittableSettings.contains($0) ? $0 : nil }
     }
 
+    /// The pins that apply: on settings this brand has, other than the split.
+    private var pins: [String: String] {
+        let filterable = stats.filterableSettings(splitBy: split)
+        return pinned.filter { filterable.contains($0.key) }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 if brands.count > 1 { brandPicker }
                 if stats.sessions.isEmpty {
-                    Text("No ticked sets on \(brand ?? "no brand") yet. Finish a workout with this exercise and it shows up here.")
+                    Text("No ticked sets on \(brand?.display ?? "no brand") yet. Finish a workout with this exercise and it shows up here.")
                         .textStyle(Tokens.Typography.body)
                         .foregroundStyle(palette.foregroundMuted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -75,7 +86,14 @@ struct ExerciseScreen: View {
         .animation(.standard, value: isWeighted)
         .animation(.standard, value: split)
         .sensoryFeedback(.selection, trigger: metric)
-        .onChange(of: splitBy) { _, name in UserDefaults.standard.set(name, forKey: Self.splitKey(self.name)) }
+        .animation(.standard, value: pins)
+        .animation(.standard, value: selectedDate)
+        .onChange(of: splitBy) { _, split in
+            ExerciseSplit.remember(split, for: name)
+            if let split { pinned[split] = nil }
+        }
+        .onChange(of: brand) { selection = nil }
+        .onChange(of: metric) { selection = nil }
     }
 
     private var header: some View {
@@ -84,7 +102,7 @@ struct ExerciseScreen: View {
                 Text(name)
                     .textStyle(Tokens.Typography.title)
                     .foregroundStyle(palette.foreground)
-                Text(brand ?? "No brand")
+                Text(brand?.display ?? "No brand")
                     .textStyle(Tokens.Typography.control)
                     .foregroundStyle(palette.foregroundMuted)
             }
@@ -100,16 +118,26 @@ struct ExerciseScreen: View {
     }
 
     private var brandPicker: some View {
-        chips(brands.map { ($0 ?? "No brand", $0) }, selected: brand) { brand = $0 }
+        chips(brands.map { ($0?.display ?? "No brand", $0) }, selected: brand) { brand = $0 }
             .padding(.top, Tokens.Space.l)
     }
 
     // MARK: Graph
 
-    private var points: [StatPoint] { stats.points(metric, weighted: isWeighted, splitBy: split) }
+    /// The graph's points, with plain weights in the unit from Settings. Scores are unitless and stay as they are.
+    private var points: [StatPoint] {
+        stats.points(metric, weighted: isWeighted, splitBy: split, pinned: pins).map {
+            StatPoint(date: $0.date, value: shown($0.value), series: $0.series)
+        }
+    }
 
-    /// "kg" for plain kilograms, "weighted" for scores, so it's never a guess which one a number is.
-    private var unit: String { isWeighted ? "weighted" : "kg" }
+    private var lines: [String] { stats.seriesNames(splitBy: split, pinned: pins) }
+
+    /// A plain kilogram value in the unit from Settings, or a score untouched.
+    private func shown(_ value: Double) -> Double { isWeighted ? value : weightUnit.amount(fromKilograms: value) }
+
+    /// "kg" or "lb" for plain weights, "weighted" for scores, so it's never a guess which one a number is.
+    private var unit: String { isWeighted ? "weighted" : weightUnit.rawValue }
 
     private var lineStyles: [Color] { [palette.foreground, palette.accent, palette.foregroundMuted, palette.foregroundFaint] }
 
@@ -127,6 +155,8 @@ struct ExerciseScreen: View {
             }
             .padding(.top, Tokens.Space.m)
 
+            if split != nil { filterRows }
+
             latest
                 .padding(.top, Tokens.Space.xl)
 
@@ -140,12 +170,43 @@ struct ExerciseScreen: View {
                     .foregroundStyle(palette.foregroundMuted)
                     .padding(.top, Tokens.Space.s)
             }
+
+            if let selectedDate {
+                pointDetails(at: selectedDate)
+                    .padding(.top, Tokens.Space.l)
+                    .transition(.opacity)
+            } else if Set(points.map(\.date)).count > 1 {
+                Text("Tap a point to see its sum.")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundFaint)
+                    .padding(.top, Tokens.Space.m)
+            }
         }
+    }
+
+    /// One row per setting other than the split, to pin it to one line: "Any", "Dead stop", "No dead stop".
+    private var filterRows: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s) {
+            ForEach(stats.filterableSettings(splitBy: split), id: \.self) { setting in
+                HStack(spacing: Tokens.Space.m) {
+                    Text(setting)
+                        .textStyle(Tokens.Typography.caption)
+                        .foregroundStyle(palette.foregroundMuted)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    chips([("Any", String?.none)] + stats.seriesNames(splitBy: setting).map { ($0, String?.some($0)) }, selected: pins[setting]) { line in
+                        pinned[setting] = line
+                        selection = nil
+                    }
+                }
+            }
+        }
+        .padding(.top, Tokens.Space.m)
     }
 
     /// The latest value on each line, under its name.
     private var latest: some View {
-        let names = split == nil ? [""] : stats.seriesNames(splitBy: split)
+        let names = split == nil ? [""] : lines
         return FlowLayout(spacing: Tokens.Space.xl) {
             ForEach(Array(names.enumerated()), id: \.element) { index, series in
                 if let last = points.last(where: { $0.series == series }) {
@@ -173,16 +234,30 @@ struct ExerciseScreen: View {
         }
     }
 
+    /// The workout nearest to where the graph was tapped, if it was.
+    private var selectedDate: Date? {
+        guard let selection else { return nil }
+        return points.map(\.date).min { abs($0.timeIntervalSince(selection)) < abs($1.timeIntervalSince(selection)) }
+    }
+
     @ViewBuilder private var chart: some View {
-        let names = stats.seriesNames(splitBy: split)
-        let base = Chart(points) { point in
-            LineMark(x: .value("Date", point.date), y: .value(metric.title, point.value))
-                .foregroundStyle(by: .value("Line", point.series))
-                .interpolationMethod(.monotone)
-            PointMark(x: .value("Date", point.date), y: .value(metric.title, point.value))
-                .foregroundStyle(by: .value("Line", point.series))
-                .symbolSize(24)
+        let names = lines
+        let base = Chart {
+            ForEach(points) { point in
+                LineMark(x: .value("Date", point.date), y: .value(metric.title, point.value))
+                    .foregroundStyle(by: .value("Line", point.series))
+                    .interpolationMethod(.monotone)
+                PointMark(x: .value("Date", point.date), y: .value(metric.title, point.value))
+                    .foregroundStyle(by: .value("Line", point.series))
+                    .symbolSize(point.date == selectedDate ? 64 : 24)
+            }
+            if let selectedDate {
+                RuleMark(x: .value("Selected", selectedDate))
+                    .foregroundStyle(palette.borderSoft)
+                    .lineStyle(StrokeStyle(lineWidth: Tokens.Size.line))
+            }
         }
+        .chartXSelection(value: $selection)
         .chartLegend(.hidden)
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) { _ in
@@ -219,23 +294,133 @@ struct ExerciseScreen: View {
         .disabled(stats.splittableSettings.isEmpty)
     }
 
+    // MARK: Point detail
+
+    /// The sum behind each line's point on one day, such as "460 × 1.78 × 1.5 = 1,227", with the yes/no
+    /// factors in it to adjust. Changing one re-scores every past set on this exercise and brand.
+    private func pointDetails(at date: Date) -> some View {
+        let details = (split == nil ? [""] : lines).compactMap { series in
+            stats.detail(of: metric, weighted: isWeighted, at: date, series: series, splitBy: split, pinned: pins)
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            Hairline()
+            HStack(alignment: .firstTextBaseline) {
+                Text(date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year()))
+                    .textStyle(Tokens.Typography.body)
+                    .foregroundStyle(palette.foreground)
+                Spacer()
+                Button { selection = nil } label: {
+                    Image(systemName: "xmark")
+                        .imageScale(.small)
+                        .foregroundStyle(palette.foregroundMuted)
+                        .frame(width: Tokens.Size.control, height: Tokens.Size.control)
+                }
+                .buttonStyle(.press)
+                .accessibilityLabel("Hide the sum")
+            }
+            .padding(.top, Tokens.Space.s)
+            ForEach(details, id: \.series) { detail in
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.xs) {
+                        if !detail.series.isEmpty {
+                            Text(detail.series)
+                                .textStyle(Tokens.Typography.caption)
+                                .foregroundStyle(palette.foregroundMuted)
+                            Spacer()
+                        }
+                        Text(format(detail.value))
+                            .textStyle(Tokens.Typography.number)
+                            .monospacedDigit()
+                            .foregroundStyle(palette.foreground)
+                        Text(unit)
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                    }
+                    ForEach(Array(detail.breakdowns.enumerated()), id: \.offset) { _, sum in
+                        HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.m) {
+                            Text(sum.set)
+                                .foregroundStyle(palette.foreground)
+                            Text(isWeighted ? sum.text : "\(Self.format(sum.load, whole: metric.canBeWeighted)) kg")
+                                .foregroundStyle(palette.foregroundMuted)
+                        }
+                        .textStyle(Tokens.Typography.control)
+                        .monospacedDigit()
+                    }
+                }
+                .padding(.vertical, Tokens.Space.m)
+            }
+            if metric.canBeWeighted {
+                factorControls(for: details)
+            }
+            Hairline()
+        }
+    }
+
+    /// Chips to change each yes/no setting's factor in the sum. A number setting's factor comes from its range, so it's only named.
+    @ViewBuilder private func factorControls(for details: [PointDetail]) -> some View {
+        let terms = isWeighted ? details.flatMap(\.breakdowns).flatMap(\.terms) : []
+        let numbers = terms.filter { $0.kind == .number }.reduce(into: [ScoreBreakdown.Term]()) { kept, term in
+            if !kept.contains(where: { $0.label == term.label }) { kept.append(term) }
+        }
+        let adjustable = details.flatMap(\.adjustable).reduce(into: [ExerciseSetting]()) { kept, setting in
+            if !kept.contains(where: { $0.name == setting.name }) { kept.append(setting) }
+        }
+        if !numbers.isEmpty || !adjustable.isEmpty {
+            Hairline(soft: true)
+            VStack(alignment: .leading, spacing: Tokens.Space.m) {
+                ForEach(numbers, id: \.label) { term in
+                    Text("\(term.label) is ×\(ScoreBreakdown.format(factor: term.factor)), from where it sits in its range.")
+                        .textStyle(Tokens.Typography.caption)
+                        .foregroundStyle(palette.foregroundFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(adjustable) { setting in
+                    HStack(spacing: Tokens.Space.m) {
+                        Text(setting.name)
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        chips(Self.factorOptions(current: setting.factor), selected: setting.factor) { factor in
+                            store.setFactor(factor, ofSetting: setting.name, exercise: name, brand: brand)
+                            catalog.setFactor(factor, ofSetting: setting.name, for: name, brand: brand)
+                        }
+                    }
+                }
+                if !adjustable.isEmpty {
+                    Text("Changing a factor re-scores every set on this brand.")
+                        .textStyle(Tokens.Typography.caption)
+                        .foregroundStyle(palette.foregroundFaint)
+                }
+            }
+            .padding(.vertical, Tokens.Space.m)
+        }
+    }
+
+    /// Doesn't count, ×1.25, ×1.5, ×1.75 and ×2, plus the factor it has now if that's a number you typed.
+    static func factorOptions(current: Double?) -> [(String, Double?)] {
+        var factors: [Double] = [1.25, 1.5, 1.75, 2]
+        if let current, !factors.contains(current) { factors.append(current) }
+        return [("Doesn't count", nil)] + factors.sorted().map { ("×\(PlainNumber.string($0))", $0) }
+    }
+
     // MARK: Records
 
-    /// The four records, once per line when the graph is split.
+    /// The four records, once per line when the graph is split. Pinned settings count only the sets on their line.
     private var recordsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionTitle("Records")
             if let split {
-                ForEach(stats.seriesNames(splitBy: split), id: \.self) { series in
+                ForEach(lines, id: \.self) { series in
                     Text(series)
                         .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
                         .padding(.top, Tokens.Space.l)
                         .padding(.bottom, Tokens.Space.xs)
-                    records(stats.records(splitBy: split, series: series))
+                    records(stats.records(splitBy: split, series: series, pinned: pins, in: weightUnit))
                 }
             } else {
-                records(stats.records())
+                records(stats.records(in: weightUnit))
             }
         }
     }
@@ -243,25 +428,26 @@ struct ExerciseScreen: View {
     private func records(_ records: ExerciseRecords) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Hairline()
-            recordRow("Heaviest weight", records.heaviestWeight, unit: "kg")
+            recordRow("Heaviest weight", records.heaviestWeight)
             Hairline(soft: true)
-            recordRow("Best 1RM", records.bestOneRepMax, unit: "kg")
+            recordRow("Best 1RM", records.bestOneRepMax)
             Hairline(soft: true)
-            recordRow("Best set volume", records.bestSetVolume, unit: "kg", weightedBest: records.weightedSetVolume)
+            recordRow("Best set volume", records.bestSetVolume, weightedBest: records.weightedSetVolume)
             Hairline(soft: true)
-            recordRow("Best session volume", records.bestSessionVolume, unit: "kg", weightedBest: records.weightedSessionVolume)
+            recordRow("Best session volume", records.bestSessionVolume, weightedBest: records.weightedSessionVolume)
             Hairline()
         }
     }
 
-    private func recordRow(_ title: String, _ record: StatRecord?, unit: String, weightedBest: StatRecord? = nil) -> some View {
+    /// A plain record in the unit from Settings, with the weighted best under it where there is one.
+    private func recordRow(_ title: String, _ record: StatRecord?, weightedBest: StatRecord? = nil) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .textStyle(Tokens.Typography.body)
                     .foregroundStyle(palette.foreground)
                 Spacer()
-                Text(record.map { "\(Self.format($0.value, whole: title.contains("volume"))) \(unit)" } ?? "-")
+                Text(record.map { "\(Self.format(weightUnit.amount(fromKilograms: $0.value), whole: title.contains("volume"))) \(weightUnit.rawValue)" } ?? "-")
                     .textStyle(Tokens.Typography.number)
                     .monospacedDigit()
                     .foregroundStyle(palette.foreground)
@@ -299,10 +485,11 @@ struct ExerciseScreen: View {
                     .padding(.bottom, Tokens.Space.xs)
                     ForEach(Array(session.sets.enumerated()), id: \.element.id) { index, set in
                         HStack(spacing: Tokens.Space.m) {
-                            Text("\(index + 1)")
-                                .foregroundStyle(palette.foregroundFaint)
+                            Text(session.sets.mark(at: index))
+                                .foregroundStyle(set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
                                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
-                            Text(ExerciseStats.describe(set) + (set.rpe.map { " @\(PlainNumber.string($0))" } ?? ""))
+                                .accessibilityLabel(session.sets.spokenName(at: index))
+                            Text(ExerciseStats.describe(set, in: weightUnit) + (set.rpe.map { " @\(PlainNumber.string($0))" } ?? ""))
                                 .foregroundStyle(palette.foreground)
                             Text(([set.kind == .hold ? "Hold" : nil].compactMap { $0 } + session.exercise.labels(for: set.setup)).joined(separator: " · "))
                                 .foregroundStyle(palette.foregroundMuted)

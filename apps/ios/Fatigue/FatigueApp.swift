@@ -36,6 +36,7 @@ struct FatigueApp: App {
             }
             .environment(auth)
             .environment(workouts)
+            .environment(workouts.media)
             .environment(catalog)
             // The links in reset and verification emails end up here, as fatigue:// URLs.
             .onOpenURL { url in auth.open(url) }

@@ -180,6 +180,27 @@ nonisolated final class AppDatabase: Sendable {
         migrator.registerMigration("v2-setting-factor") { db in
             try db.alter(table: "setting") { t in t.add(column: "factor", .double) }
         }
+        // Where an imported workout came from, such as "hevy|13 Nov 2025, 07:30|Push", so importing the same file again finds it.
+        migrator.registerMigration("v3-workout-import-key") { db in
+            try db.alter(table: "workout") { t in t.add(column: "import_key", .text).indexed() }
+        }
+        // Photos and videos on a workout. The files live in Application Support/media, named after the row's id.
+        // `workout_id` has no foreign key on purpose: saving a workout replaces its row, and a cascade would take
+        // the media with it. Rows are marked deleted rather than removed, so the deletion can sync later.
+        migrator.registerMigration("v4-workout-media") { db in
+            try db.create(table: "workout_media") { t in
+                t.primaryKey("id", .text)
+                t.column("workout_id", .text).notNull().indexed()
+                t.column("kind", .text).notNull()
+                t.column("file_name", .text).notNull()
+                t.column("width", .integer)
+                t.column("height", .integer)
+                t.column("duration_seconds", .double)
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull().defaults(to: 0)
+                t.column("deleted_at", .integer)
+            }
+        }
         return migrator
     }
 }
@@ -203,6 +224,8 @@ nonisolated struct StoredSetting: Sendable, Equatable {
 nonisolated struct StoredSet: Sendable {
     var id: String
     var kind: String
+    /// `normal`, `warmup`, `drop` or `failure`.
+    var setType: String = "normal"
     var weightKg: Double?
     var reps: Int?
     var durationSeconds: Int?
@@ -221,6 +244,8 @@ nonisolated struct StoredExercise: Sendable {
     var id: String
     var name: String
     var brand: String?
+    /// The brand's label, such as the model or the gym. Only meaningful with a brand.
+    var label: String? = nil
     var restSeconds: Int
     var settings: [StoredSetting]
     var notes: [StoredNote]
@@ -236,6 +261,8 @@ nonisolated struct StoredWorkout: Sendable {
     var finishedAt: Date?
     var routineId: String?
     var exercises: [StoredExercise]
+    /// Set on workouts brought in from another app. Nil for ones logged here.
+    var importKey: String? = nil
 }
 
 nonisolated struct StoredRoutine: Sendable {
@@ -259,6 +286,7 @@ nonisolated struct StoredExerciseInfo: Sendable {
 nonisolated struct StoredSetup: Sendable {
     var name: String
     var brand: String?
+    var label: String? = nil
     /// With their next-time values.
     var settings: [StoredSetting]
 }
@@ -266,6 +294,21 @@ nonisolated struct StoredSetup: Sendable {
 nonisolated struct StoredLibrary: Sendable {
     var exercises: [StoredExerciseInfo] = []
     var setups: [StoredSetup] = []
+}
+
+/// A photo or video on a workout. The file itself sits in the media folder under `fileName`.
+nonisolated struct StoredMedia: Sendable, Equatable {
+    var id: String
+    var workoutId: String
+    /// "photo" or "video".
+    var kind: String
+    var fileName: String
+    var width: Int?
+    var height: Int?
+    var durationSeconds: Double?
+    var createdAt: Date
+    /// Set once it's deleted. Only read back when asked for, so sync can push deletions later.
+    var deletedAt: Date? = nil
 }
 
 // MARK: - Reading and writing
@@ -278,7 +321,8 @@ nonisolated extension AppDatabase {
     // MARK: Exercises, brands and settings
 
     /// The id of an exercise on a brand, adding the exercise and the brand the first time.
-    private static func exerciseBrandId(name: String, brand: String?, in db: Database) throws -> String {
+    /// Brand and label together pick the row: the same brand with another label is another row.
+    static func exerciseBrandId(name: String, brand: String?, label: String?, in db: Database) throws -> String {
         let exerciseId: String
         if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [name]) {
             exerciseId = id
@@ -287,11 +331,11 @@ nonisolated extension AppDatabase {
             try db.execute(sql: "INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, 'other', ?, ?)",
                            arguments: [exerciseId, name, ExerciseCatalogNames.builtIn.contains(name), now])
         }
-        if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ?", arguments: [exerciseId, brand]) {
+        if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ? AND label IS ?", arguments: [exerciseId, brand, label]) {
             return id
         }
         let id = UUID().uuidString
-        try db.execute(sql: "INSERT INTO exercise_brand (id, exercise_id, brand, updated_at) VALUES (?, ?, ?, ?)", arguments: [id, exerciseId, brand, now])
+        try db.execute(sql: "INSERT INTO exercise_brand (id, exercise_id, brand, label, updated_at) VALUES (?, ?, ?, ?, ?)", arguments: [id, exerciseId, brand, label, now])
         return id
     }
 
@@ -329,7 +373,8 @@ nonisolated extension AppDatabase {
         try Row.fetchAll(db, sql: sql, arguments: [owner]).map { set in
             let setId: String = set["id"]
             return StoredSet(
-                id: setId, kind: set["kind"], weightKg: set["weight_kg"], reps: set["reps"], durationSeconds: set["duration_seconds"],
+                id: setId, kind: set["kind"], setType: (set["set_type"] as String?) ?? "normal",
+                weightKg: set["weight_kg"], reps: set["reps"], durationSeconds: set["duration_seconds"],
                 rpe: set["rpe"], completedAt: set["completed_at"], overrides: try overrides(overrideSQL, setId, in: db)
             )
         }
@@ -346,7 +391,7 @@ nonisolated extension AppDatabase {
                 return StoredWorkout(
                     id: id, title: row["title"], note: row["note"], startedAt: Self.date(row["started_at"]),
                     finishedAt: finished.map(Self.date), routineId: row["routine_id"],
-                    exercises: try Self.workoutExercises(of: id, in: db)
+                    exercises: try Self.workoutExercises(of: id, in: db), importKey: row["import_key"]
                 )
             }
         }
@@ -354,13 +399,13 @@ nonisolated extension AppDatabase {
 
     private static func workoutExercises(of workoutId: String, in db: Database) throws -> [StoredExercise] {
         try Row.fetchAll(db, sql: """
-            SELECT we.id, we.rest_seconds, e.name, eb.brand FROM workout_exercise we
+            SELECT we.id, we.rest_seconds, e.name, eb.brand, eb.label FROM workout_exercise we
             JOIN exercise_brand eb ON eb.id = we.exercise_brand_id JOIN exercise e ON e.id = eb.exercise_id
             WHERE we.workout_id = ? AND we.deleted_at IS NULL ORDER BY we.position
             """, arguments: [workoutId]).map { row in
             let id: String = row["id"]
             return StoredExercise(
-                id: id, name: row["name"], brand: row["brand"], restSeconds: row["rest_seconds"],
+                id: id, name: row["name"], brand: row["brand"], label: row["label"], restSeconds: row["rest_seconds"],
                 settings: try settings("""
                     SELECT s.id, s.name, s.kind, ws.value, ws.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
                     FROM workout_exercise_setting ws JOIN setting s ON s.id = ws.setting_id
@@ -374,14 +419,15 @@ nonisolated extension AppDatabase {
         }
     }
 
-    /// Replaces one workout and everything under it.
+    /// Replaces one workout and everything under it. An imported workout keeps where it came from when it's edited.
     func save(_ workout: StoredWorkout) throws {
         try writer.write { db in
+            let importKey = try workout.importKey ?? String.fetchOne(db, sql: "SELECT import_key FROM workout WHERE id = ?", arguments: [workout.id])
             try db.execute(sql: "DELETE FROM workout WHERE id = ?", arguments: [workout.id])
-            try db.execute(sql: "INSERT INTO workout (id, title, note, started_at, finished_at, routine_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                           arguments: [workout.id, workout.title, workout.note, Self.millis(workout.startedAt), workout.finishedAt.map(Self.millis), workout.routineId, Self.now])
+            try db.execute(sql: "INSERT INTO workout (id, title, note, started_at, finished_at, routine_id, import_key, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                           arguments: [workout.id, workout.title, workout.note, Self.millis(workout.startedAt), workout.finishedAt.map(Self.millis), workout.routineId, importKey, Self.now])
             for (position, exercise) in workout.exercises.enumerated() {
-                let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, in: db)
+                let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, label: exercise.label, in: db)
                 try db.execute(sql: "INSERT INTO workout_exercise (id, workout_id, exercise_brand_id, position, rest_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                                arguments: [exercise.id, workout.id, brandId, position, exercise.restSeconds, Self.now])
                 for (index, setting) in exercise.settings.enumerated() {
@@ -395,9 +441,9 @@ nonisolated extension AppDatabase {
                 }
                 for (index, set) in exercise.sets.enumerated() {
                     try db.execute(sql: """
-                        INSERT INTO workout_set (id, workout_exercise_id, position, kind, weight_kg, reps, duration_seconds, rpe, completed_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [set.id, exercise.id, index, set.kind, set.weightKg, set.reps, set.durationSeconds, set.rpe, set.completedAt, Self.now])
+                        INSERT INTO workout_set (id, workout_exercise_id, position, kind, set_type, weight_kg, reps, duration_seconds, rpe, completed_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [set.id, exercise.id, index, set.kind, set.setType, set.weightKg, set.reps, set.durationSeconds, set.rpe, set.completedAt, Self.now])
                     for (settingId, value) in set.overrides {
                         try db.execute(sql: "INSERT INTO workout_set_override (workout_set_id, setting_id, value) VALUES (?, ?, ?)", arguments: [set.id, settingId, value])
                     }
@@ -417,13 +463,13 @@ nonisolated extension AppDatabase {
             try Row.fetchAll(db, sql: "SELECT * FROM routine WHERE deleted_at IS NULL ORDER BY position").map { row in
                 let id: String = row["id"]
                 let exercises = try Row.fetchAll(db, sql: """
-                    SELECT re.id, re.rest_seconds, e.name, eb.brand FROM routine_exercise re
+                    SELECT re.id, re.rest_seconds, e.name, eb.brand, eb.label FROM routine_exercise re
                     JOIN exercise_brand eb ON eb.id = re.exercise_brand_id JOIN exercise e ON e.id = eb.exercise_id
                     WHERE re.routine_id = ? AND re.deleted_at IS NULL ORDER BY re.position
                     """, arguments: [id]).map { row in
                     let exerciseId: String = row["id"]
                     return StoredExercise(
-                        id: exerciseId, name: row["name"], brand: row["brand"], restSeconds: row["rest_seconds"],
+                        id: exerciseId, name: row["name"], brand: row["brand"], label: row["label"], restSeconds: row["rest_seconds"],
                         settings: try Self.settings("""
                             SELECT s.id, s.name, s.kind, rs.value, rs.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
                             FROM routine_exercise_setting rs JOIN setting s ON s.id = rs.setting_id
@@ -446,7 +492,7 @@ nonisolated extension AppDatabase {
             for (position, routine) in routines.enumerated() {
                 try db.execute(sql: "INSERT INTO routine (id, name, position, updated_at) VALUES (?, ?, ?, ?)", arguments: [routine.id, routine.name, position, Self.now])
                 for (index, exercise) in routine.exercises.enumerated() {
-                    let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, in: db)
+                    let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, label: exercise.label, in: db)
                     try db.execute(sql: "INSERT INTO routine_exercise (id, routine_id, exercise_brand_id, position, rest_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                                    arguments: [exercise.id, routine.id, brandId, index, exercise.restSeconds, Self.now])
                     for (settingIndex, setting) in exercise.settings.enumerated() {
@@ -456,15 +502,63 @@ nonisolated extension AppDatabase {
                     }
                     for (setIndex, set) in exercise.sets.enumerated() {
                         try db.execute(sql: """
-                            INSERT INTO routine_set (id, routine_exercise_id, position, kind, weight_kg, reps, duration_seconds, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """, arguments: [set.id, exercise.id, setIndex, set.kind, set.weightKg, set.reps, set.durationSeconds, Self.now])
+                            INSERT INTO routine_set (id, routine_exercise_id, position, kind, set_type, weight_kg, reps, duration_seconds, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, arguments: [set.id, exercise.id, setIndex, set.kind, set.setType, set.weightKg, set.reps, set.durationSeconds, Self.now])
                         for (settingId, value) in set.overrides {
                             try db.execute(sql: "INSERT INTO routine_set_override (routine_set_id, setting_id, value) VALUES (?, ?, ?)", arguments: [set.id, settingId, value])
                         }
                     }
                 }
             }
+        }
+    }
+
+    // MARK: Media
+
+    /// Every photo and video, oldest first within a workout. Deleted ones are left out unless asked for.
+    func media(includingDeleted: Bool = false) throws -> [StoredMedia] {
+        try writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM workout_media \(includingDeleted ? "" : "WHERE deleted_at IS NULL ")ORDER BY created_at, id").map { row in
+                let deleted: Int64? = row["deleted_at"]
+                return StoredMedia(
+                    id: row["id"], workoutId: row["workout_id"], kind: row["kind"], fileName: row["file_name"],
+                    width: row["width"], height: row["height"], durationSeconds: row["duration_seconds"], createdAt: Self.date(row["created_at"]),
+                    deletedAt: deleted.map(Self.date)
+                )
+            }
+        }
+    }
+
+    func insert(_ media: StoredMedia) throws {
+        try writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO workout_media (id, workout_id, kind, file_name, width, height, duration_seconds, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [media.id, media.workoutId, media.kind, media.fileName, media.width, media.height, media.durationSeconds,
+                                 Self.millis(media.createdAt), Self.now])
+        }
+    }
+
+    /// Marks one photo or video deleted. The row stays so the deletion can sync later.
+    func deleteMedia(id: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE workout_media SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", arguments: [Self.now, Self.now, id])
+        }
+    }
+
+    /// Marks everything on a workout deleted, for when the workout itself goes.
+    func deleteMedia(workoutId: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE workout_media SET deleted_at = ?, updated_at = ? WHERE workout_id = ? AND deleted_at IS NULL", arguments: [Self.now, Self.now, workoutId])
+        }
+    }
+
+    /// Moves everything on one workout to another. Finishing saves the workout under a new id, so what was
+    /// added on the finish summary follows it into history.
+    func moveMedia(from workoutId: String, to newWorkoutId: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE workout_media SET workout_id = ?, updated_at = ? WHERE workout_id = ? AND deleted_at IS NULL", arguments: [newWorkoutId, Self.now, workoutId])
         }
     }
 
@@ -480,9 +574,10 @@ nonisolated extension AppDatabase {
                 )
             }
             let setups = try Row.fetchAll(db, sql: """
-                SELECT eb.id, e.name, eb.brand FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id WHERE eb.deleted_at IS NULL
+                SELECT eb.id, e.name, eb.brand, eb.label FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id
+                WHERE eb.deleted_at IS NULL AND e.deleted_at IS NULL
                 """).map { row in
-                StoredSetup(name: row["name"], brand: row["brand"],
+                StoredSetup(name: row["name"], brand: row["brand"], label: row["label"],
                             settings: try Self.settings("SELECT * FROM setting WHERE exercise_brand_id = ? AND deleted_at IS NULL ORDER BY position", owner: row["id"], in: db))
             }
             return StoredLibrary(exercises: exercises, setups: setups.filter { !$0.settings.isEmpty })
@@ -491,21 +586,27 @@ nonisolated extension AppDatabase {
 
     /// Saves the library's exercises, and each exercise-and-brand's settings with their next-time values.
     /// A setting that's gone from an exercise is marked deleted rather than removed, so past workouts keep it.
+    /// Creating an exercise with the name of a deleted one brings that row back, since names are unique.
     func save(_ library: StoredLibrary) throws {
         try writer.write { db in
             for exercise in library.exercises {
-                let id = try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [exercise.name]) ?? UUID().uuidString
+                let existing = try Row.fetchOne(db, sql: "SELECT id, deleted_at FROM exercise WHERE name = ?", arguments: [exercise.name])
+                let id = existing.map { $0["id"] as String } ?? UUID().uuidString
+                let wasDeleted = existing.map { ($0["deleted_at"] as Int64?) != nil } ?? false
                 try db.execute(sql: """
                     INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET equipment = excluded.equipment, is_builtin = excluded.is_builtin, updated_at = excluded.updated_at
+                    ON CONFLICT(id) DO UPDATE SET equipment = excluded.equipment, is_builtin = excluded.is_builtin, updated_at = excluded.updated_at, deleted_at = NULL
                     """, arguments: [id, exercise.name, exercise.equipment, exercise.isBuiltin, Self.now])
+                if wasDeleted {
+                    try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE exercise_id = ? AND deleted_at IS NOT NULL", arguments: [Self.now, id])
+                }
                 try db.execute(sql: "DELETE FROM exercise_muscle WHERE exercise_id = ?", arguments: [id])
                 for muscle in exercise.muscles {
                     try db.execute(sql: "INSERT INTO exercise_muscle (exercise_id, muscle, share) VALUES (?, ?, ?)", arguments: [id, muscle.muscle, muscle.share])
                 }
             }
             for setup in library.setups {
-                let brandId = try Self.exerciseBrandId(name: setup.name, brand: setup.brand, in: db)
+                let brandId = try Self.exerciseBrandId(name: setup.name, brand: setup.brand, label: setup.label, in: db)
                 for (index, setting) in setup.settings.enumerated() {
                     try Self.upsert(setting, exerciseBrandId: brandId, position: index, withValue: true, in: db)
                 }
@@ -516,6 +617,33 @@ nonisolated extension AppDatabase {
                     arguments: StatementArguments([Self.now, brandId] as [any DatabaseValueConvertible] + kept.map { $0 as any DatabaseValueConvertible })
                 )
             }
+        }
+    }
+
+    /// Marks a custom exercise deleted, along with its brands, their settings and its rows in prebuilt
+    /// workouts, all in one transaction as the data model says. Workouts that used it are left alone,
+    /// so history still shows its name and sets. A built-in exercise is left as it is.
+    func deleteExercise(named name: String) throws {
+        try writer.write { db in
+            guard let id = try String.fetchOne(
+                db, sql: "SELECT id FROM exercise WHERE name = ? AND is_builtin = 0 AND deleted_at IS NULL", arguments: [name]
+            ) else { return }
+            let now = Self.now
+            try db.execute(sql: "UPDATE exercise SET deleted_at = ?, updated_at = ? WHERE id = ?", arguments: [now, now, id])
+            try db.execute(sql: """
+                UPDATE routine_set SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND routine_exercise_id IN (
+                    SELECT re.id FROM routine_exercise re JOIN exercise_brand eb ON eb.id = re.exercise_brand_id WHERE eb.exercise_id = ?
+                )
+                """, arguments: [now, now, id])
+            try db.execute(sql: """
+                UPDATE routine_exercise SET deleted_at = ?, updated_at = ?
+                WHERE deleted_at IS NULL AND exercise_brand_id IN (SELECT id FROM exercise_brand WHERE exercise_id = ?)
+                """, arguments: [now, now, id])
+            try db.execute(sql: """
+                UPDATE setting SET deleted_at = ?, updated_at = ?
+                WHERE deleted_at IS NULL AND exercise_brand_id IN (SELECT id FROM exercise_brand WHERE exercise_id = ?)
+                """, arguments: [now, now, id])
+            try db.execute(sql: "UPDATE exercise_brand SET deleted_at = ?, updated_at = ? WHERE exercise_id = ? AND deleted_at IS NULL", arguments: [now, now, id])
         }
     }
 }

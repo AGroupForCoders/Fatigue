@@ -5,11 +5,16 @@
   "compatibility_date": "2026-11-01",
   // postgres.js needs Node's net and crypto modules, which Workers provide behind this flag.
   "compatibility_flags": ["nodejs_compat"],
-  // Plain settings for the deployed Worker; the URL and sender are placeholders until the API is deployed
-  // (see README). Locally, .env overrides them. Secrets (DATABASE_URL, BETTER_AUTH_SECRET, RESEND_API_KEY)
-  // are never here: set them with `wrangler secret put`.
+  // Serve the Worker at https://fatigue-api.<account>.workers.dev until there is a custom domain.
+  "workers_dev": true,
+  // Keep request logs and errors in the Cloudflare dashboard. Workers Logs is included on the paid plan.
+  "observability": { "enabled": true },
+  // Readable stack traces in those logs.
+  "upload_source_maps": true,
+  // Plain settings for the email links. The sender is a placeholder until the Resend domain is set up (see README).
+  // Locally, .env overrides them. DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL and RESEND_API_KEY are
+  // secrets set with `wrangler secret put`, never `vars` in this file.
   "vars": {
-    "BETTER_AUTH_URL": "https://fatigue-api.example.workers.dev",
     "EMAIL_FROM": "Fatigue <no-reply@example.com>",
     "APP_DEEP_LINK_SCHEME": "fatigue"
   }

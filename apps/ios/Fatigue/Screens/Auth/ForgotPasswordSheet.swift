@@ -66,7 +66,7 @@ struct ForgotPasswordSheet: View {
 
     private func submit() {
         guard canSubmit else { return }
-        focused = nil
+        focused = false
         isWorking = true
         error = nil
         Task {

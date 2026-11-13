@@ -20,7 +20,7 @@ struct TrainingStats {
     /// An exercise you've done, on the brand you've used most, with its best set volume per workout.
     struct ExerciseTrend: Identifiable, Equatable {
         let name: String
-        let brand: String?
+        let brand: Brand?
         /// Best set volume per workout, oldest first, at most the last eight.
         let values: [Double]
         let lastDone: Date
