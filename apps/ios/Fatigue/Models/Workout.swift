@@ -9,6 +9,39 @@ enum SetKind: String {
     var name: String { self == .reps ? "Reps" : "Hold" }
 }
 
+/// What kind of effort a set was. Stored as `set_type`, with the data model's values as raw values.
+/// Warm-ups never count towards volume, records or scores. Drop sets and sets to failure count like
+/// normal sets; the type is kept so a fatigue meter can weigh them differently later.
+enum SetType: String, CaseIterable {
+    case normal
+    case warmup
+    case drop
+    case failure
+
+    /// How it reads in the type menu.
+    var name: String {
+        switch self {
+        case .normal: "Normal"
+        case .warmup: "Warm-up"
+        case .drop: "Drop set"
+        case .failure: "Failure"
+        }
+    }
+
+    /// The letter shown in place of the set's number. A normal set shows its number.
+    var letter: String? {
+        switch self {
+        case .normal: nil
+        case .warmup: "W"
+        case .drop: "D"
+        case .failure: "F"
+        }
+    }
+
+    /// Whether sets of this type count towards volume, records and scores.
+    var counts: Bool { self != .warmup }
+}
+
 /// A setting on an exercise, shown as a row under its name: seat height, notch, dead stop.
 /// Every set uses the exercise's value unless its group overrides it from the group heading,
 /// so a hold at notch 8 sits under "Hold · Notch 8" while the rest of the sets use notch 7.
@@ -88,6 +121,7 @@ struct SetSetup: Hashable {
 struct WorkoutSet: Identifiable {
     var id = UUID()
     var setup: SetSetup
+    var type: SetType = .normal
     var weight: String
     /// Reps for a rep set, seconds for a hold.
     var amount: String
@@ -97,6 +131,8 @@ struct WorkoutSet: Identifiable {
     var isDone = false
 
     var kind: SetKind { setup.kind }
+    /// Whether this set counts towards volume, records and scores. Warm-ups don't.
+    var counts: Bool { type.counts }
 }
 
 /// A free-form note under an exercise's name. An exercise can have several.
@@ -263,6 +299,28 @@ extension WorkoutExercise {
     }
 }
 
+/// Set numbering. Warm-ups show "W" and don't take a number, so the first working set is 1. Drop sets and
+/// sets to failure keep their place in the count but show "D" or "F", so the set after a drop set is still
+/// the next number: W, 1, 2, D, 4.
+extension Array where Element == WorkoutSet {
+    /// What the set at `index` shows in place of a number: its number, or its type's letter.
+    func mark(at index: Int) -> String {
+        self[index].type.letter ?? String(number(at: index) ?? 0)
+    }
+
+    /// The set's number among the sets that aren't warm-ups, starting at 1. Nil for a warm-up.
+    func number(at index: Int) -> Int? {
+        guard self[index].type != .warmup else { return nil }
+        return self[...index].filter { $0.type != .warmup }.count
+    }
+
+    /// How the set is read out, such as "Set 3", "Set 3, drop set" or "Warm-up set".
+    func spokenName(at index: Int) -> String {
+        guard let number = number(at: index) else { return "Warm-up set" }
+        return self[index].type == .normal ? "Set \(number)" : "Set \(number), \(self[index].type.name.lowercased())"
+    }
+}
+
 /// A rest countdown that started when a set was ticked.
 struct RestTimer: Equatable {
     var endsAt: Date
@@ -352,6 +410,12 @@ final class WorkoutSession {
     /// Changes the setup of every set in a group, such as moving them all to notch 8.
     func changeSetup(of setIndices: [Int], in exerciseIndex: Int, to setup: SetSetup) {
         for index in setIndices { exercises[exerciseIndex].sets[index].setup = setup }
+    }
+
+    /// Marks a set as normal, a warm-up, a drop set or a set to failure.
+    func changeType(of setID: UUID, to type: SetType) {
+        guard let place = place(of: setID) else { return }
+        exercises[place.exercise].sets[place.set].type = type
     }
 
     /// Adds an empty note to an exercise and returns its id, so the screen can put the cursor in it.

@@ -67,9 +67,9 @@ private func setup(kind: String, overrides: [String: Double], settings: [StoredS
     return SetSetup(kind: SetKind(rawValue: kind) ?? .reps, values: values)
 }
 
-private func storedSet(id: String, kind: SetKind, weight: String, amount: String, rpe: Double?, completedAt: Int64?, overrides: [String: Double]) -> StoredSet {
+private func storedSet(id: String, kind: SetKind, type: SetType, weight: String, amount: String, rpe: Double?, completedAt: Int64?, overrides: [String: Double]) -> StoredSet {
     StoredSet(
-        id: id, kind: kind.rawValue, weightKg: number(weight),
+        id: id, kind: kind.rawValue, setType: type.rawValue, weightKg: number(weight),
         reps: kind == .reps ? whole(amount) : nil, durationSeconds: kind == .hold ? whole(amount) : nil,
         rpe: rpe, completedAt: completedAt, overrides: overrides
     )
@@ -87,7 +87,7 @@ extension WorkoutExercise {
             settings: settings.map(\.stored),
             notes: notes.map { StoredNote(id: $0.id.uuidString, text: $0.text) },
             sets: sets.map { set in
-                storedSet(id: set.id.uuidString, kind: set.kind, weight: set.weight, amount: set.amount, rpe: set.rpe,
+                storedSet(id: set.id.uuidString, kind: set.kind, type: set.type, weight: set.weight, amount: set.amount, rpe: set.rpe,
                           completedAt: set.isDone ? completedAt : nil, overrides: overrides(set.setup, settings: settings))
             }
         )
@@ -101,7 +101,7 @@ extension WorkoutExercise {
             sets: stored.sets.map { set in
                 WorkoutSet(
                     id: uuid(set.id), setup: setup(kind: set.kind, overrides: set.overrides, settings: stored.settings),
-                    weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set), rpe: set.rpe,
+                    type: SetType(rawValue: set.setType) ?? .normal, weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set), rpe: set.rpe,
                     previous: "", isDone: set.completedAt != nil
                 )
             }
@@ -159,7 +159,7 @@ extension Routine {
                 settings: exercise.settings.map(\.stored), notes: [],
                 sets: exercise.sets.map { set in
                     // Planned sets have no id in the app, so each save gives them a new one.
-                    storedSet(id: UUID().uuidString, kind: set.setup.kind, weight: set.weight, amount: set.amount, rpe: nil,
+                    storedSet(id: UUID().uuidString, kind: set.setup.kind, type: set.type, weight: set.weight, amount: set.amount, rpe: nil,
                               completedAt: nil, overrides: overrides(set.setup, settings: exercise.settings))
                 }
             )
@@ -174,7 +174,7 @@ extension Routine {
                 sets: exercise.sets.map { set in
                     RoutineSet(
                         setup: setup(kind: set.kind, overrides: set.overrides, settings: exercise.settings),
-                        weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set)
+                        type: SetType(rawValue: set.setType) ?? .normal, weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set)
                     )
                 }
             )

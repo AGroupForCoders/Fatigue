@@ -203,6 +203,8 @@ nonisolated struct StoredSetting: Sendable, Equatable {
 nonisolated struct StoredSet: Sendable {
     var id: String
     var kind: String
+    /// `normal`, `warmup`, `drop` or `failure`.
+    var setType: String = "normal"
     var weightKg: Double?
     var reps: Int?
     var durationSeconds: Int?
@@ -333,7 +335,8 @@ nonisolated extension AppDatabase {
         try Row.fetchAll(db, sql: sql, arguments: [owner]).map { set in
             let setId: String = set["id"]
             return StoredSet(
-                id: setId, kind: set["kind"], weightKg: set["weight_kg"], reps: set["reps"], durationSeconds: set["duration_seconds"],
+                id: setId, kind: set["kind"], setType: (set["set_type"] as String?) ?? "normal",
+                weightKg: set["weight_kg"], reps: set["reps"], durationSeconds: set["duration_seconds"],
                 rpe: set["rpe"], completedAt: set["completed_at"], overrides: try overrides(overrideSQL, setId, in: db)
             )
         }
@@ -399,9 +402,9 @@ nonisolated extension AppDatabase {
                 }
                 for (index, set) in exercise.sets.enumerated() {
                     try db.execute(sql: """
-                        INSERT INTO workout_set (id, workout_exercise_id, position, kind, weight_kg, reps, duration_seconds, rpe, completed_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [set.id, exercise.id, index, set.kind, set.weightKg, set.reps, set.durationSeconds, set.rpe, set.completedAt, Self.now])
+                        INSERT INTO workout_set (id, workout_exercise_id, position, kind, set_type, weight_kg, reps, duration_seconds, rpe, completed_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [set.id, exercise.id, index, set.kind, set.setType, set.weightKg, set.reps, set.durationSeconds, set.rpe, set.completedAt, Self.now])
                     for (settingId, value) in set.overrides {
                         try db.execute(sql: "INSERT INTO workout_set_override (workout_set_id, setting_id, value) VALUES (?, ?, ?)", arguments: [set.id, settingId, value])
                     }
@@ -460,9 +463,9 @@ nonisolated extension AppDatabase {
                     }
                     for (setIndex, set) in exercise.sets.enumerated() {
                         try db.execute(sql: """
-                            INSERT INTO routine_set (id, routine_exercise_id, position, kind, weight_kg, reps, duration_seconds, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """, arguments: [set.id, exercise.id, setIndex, set.kind, set.weightKg, set.reps, set.durationSeconds, Self.now])
+                            INSERT INTO routine_set (id, routine_exercise_id, position, kind, set_type, weight_kg, reps, duration_seconds, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, arguments: [set.id, exercise.id, setIndex, set.kind, set.setType, set.weightKg, set.reps, set.durationSeconds, Self.now])
                         for (settingId, value) in set.overrides {
                             try db.execute(sql: "INSERT INTO routine_set_override (routine_set_id, setting_id, value) VALUES (?, ?, ?)", arguments: [set.id, settingId, value])
                         }

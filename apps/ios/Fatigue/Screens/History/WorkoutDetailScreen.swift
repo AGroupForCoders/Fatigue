@@ -155,7 +155,7 @@ private struct ExerciseRecord: View {
                             .padding(.top, Tokens.Space.s)
                     }
                     ForEach(group.setIndices, id: \.self) { index in
-                        setLine(number: index + 1, set: exercise.sets[index])
+                        setLine(mark: exercise.sets.mark(at: index), spoken: exercise.sets.spokenName(at: index), set: exercise.sets[index])
                     }
                 }
             }
@@ -163,11 +163,13 @@ private struct ExerciseRecord: View {
         .padding(.vertical, Tokens.Space.xl)
     }
 
-    private func setLine(number: Int, set: WorkoutSet) -> some View {
+    /// `mark` is the set's number, or W, D or F for a warm-up, drop set or set to failure.
+    private func setLine(mark: String, spoken: String, set: WorkoutSet) -> some View {
         HStack(spacing: Tokens.Space.l) {
-            Text("\(number)")
-                .foregroundStyle(palette.foregroundFaint)
+            Text(mark)
+                .foregroundStyle(set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
+                .accessibilityLabel(spoken)
             Text("\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")")
                 .foregroundStyle(palette.foreground)
             if let rpe = set.rpe {

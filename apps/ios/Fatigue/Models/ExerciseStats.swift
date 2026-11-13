@@ -55,7 +55,10 @@ struct ExerciseStats {
         let workoutTitle: String
         let exercise: WorkoutExercise
         var id: Date { date }
+        /// Every ticked set, warm-ups included, for the history list.
         var sets: [WorkoutSet] { exercise.sets.filter(\.isDone) }
+        /// The ticked sets that count towards the graph and records: everything but warm-ups.
+        var countedSets: [WorkoutSet] { sets.filter(\.counts) }
     }
 
     let name: String
@@ -88,14 +91,18 @@ struct ExerciseStats {
 
     // MARK: Values
 
-    private static func weight(_ set: WorkoutSet) -> Double? { Double(set.weight) }
+    /// Nothing about a warm-up counts: not its weight, volume or 1RM.
+    private static func weight(_ set: WorkoutSet) -> Double? {
+        guard set.counts else { return nil }
+        return Double(set.weight)
+    }
 
     private static func reps(_ set: WorkoutSet) -> Double? {
-        guard set.kind == .reps, let reps = Double(set.amount), reps > 0 else { return nil }
+        guard set.counts, set.kind == .reps, let reps = Double(set.amount), reps > 0 else { return nil }
         return reps
     }
 
-    /// Weight × reps, for loaded rep sets. Holds and unloaded sets have no volume.
+    /// Weight × reps, for loaded rep sets. Holds, unloaded sets and warm-ups have no volume.
     static func volume(of set: WorkoutSet) -> Double? {
         guard let weight = weight(set), let reps = reps(set) else { return nil }
         return weight * reps
@@ -149,14 +156,14 @@ struct ExerciseStats {
         return setting.label(for: value)
     }
 
-    /// The graph's points, one per workout and line.
+    /// The graph's points, one per workout and line. Warm-ups are left out.
     func points(_ metric: StatMetric, weighted: Bool, splitBy name: String? = nil) -> [StatPoint] {
         sessions.flatMap { session -> [StatPoint] in
             guard let name else {
-                return Self.value(metric, weighted: weighted, of: session.sets, in: session.exercise)
+                return Self.value(metric, weighted: weighted, of: session.countedSets, in: session.exercise)
                     .map { [StatPoint(date: session.date, value: $0, series: "")] } ?? []
             }
-            let grouped = Dictionary(grouping: session.sets) { Self.series(of: $0, in: session.exercise, splitBy: name) }
+            let grouped = Dictionary(grouping: session.countedSets) { Self.series(of: $0, in: session.exercise, splitBy: name) }
             return grouped.compactMap { series, sets in
                 guard let series else { return nil }
                 return Self.value(metric, weighted: weighted, of: sets, in: session.exercise)
@@ -169,17 +176,17 @@ struct ExerciseStats {
     /// The lines when split, in the order they sort.
     func seriesNames(splitBy name: String?) -> [String] {
         guard let name else { return [] }
-        let names = sessions.flatMap { session in session.sets.compactMap { Self.series(of: $0, in: session.exercise, splitBy: name) } }
+        let names = sessions.flatMap { session in session.countedSets.compactMap { Self.series(of: $0, in: session.exercise, splitBy: name) } }
         return Array(Set(names)).sorted()
     }
 
     // MARK: Records
 
-    /// The records over every set, or only the sets on one line when split.
+    /// The records over every set, or only the sets on one line when split. Warm-ups never set a record.
     func records(splitBy name: String? = nil, series: String? = nil) -> ExerciseRecords {
         var records = ExerciseRecords()
         for session in sessions {
-            let sets = session.sets.filter { set in
+            let sets = session.countedSets.filter { set in
                 guard let name, let series else { return true }
                 return Self.series(of: set, in: session.exercise, splitBy: name) == series
             }
