@@ -92,9 +92,11 @@ Every set gets a score, so one number shows whether you beat last time even when
 
 ## Hevy import
 
-- You can import a Hevy CSV export.
-- Imported exercises are matched to the built-in list by name. Anything unmatched becomes a custom exercise.
+- You can import a Hevy CSV export from Settings. The file is read on the phone and written straight into the local database.
+- Each Hevy workout becomes a finished workout with its date, description, exercises, notes and sets. Warm-up, drop and failure sets keep their type. Weights in a pounds export are converted to kilograms.
+- Imported exercises are matched to the library by name, ignoring case, punctuation and the equipment in brackets, with a short list of aliases for common Hevy names. Anything unmatched becomes a custom exercise with a guessed muscle, and the import shows you the list afterwards.
 - Hevy does not record brands, so imported exercises are on no brand. You can add a brand to them afterwards.
+- A workout's id is built from its start time and name, so importing the same file again skips what's already there.
 
 ## How it should feel
 
