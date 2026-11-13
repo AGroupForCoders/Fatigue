@@ -7,6 +7,8 @@ struct FinishDetails {
     var gym: Gym? = nil
     var unticked: UntickedSets
     var updateRoutine: Bool
+    /// Who to share it with, or nil to keep it to yourself.
+    var share: PostVisibility? = nil
 }
 
 /// Shown when you finish a workout: how it went, a name and description to save it under, photos and
@@ -15,6 +17,10 @@ struct FinishSummary: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(MediaStore.self) private var media
+    @Environment(SocialStore.self) private var social
+    /// Remembers whether you shared last time, so it starts the way you usually finish.
+    @AppStorage("social.shareOnFinish") private var shareOnFinish = false
+    @State private var shareVisibility: PostVisibility?
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let session: WorkoutSession
     let unticked: UntickedSets
@@ -118,6 +124,11 @@ struct FinishSummary: View {
                             .padding(.top, Tokens.Space.l)
                     }
 
+                    if !workout.exercises.isEmpty, let profile = social.myProfile {
+                        Hairline().padding(.top, Tokens.Space.xl)
+                        shareRow(defaultVisibility: profile.defaultVisibility)
+                    }
+
                     if let changedRoutine {
                         Hairline().padding(.top, Tokens.Space.xl)
                         HStack(alignment: .center, spacing: Tokens.Space.m) {
@@ -150,7 +161,8 @@ struct FinishSummary: View {
             // Saving waits for media still being copied in, so nothing is left behind under the running workout's id.
             let addingMedia = media.importing.contains(session.id)
             PrimaryButton(title: addingMedia ? "Adding media…" : workout.exercises.isEmpty ? "Finish without saving" : "Save workout") {
-                onSave(FinishDetails(title: title, description: description, gym: gym, unticked: unticked, updateRoutine: updateRoutine))
+                let share = shareOnFinish && social.myProfile != nil ? (shareVisibility ?? social.myProfile?.defaultVisibility) : nil
+                onSave(FinishDetails(title: title, description: description, gym: gym, unticked: unticked, updateRoutine: updateRoutine, share: share))
             }
             .disabled(addingMedia)
             .opacity(addingMedia ? 0.5 : 1)
@@ -162,6 +174,36 @@ struct FinishSummary: View {
         .overlay { GrainOverlay() }
         .presentationDetents([.large])
         .presentationBackground(palette.background)
+    }
+
+    /// Whether to share the workout to your feed and, if so, with whom.
+    private func shareRow(defaultVisibility: PostVisibility) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.m) {
+            HStack(alignment: .center, spacing: Tokens.Space.m) {
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    Text("Share to your feed")
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.foreground)
+                    Text("Friends see the exercises, sets, notes and gym.")
+                        .textStyle(Tokens.Typography.caption)
+                        .foregroundStyle(palette.foregroundMuted)
+                }
+                Spacer(minLength: Tokens.Space.s)
+                HStack(spacing: Tokens.Space.s) {
+                    Button { shareOnFinish = false } label: { OptionLabel(title: "No", isSelected: !shareOnFinish) }
+                        .buttonStyle(.press)
+                    Button { shareOnFinish = true } label: { OptionLabel(title: "Yes", isSelected: shareOnFinish) }
+                        .buttonStyle(.press)
+                }
+            }
+            if shareOnFinish {
+                VisibilityPicker(visibility: Binding(get: { shareVisibility ?? defaultVisibility }, set: { shareVisibility = $0 }))
+                    .transition(.opacity)
+            }
+        }
+        .padding(.vertical, Tokens.Space.l)
+        .animation(.standard, value: shareOnFinish)
+        .sensoryFeedback(.selection, trigger: shareOnFinish)
     }
 
     /// The records this workout beat, such as "Adductors · Heaviest weight · 60 kg". Nothing when it beat none.

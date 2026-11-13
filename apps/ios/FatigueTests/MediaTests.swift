@@ -26,6 +26,33 @@ struct MediaTests {
         #expect(video.width == 3024)
     }
 
+    @Test func aWorkoutHasRoomForThree() throws {
+        let database = try AppDatabase.inMemory()
+        let workout = UUID()
+        let folder = FileManager.default.temporaryDirectory.appending(path: "media-\(UUID().uuidString)")
+        #expect(MediaStore(database: database, folder: folder).room(for: workout) == 3)
+
+        try database.insert(row(workout.uuidString, at: 0))
+        try database.insert(row(workout.uuidString, at: 1))
+        #expect(MediaStore(database: database, folder: folder).room(for: workout) == 1)
+
+        // A deleted one gives its place back.
+        let third = row(workout.uuidString, at: 2)
+        try database.insert(third)
+        #expect(MediaStore(database: database, folder: folder).room(for: workout) == 0)
+        try database.deleteMedia(id: third.id)
+        #expect(MediaStore(database: database, folder: folder).room(for: workout) == 1)
+    }
+
+    @Test func aWorkoutAlreadyOverTheLimitTakesNoMore() throws {
+        let database = try AppDatabase.inMemory()
+        let workout = UUID()
+        for second in 0..<5 { try database.insert(row(workout.uuidString, at: TimeInterval(second))) }
+        let store = MediaStore(database: database, folder: FileManager.default.temporaryDirectory.appending(path: "media-\(UUID().uuidString)"))
+        #expect(store.media(for: workout).count == 5)
+        #expect(store.room(for: workout) == 0)
+    }
+
     @Test func deletingMarksTheRowInsteadOfRemovingIt() throws {
         let database = try AppDatabase.inMemory()
         let workout = UUID().uuidString

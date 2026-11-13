@@ -35,17 +35,17 @@ Something has to move changes between SQLite and Postgres in both directions. We
 
 It is manageable here because each person only edits their own data. The plan is:
 
-- Every row gets an ID created on the phone, an updated time and a deleted marker. Rows are marked deleted and not removed, so a deletion can sync like any other change.
-- The phone keeps a queue of changed rows and pushes them when it has a connection. If the same row changed in two places, the latest change wins.
+- Sync moves whole items, such as a workout with all its sets. Each has an ID created on the phone, an updated time and a deleted marker. Items are marked deleted and not removed, so a deletion can sync like any other change.
+- The phone keeps a queue of changed items and pushes them when it has a connection. If the same item changed in two places, the latest change wins.
 - The phone pulls everything that changed on the server since its last sync.
 
-Sync bugs lose data without any error, so this part needs thorough tests before anyone relies on it.
+The [sync](/docs/sync) page has the detail and the options we turned down. Sync bugs lose data without any error, so this part needs thorough tests before anyone relies on it.
 
 ## Our own API, not Supabase
 
 Supabase would have given us auth and an API without writing a backend. We decided against it for two reasons. Its free projects pause after a period of inactivity and need a manual restore, and its auth and access rules tie the app to Supabase.
 
-The API is small because of sync. It handles sign-in, sync, the Hevy import, account deletion and the built-in exercise list. We picked Hono and TypeScript because the website can share types with the API.
+The API is small because of sync. It handles sign-in, sync, account deletion and the built-in exercise list. The Hevy import runs on the phone. We picked Hono and TypeScript because the website can share types with the API.
 
 Neon was chosen for Postgres because it sleeps when idle and wakes on the next request without anyone stepping in.
 
@@ -53,7 +53,7 @@ Neon was chosen for Postgres because it sleeps when idle and wakes on the next r
 
 The API starts on Cloudflare Workers. There is no server to manage and it scales without configuration.
 
-We do not want to be stuck there, so the API avoids Cloudflare's own storage products and keeps Cloudflare-specific code in two files. The [API structure](/docs/api-structure) page shows which. Moving to a normal Node server on Railway or Fly.io should then be a small change.
+We do not want to be stuck there, so the API keeps Cloudflare-specific code in two files. Photos and videos go in Cloudflare R2, but through its S3-compatible API and not a Workers binding, so moving them to S3 or any other S3-compatible store means changing an endpoint and keys, not code. The [API structure](/docs/api-structure) page shows which. Moving to a normal Node server on Railway or Fly.io should then be a small change.
 
 ## Not checked yet
 

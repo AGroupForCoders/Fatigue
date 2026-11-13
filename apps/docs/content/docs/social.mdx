@@ -1,0 +1,226 @@
+---
+title: Social
+description: Friends, shared workouts, likes, comments, tagging who you trained with, and the report and block rules that come with them.
+---
+
+This is not in the first version. It is written down now so it can be built while sync is in progress, without either getting in the other's way.
+
+## The idea
+
+You finish a workout and share it. Your friends see it in a feed, like it and comment on it. If you trained with someone, you tag them and the workout shows on both profiles, like a group activity on Strava. Messages are out of scope.
+
+## Decisions
+
+- **Friends are mutual.** You send a request and they accept. There are no one-way follows.
+- **Only finished workouts are shared.** Sharing happens on the finish summary, or later from a workout in history. There is no live view of a workout in progress.
+- **A post is a snapshot.** Sharing copies the workout into the post as it was at that moment: title, description, exercises with their brands, settings, notes and sets, records hit, duration and gym. Friends never read your synced tables. Editing the workout afterwards does not change the post unless you share it again, which replaces the snapshot.
+- **Posts are public by default.** Friends only and private are opt-ins. Your profile picks the default and each post can change it.
+- **Photos and videos come later.** The first version of sharing posts the workout without media. When media lands, you pick which of the workout's photos and videos go on the post when you share, and only those leave the phone.
+- **Public posts show the gym and its map.** The same as friends see. Anyone who'd rather not can make the post friends only or private.
+- **Social stays out of sync.** None of these tables are in SQLite or the sync outbox. The phone reads the feed online, and likes and comments show on screen straight away while the request is sent. Sharing while offline waits until there is a connection.
+- **Report and block ship with comments.** App Store guideline 1.2 asks any app with content from other people to let you report it and block whoever posted it.
+
+## Who sees what
+
+| Post visibility | Who sees it |
+| --- | --- |
+| `public` | Anyone signed in |
+| `friends` | Your accepted friends, and anyone tagged on it |
+| `private` | Only you. Tagging is off. |
+
+A block hides everything in both directions: posts, comments, profiles and search results. It also ends the friendship and removes either person's tags on the other's posts.
+
+Anyone can find you by your handle, whatever your default is, so friends can send you a request.
+
+## Tagging who you trained with
+
+On the finish summary, a "With" row sits next to Gym. You can only pick friends.
+
+1. The post shows "with Jos" straight away, and Jos gets a notification.
+2. When Jos accepts, the post also shows on Jos's profile, as a workout you did together.
+3. Jos can remove the tag at any time. Unfriending or blocking removes it too.
+
+Later, a tagged friend could log the same workout on their own phone from the post, starting a session with its exercises.
+
+## Tables
+
+These tables live in Postgres only. IDs are text. Times are Postgres timestamps, the same as Better Auth's tables, because these rows never go to SQLite. Every table points at `user` with `on delete cascade`, so deleting an account removes all of it.
+
+### `profile`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `user_id` | text, primary key | Points at `user.id`. |
+| `handle` | text, unique | 3 to 20 characters of `a-z`, `0-9`, `_` and `.`. Stored lowercase. |
+| `bio` | text, nullable | Up to 160 characters. |
+| `photo_key` | text, nullable | Where the profile photo is in storage. Replaces the photo that only lives on the phone today. |
+| `default_visibility` | text | `public`, `friends` or `private`. New posts start with this. |
+| `created_at`, `updated_at` | timestamp | |
+
+The display name stays on `user.name`, which Better Auth already owns.
+
+### `friendship`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | |
+| `requester_id` | text | Who sent the request. |
+| `addressee_id` | text | Who got it. |
+| `status` | text | `pending` or `accepted`. |
+| `created_at` | timestamp | |
+| `responded_at` | timestamp, nullable | When it was accepted. |
+
+One row per pair, whoever asked first: a unique index on the lower and higher of the two IDs. Declining a request or unfriending deletes the row, so either person can ask again later.
+
+### `block`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `blocker_id`, `blocked_id` | text | Primary key together. |
+| `created_at` | timestamp | |
+
+### `post`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | Made on the phone, so a share made offline can be sent later without making two posts. |
+| `user_id` | text | |
+| `workout_id` | text, nullable | The workout's ID on the phone. Sharing the same workout again replaces this post's snapshot instead of making a new one. |
+| `caption` | text, nullable | Up to 2000 characters. |
+| `snapshot` | jsonb | The workout as shared. See below. |
+| `snapshot_version` | integer | Lets the app read posts shared by an older version. |
+| `visibility` | text | `public`, `friends` or `private`. |
+| `started_at` | timestamp | When the workout started, for sorting the feed by when people trained. |
+| `created_at`, `updated_at` | timestamp | |
+| `deleted_at` | timestamp, nullable | Deleted posts disappear at once and are removed for good later, with their media. |
+
+The snapshot is the workout in the shape the app already uses for a finished workout: title, description, start time, duration, gym, and each exercise with its brand, settings, notes and sets. It adds the records each exercise hit and the total score, worked out on the phone when sharing, so the server never has to score sets.
+
+### `post_media`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | The same ID as the media row on the phone. |
+| `post_id` | text | |
+| `kind` | text | `photo` or `video`. |
+| `object_key` | text | Where the file is in storage. |
+| `width`, `height` | integer | |
+| `duration_seconds` | real, nullable | Videos only. |
+| `position` | integer | |
+
+### `post_partner`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `post_id`, `user_id` | text | Primary key together. |
+| `status` | text | `pending` or `accepted`. Removing a tag deletes the row. |
+| `created_at` | timestamp | |
+| `responded_at` | timestamp, nullable | |
+
+### `reaction`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `post_id`, `user_id` | text | Primary key together, so one reaction per person per post. |
+| `kind` | text | `like` for now. The column lets other reactions come later without a migration. |
+| `created_at` | timestamp | |
+
+### `comment`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | |
+| `post_id` | text | |
+| `user_id` | text | |
+| `parent_id` | text, nullable | The comment this replies to. Replies go one level deep. |
+| `body` | text | Up to 1000 characters. |
+| `created_at` | timestamp | |
+| `edited_at`, `deleted_at` | timestamp, nullable | A deleted comment with replies shows as "Deleted" so the replies keep their place. |
+
+### `notification`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | |
+| `recipient_id`, `actor_id` | text | |
+| `type` | text | `friend_request`, `friend_accepted`, `tagged`, `tag_accepted`, `reaction`, `comment`, `reply`. |
+| `post_id`, `comment_id` | text, nullable | What it is about. |
+| `created_at` | timestamp | |
+| `read_at` | timestamp, nullable | |
+
+### `push_device`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | |
+| `user_id` | text | |
+| `apns_token` | text, unique | Moves to the newest account when someone signs into another account on the same phone. |
+| `created_at`, `last_seen_at` | timestamp | |
+
+### `report`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | text, primary key | |
+| `reporter_id` | text | |
+| `target_type` | text | `post`, `comment` or `profile`. |
+| `target_id` | text | |
+| `reason` | text | `spam`, `abuse`, `nudity` or `other`. |
+| `note` | text, nullable | |
+| `created_at` | timestamp | |
+| `resolved_at` | timestamp, nullable | |
+
+Reporting something also hides it from whoever reported it.
+
+## The feed
+
+Your feed is your own posts, posts you can see from your friends and posts you're tagged on, newest workout first. It leaves out deleted posts and anyone you've blocked or who has blocked you. It pages with a cursor on `started_at` and `id`, so new posts arriving while you scroll don't repeat or skip rows.
+
+Public posts from people who aren't your friends show on their profile, not in your feed.
+
+## Storing photos and videos
+
+This comes after sharing works without media. Files go in a private Cloudflare R2 bucket, through R2's S3-compatible API rather than a Workers binding, so the API can move host without rewriting this part. The tech stack page explains why.
+
+- **Uploads go straight to R2.** The phone asks the API for an upload link for each file, then sends the file to that link. The file never passes through the Worker, which keeps big videos off it. Links last 15 minutes and only accept the size and type the phone said.
+- **Downloads use short-lived links too.** The feed hands back a signed link for each file, valid for an hour, and only to people allowed to see the post. Nothing in the bucket is public.
+- **Keys say who owns the file:** `users/<user id>/posts/<post id>/<media id>` and `users/<user id>/profile/<photo id>`. Deleting an account then removes everything under `users/<user id>/`.
+- **The phone shrinks files first,** the way the profile photo already is: photos to 2048 pixels on the long side as JPEG, videos to 1080p.
+- **A post only shows media once it has uploaded.** If an upload never finishes, the row stays hidden and a daily clean-up removes it.
+
+## API modules
+
+Following [API structure](/docs/api-structure), these are new modules:
+
+| Module | What it does |
+| --- | --- |
+| `profiles` | Your profile, someone's profile and their posts, and search by handle. |
+| `friends` | Requests, accepting, declining, unfriending, your friends list and blocking. |
+| `posts` | Sharing and resharing, the feed, deleting, media upload links, reactions, comments and tags. |
+| `reports` | Reporting a post, comment or profile. |
+| `notifications` | Your notifications, marking them read, and registering a phone for push. |
+
+The `account` module's delete also removes stored media for posts and the profile photo, since the database cascade cannot reach storage.
+
+## What it needs from sync
+
+Very little:
+
+- `post.workout_id` and `post_media.id` reuse the IDs the phone already makes.
+- Deleting an account has to clear social rows and stored media as well as synced rows.
+- Files go in Cloudflare R2, which sync can share if it backs up workout media. See below.
+
+## Building it
+
+1. Profiles and friends: handles, search, requests and the friends list, on the Profile tab.
+2. Sharing and the feed: sharing from the finish summary and history, and a feed tab. No media yet.
+3. Likes and comments, with report and block in the same change.
+4. Tagging who you trained with.
+5. Notifications, in the app first and then push.
+6. Photos and videos on posts, and profile photos, through R2.
+
+Comparing yourself with a friend is tracked in [#91](https://github.com/AGroupForCoders/Fatigue/issues/91).
+
+## Still open
+
+- **Moderation.** Who reads reports, and how fast. For a small app that is probably us, with an email for every new report.

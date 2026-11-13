@@ -50,7 +50,7 @@ struct MediaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Media")
+                Text(items.isEmpty ? "Media" : "Media · \(items.count) of \(MediaStore.limit)")
                     .textStyle(Tokens.Typography.caption)
                     .foregroundStyle(palette.foregroundMuted)
                 Spacer()
@@ -74,12 +74,16 @@ struct MediaRow: View {
                     }
                     // The label is its own view: PhotosPicker's label closure isn't on the main actor,
                     // so it can't call `textStyle` directly.
-                    PhotosPicker(selection: $picks, matching: .any(of: [.images, .videos])) {
-                        AddMediaLabel(isFirst: items.isEmpty)
+                    // Gone once the workout is full, and the picker stops at what's left.
+                    if media.room(for: workoutID) > 0 {
+                        PhotosPicker(selection: $picks, maxSelectionCount: media.room(for: workoutID), matching: .any(of: [.images, .videos])) {
+                            AddMediaLabel(isFirst: items.isEmpty)
+                        }
+                        .buttonStyle(.press)
+                        .accessibilityLabel("Add media")
+                        .accessibilityHint("Picks up to \(media.room(for: workoutID)) more photos or videos from your library")
+                        .transition(.opacity)
                     }
-                    .buttonStyle(.press)
-                    .accessibilityLabel("Add media")
-                    .accessibilityHint("Picks photos or videos from your library")
                 }
                 .padding(.vertical, Tokens.Space.xs)
             }

@@ -210,7 +210,44 @@ nonisolated final class AppDatabase: Sendable {
                 t.add(column: "gym_longitude", .double)
             }
         }
+        // Gives exercises and no-brand rows the IDs built from their contents (see SyncID), so the same
+        // exercise has the same ID on every phone before anything syncs. Rows made before this had random ones.
+        // Foreign keys are off while a migration runs and checked at its end, so the IDs can change in place.
+        migrator.registerMigration("v6-sync-ids") { db in
+            for row in try Row.fetchAll(db, sql: "SELECT id, name FROM exercise") {
+                let old: String = row["id"]
+                let new = SyncID.exercise(named: row["name"])
+                // Two names that differ only in case build the same ID. The second keeps the one it has.
+                guard old != new, try !exists("exercise", id: new, in: db) else { continue }
+                try db.execute(sql: "UPDATE exercise SET id = ? WHERE id = ?", arguments: [new, old])
+                try db.execute(sql: "UPDATE exercise_muscle SET exercise_id = ? WHERE exercise_id = ?", arguments: [new, old])
+                try db.execute(sql: "UPDATE exercise_brand SET exercise_id = ? WHERE exercise_id = ?", arguments: [new, old])
+            }
+            // A live row first, so it's the one that takes the ID if an exercise somehow has two.
+            let noBrandRows = try Row.fetchAll(
+                db, sql: "SELECT id, exercise_id FROM exercise_brand WHERE brand IS NULL AND label IS NULL ORDER BY deleted_at IS NOT NULL"
+            )
+            for row in noBrandRows {
+                let old: String = row["id"]
+                let new = SyncID.noBrand(exerciseId: row["exercise_id"])
+                guard old != new, try !exists("exercise_brand", id: new, in: db) else { continue }
+                try db.execute(sql: "UPDATE exercise_brand SET id = ? WHERE id = ?", arguments: [new, old])
+                for table in ["setting", "workout_exercise", "routine_exercise"] {
+                    try db.execute(sql: "UPDATE \(table) SET exercise_brand_id = ? WHERE exercise_brand_id = ?", arguments: [new, old])
+                }
+            }
+        }
         return migrator
+    }
+
+    static func exists(_ table: String, id: String, in db: Database) throws -> Bool {
+        try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \(table) WHERE id = ?)", arguments: [id]) ?? false
+    }
+
+    /// The ID for a new row: the one built from its contents, or a random one if that's taken.
+    /// It's only taken when two exercise names differ in nothing but case, which the library keeps apart.
+    static func newId(_ built: String, in table: String, db: Database) throws -> String {
+        try exists(table, id: built, in: db) ? UUID().uuidString : built
     }
 }
 
@@ -340,7 +377,7 @@ nonisolated extension AppDatabase {
         if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [name]) {
             exerciseId = id
         } else {
-            exerciseId = UUID().uuidString
+            exerciseId = try newId(SyncID.exercise(named: name), in: "exercise", db: db)
             try db.execute(sql: "INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, 'other', ?, ?)",
                            arguments: [exerciseId, name, ExerciseCatalogNames.builtIn.contains(name), now])
         }
@@ -349,7 +386,8 @@ nonisolated extension AppDatabase {
             try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL", arguments: [now, id])
             return id
         }
-        let id = UUID().uuidString
+        // The no-brand row's ID is built from its exercise, so two phones agree on it. A named brand's is random.
+        let id = brand == nil && label == nil ? try newId(SyncID.noBrand(exerciseId: exerciseId), in: "exercise_brand", db: db) : UUID().uuidString
         try db.execute(sql: "INSERT INTO exercise_brand (id, exercise_id, brand, label, updated_at) VALUES (?, ?, ?, ?, ?)", arguments: [id, exerciseId, brand, label, now])
         return id
     }
@@ -370,8 +408,10 @@ nonisolated extension AppDatabase {
 
     /// Moves everything logged on one brand of an exercise onto another: its history, settings and so its records.
     ///
-    /// When nothing has been logged on `to` yet this is a rename, and the row just changes brand. Otherwise the
-    /// two are merged: workouts and prebuilt workouts move over, and so do the settings. A setting that both
+    /// When nothing has been logged on `to` yet and both are named brands, this is a rename, and the row just
+    /// changes brand. A move onto or off no brand is never done in place: the no-brand row's ID is built from
+    /// its exercise (see SyncID), so it can't become a brand's row, and a brand's row can't become it. Those
+    /// moves make the destination row first and merge into it. Otherwise the two are merged: workouts and prebuilt workouts move over, and so do the settings. A setting that both
     /// brands have (by name) keeps the destination's definition and next-time value, with the source's past
     /// values re-pointed at it; one only the source has comes along with its values. The source brand row is
     /// then marked deleted. Nothing happens when `from` and `to` are the same, or `from` has never been used.
@@ -385,11 +425,16 @@ nonisolated extension AppDatabase {
                   )
             else { return }
             let now = Self.now
-            guard let destination = try String.fetchOne(
+            let destination: String
+            if let existing = try String.fetchOne(
                 db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ? AND label IS ?", arguments: [exerciseId, to?.name, to?.label]
-            ) else {
+            ) {
+                destination = existing
+            } else if from != nil, to != nil {
                 try db.execute(sql: "UPDATE exercise_brand SET brand = ?, label = ?, updated_at = ? WHERE id = ?", arguments: [to?.name, to?.label, now, source])
                 return
+            } else {
+                destination = try Self.exerciseBrandId(name: name, brand: to?.name, label: to?.label, in: db)
             }
 
             try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE id = ?", arguments: [now, destination])
@@ -534,8 +579,20 @@ nonisolated extension AppDatabase {
         }
     }
 
+    /// Removes a workout. A running one goes entirely, since it never left the phone. A finished one keeps its
+    /// row, marked deleted, so the deletion can sync, and everything under it is removed.
     func deleteWorkout(id: String) throws {
-        try writer.write { db in try db.execute(sql: "DELETE FROM workout WHERE id = ?", arguments: [id]) }
+        try writer.write { db in
+            try db.execute(sql: "DELETE FROM workout WHERE id = ? AND finished_at IS NULL", arguments: [id])
+            // Takes the notes, setting values, sets and overrides with it.
+            try db.execute(sql: "DELETE FROM workout_exercise WHERE workout_id = ?", arguments: [id])
+            try db.execute(sql: "UPDATE workout SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", arguments: [Self.now, Self.now, id])
+        }
+    }
+
+    /// The ids of finished workouts that were deleted, for sync to push.
+    func deletedWorkoutIds() throws -> [String] {
+        try writer.read { try String.fetchAll($0, sql: "SELECT id FROM workout WHERE deleted_at IS NOT NULL ORDER BY deleted_at") }
     }
 
     // MARK: Prebuilt workouts
@@ -567,11 +624,23 @@ nonisolated extension AppDatabase {
         }
     }
 
-    /// Replaces every prebuilt workout, keeping their order.
+    /// The ids of prebuilt workouts that were deleted, for sync to push.
+    func deletedRoutineIds() throws -> [String] {
+        try writer.read { try String.fetchAll($0, sql: "SELECT id FROM routine WHERE deleted_at IS NOT NULL ORDER BY deleted_at") }
+    }
+
+    /// Replaces every prebuilt workout, keeping their order. One that's no longer in the list keeps its row,
+    /// marked deleted, so the deletion can sync, and everything under it is removed.
     func save(_ routines: [StoredRoutine]) throws {
         try writer.write { db in
-            try db.execute(sql: "DELETE FROM routine")
+            let kept = Set(routines.map(\.id))
+            for id in try String.fetchAll(db, sql: "SELECT id FROM routine WHERE deleted_at IS NULL") where !kept.contains(id) {
+                try db.execute(sql: "DELETE FROM routine_exercise WHERE routine_id = ?", arguments: [id])
+                try db.execute(sql: "UPDATE routine SET deleted_at = ?, updated_at = ? WHERE id = ?", arguments: [Self.now, Self.now, id])
+            }
             for (position, routine) in routines.enumerated() {
+                // Replaces the row, which also brings back one that was deleted.
+                try db.execute(sql: "DELETE FROM routine WHERE id = ?", arguments: [routine.id])
                 try db.execute(sql: "INSERT INTO routine (id, name, position, updated_at) VALUES (?, ?, ?, ?)", arguments: [routine.id, routine.name, position, Self.now])
                 for (index, exercise) in routine.exercises.enumerated() {
                     let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, label: exercise.label, in: db)
@@ -673,7 +742,7 @@ nonisolated extension AppDatabase {
         try writer.write { db in
             for exercise in library.exercises {
                 let existing = try Row.fetchOne(db, sql: "SELECT id, deleted_at FROM exercise WHERE name = ?", arguments: [exercise.name])
-                let id = existing.map { $0["id"] as String } ?? UUID().uuidString
+                let id = try existing.map { $0["id"] as String } ?? Self.newId(SyncID.exercise(named: exercise.name), in: "exercise", db: db)
                 let wasDeleted = existing.map { ($0["deleted_at"] as Int64?) != nil } ?? false
                 try db.execute(sql: """
                     INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, ?, ?, ?)
