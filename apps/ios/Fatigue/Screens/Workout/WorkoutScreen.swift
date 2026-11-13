@@ -356,7 +356,7 @@ private struct ExerciseSection: View {
                 .accessibilityLabel("Add a note")
 
                 Button { pickingBrand = true } label: {
-                    OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
+                    OutlinedLabel(text: exercise.brand?.display ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
                 }
                 .buttonStyle(.press)
                 .accessibilityLabel("Brand")

@@ -132,7 +132,7 @@ private struct ExerciseRecord: View {
                         .environment(\.palette, palette)
                 }
                 if let brand = exercise.brand {
-                    Text(brand)
+                    Text(brand.display)
                         .textStyle(Tokens.Typography.control)
                         .foregroundStyle(palette.foregroundMuted)
                 }

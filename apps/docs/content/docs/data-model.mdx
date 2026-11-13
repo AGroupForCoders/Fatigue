@@ -79,6 +79,7 @@ One row for each brand you have used for an exercise, plus one for no brand if y
 | `brand` | text, nullable | Empty means no brand. Otherwise plain text you typed or picked |
 | `label` | text, nullable | The model, the gym, or anything else that tells two of the same brand apart |
 
+- Brand and label together pick the row. Technogym with the label "City gym" and Technogym with no label are two rows, each with its own settings, history and records. Clearing the label goes back to the row with none. The app shows the two as "Technogym · City gym" and "Technogym".
 - Logging an exercise without picking a brand uses its no-brand row, and creates it the first time. An exercise has at most one no-brand row.
 - When you add an exercise to a workout, the app defaults to the row you used last time.
 - The built-in brand list only feeds the suggestions when you type one.

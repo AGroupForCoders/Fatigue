@@ -62,11 +62,11 @@ struct ExerciseStats {
     }
 
     let name: String
-    let brand: String?
+    let brand: Brand?
     /// Oldest first.
     let sessions: [Session]
 
-    init(name: String, brand: String?, history: [FinishedWorkout]) {
+    init(name: String, brand: Brand?, history: [FinishedWorkout]) {
         self.name = name
         self.brand = brand
         sessions = history
@@ -79,14 +79,14 @@ struct ExerciseStats {
     }
 
     /// The brands you've done an exercise on, most used first. Nil is no brand.
-    static func brands(for name: String, in history: [FinishedWorkout]) -> [String?] {
-        var counts: [String: (brand: String?, count: Int)] = [:]
+    static func brands(for name: String, in history: [FinishedWorkout]) -> [Brand?] {
+        var counts: [String: (brand: Brand?, count: Int)] = [:]
         for workout in history {
             for exercise in workout.exercises where exercise.name == name && exercise.sets.contains(where: \.isDone) {
-                counts[exercise.brand ?? "", default: (exercise.brand, 0)].count += 1
+                counts[exercise.brand?.key ?? "", default: (exercise.brand, 0)].count += 1
             }
         }
-        return counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : ($0.brand ?? "") < ($1.brand ?? "") }.map(\.brand)
+        return counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : ($0.brand?.display ?? "") < ($1.brand?.display ?? "") }.map(\.brand)
     }
 
     // MARK: Values
@@ -223,12 +223,12 @@ struct ExerciseStats {
     /// A record a workout beat, for the finish summary.
     struct Beaten: Identifiable, Equatable {
         let exercise: String
-        let brand: String?
+        let brand: Brand?
         /// Such as "Heaviest weight" or "Best set volume, weighted".
         let record: String
         /// Such as "60 kg" or "1,227 weighted".
         let value: String
-        var id: String { "\(exercise)|\(brand ?? "")|\(record)" }
+        var id: String { "\(exercise)|\(brand?.key ?? "")|\(record)" }
     }
 
     /// The records each exercise in `workout` beat, against everything before it on the same exercise and brand.
@@ -236,7 +236,7 @@ struct ExerciseStats {
     static func beaten(by workout: FinishedWorkout, history: [FinishedWorkout]) -> [Beaten] {
         var seen: Set<String> = []
         return workout.exercises.flatMap { exercise -> [Beaten] in
-            guard seen.insert("\(exercise.name)|\(exercise.brand ?? "")").inserted else { return [] }
+            guard seen.insert("\(exercise.name)|\(exercise.brand?.key ?? "")").inserted else { return [] }
             let before = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history).records()
             let after = ExerciseStats(name: exercise.name, brand: exercise.brand, history: history + [workout]).records()
             let weighted = exercise.settings.contains(where: \.isTracked)

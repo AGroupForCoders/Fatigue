@@ -136,7 +136,7 @@ private struct RoutineExerciseEditorRow: View {
                     .textStyle(Tokens.Typography.body)
                     .foregroundStyle(palette.foreground)
                 if let brand = exercise.brand {
-                    Text(brand)
+                    Text(brand.display)
                         .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
                 }

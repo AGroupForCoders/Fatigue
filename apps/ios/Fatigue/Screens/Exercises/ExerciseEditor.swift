@@ -4,12 +4,12 @@ import SwiftUI
 struct ExerciseEdit {
     var info: ExerciseInfo
     /// The brand picked at the top, and its settings.
-    var brand: String?
+    var brand: Brand?
     var setup: BrandSetup
     /// Old setting name to new, for settings renamed in this edit, so group overrides follow the rename.
     var renamedSettings: [String: String]
-    /// Settings edited on other brands before switching away from them, keyed by brand ("" for no brand).
-    var otherSetups: [String: BrandSetup] = [:]
+    /// Settings edited on other brands before switching away from them, keyed by brand (nil for no brand).
+    var otherSetups: [Brand?: BrandSetup] = [:]
 }
 
 /// Creates a custom exercise, or edits one: name, equipment and muscles, then the settings saved
@@ -24,7 +24,7 @@ struct ExerciseEditor: View {
     /// Brands you've used for this exercise, for the brand picker.
     let knownBrands: [KnownBrand]
     /// The settings saved for a brand, loaded when you switch to it.
-    let savedSetup: (String?) -> BrandSetup
+    let savedSetup: (Brand?) -> BrandSetup
     let onSave: (ExerciseEdit) -> Void
     /// How many finished workouts logged sets on this exercise, for the delete confirmation.
     let workoutsUsingIt: Int
@@ -33,10 +33,10 @@ struct ExerciseEditor: View {
 
     @State private var info: ExerciseInfo
     @State private var confirmingDelete = false
-    @State private var brand: String?
+    @State private var brand: Brand?
     @State private var settings: [EditableSetting]
-    /// Settings edited on brands you've switched away from, keyed by brand ("" for no brand).
-    @State private var drafts: [String: [EditableSetting]] = [:]
+    /// Settings edited on brands you've switched away from, keyed by brand (nil for no brand).
+    @State private var drafts: [Brand?: [EditableSetting]] = [:]
     @State private var pickingBrand = false
     @State private var editingSetting: EditableSetting?
     @FocusState private var editingName: Bool
@@ -65,8 +65,8 @@ struct ExerciseEditor: View {
     /// For an exercise you already have, on the brand it's being done on.
     /// `onDelete` is only offered for a custom exercise; `workoutsUsingIt` is said in its confirmation.
     init(
-        editing info: ExerciseInfo, brand: String?, setup: BrandSetup, existingNames: [String],
-        knownBrands: [KnownBrand], savedSetup: @escaping (String?) -> BrandSetup,
+        editing info: ExerciseInfo, brand: Brand?, setup: BrandSetup, existingNames: [String],
+        knownBrands: [KnownBrand], savedSetup: @escaping (Brand?) -> BrandSetup,
         workoutsUsingIt: Int = 0, onDelete: (() -> Void)? = nil, onSave: @escaping (ExerciseEdit) -> Void
     ) {
         isNew = false
@@ -117,7 +117,7 @@ struct ExerciseEditor: View {
                         editable.originalName.flatMap { $0 != editable.setting.name ? ($0, editable.setting.name) : nil }
                     })
                     var others = drafts.mapValues { BrandSetup(settings: $0.map(\.setting)) }
-                    others[brand ?? ""] = nil
+                    others[brand] = nil
                     onSave(ExerciseEdit(
                         info: saved, brand: brand, setup: BrandSetup(settings: settings.map(\.setting)),
                         renamedSettings: renamed, otherSetups: others
@@ -171,11 +171,11 @@ struct ExerciseEditor: View {
 
     /// Keeps what you've edited on the current brand, then shows the settings for the picked one:
     /// edited earlier in this sheet if you've been there, otherwise as saved.
-    private func switchBrand(to picked: String?) {
+    private func switchBrand(to picked: Brand?) {
         guard picked != brand else { return }
-        drafts[brand ?? ""] = settings
+        drafts[brand] = settings
         withAnimation(.standard) {
-            settings = drafts[picked ?? ""] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
+            settings = drafts[picked] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
             brand = picked
         }
     }
@@ -183,10 +183,10 @@ struct ExerciseEditor: View {
     /// The brand, first of the rows under the name. Tapping it picks another, or adds one.
     private var brandButton: some View {
         Button { pickingBrand = true } label: {
-            OutlinedLabel(text: brand ?? "No brand", showsChevron: true, isMuted: brand == nil)
+            OutlinedLabel(text: brand?.display ?? "No brand", showsChevron: true, isMuted: brand == nil)
         }
         .buttonStyle(.press)
-        .accessibilityLabel("Brand, \(brand ?? "no brand")")
+        .accessibilityLabel("Brand, \(brand?.display ?? "no brand")")
     }
 
     private var header: some View {

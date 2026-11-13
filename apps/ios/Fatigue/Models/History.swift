@@ -115,7 +115,7 @@ extension FinishedWorkout {
         func reps(_ weight: String, _ reps: String, rpe: [Double]) -> [WorkoutSet] {
             rpe.map { WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: reps, rpe: $0, previous: "", isDone: true) }
         }
-        func exercise(_ name: String, brand: String? = nil, _ sets: [WorkoutSet], settings: [ExerciseSetting] = []) -> WorkoutExercise {
+        func exercise(_ name: String, brand: Brand? = nil, _ sets: [WorkoutSet], settings: [ExerciseSetting] = []) -> WorkoutExercise {
             WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: settings, sets: sets)
         }
         return [

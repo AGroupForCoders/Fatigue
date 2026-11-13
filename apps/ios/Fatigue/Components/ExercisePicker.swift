@@ -8,12 +8,12 @@ struct ExercisePicker: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ExerciseCatalog.self) private var catalog
     /// The picked names, and the brand picked for any created here.
-    let onAdd: ([String], [String: String]) -> Void
+    let onAdd: ([String], [String: Brand]) -> Void
 
     @State private var search = ""
     @State private var picked: [String] = []
     @State private var creating = false
-    @State private var createdBrands: [String: String] = [:]
+    @State private var createdBrands: [String: Brand] = [:]
 
     private var results: [String] {
         let query = search.trimmingCharacters(in: .whitespaces)
