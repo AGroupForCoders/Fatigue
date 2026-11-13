@@ -3,7 +3,7 @@ title: CI/CD
 description: Running only the checks a change needs.
 ---
 
-This page is a plan. No workflows exist in the repository yet.
+The pull request workflow lives at `.github/workflows/ci.yml`. The deploy part of this page is still a plan.
 
 ## The problem we are fixing
 
@@ -18,13 +18,11 @@ One workflow runs on every pull request. Its first job looks at which files chan
 | If the change touches | These checks run |
 | --- | --- |
 | `apps/ios/**` | Build and test the iOS app on a macOS runner |
-| `apps/android/**` | Build and test the Android app |
-| `apps/api/**` or `packages/**` | Lint, type check and test the API |
-| `apps/web/**` or `packages/**` | Lint, type check and build the website |
+| `apps/api/**` or `packages/**` | Type check and test the API |
+| `packages/tokens/**` | Check the generated token files are up to date |
 | `apps/docs/**` | Type check and build the docs |
-| Anything | Check the pull request title follows our commit format |
 
-A change to `packages/` runs both the API and the website checks, because both import from it. A change to the workflow file itself runs everything.
+Android and web checks join the table when those apps exist. A change to `packages/` runs the API checks, because the API imports from it. A change to the workflow file, the root `package.json`, the lockfile or `pnpm-workspace.yaml` runs everything. Checking the pull request title is still to do.
 
 ## Why one workflow and not one per app
 
@@ -34,7 +32,7 @@ If "iOS tests" is a required check and a pull request only touches the API, the 
 
 The fix is a single workflow with a final job that always runs and passes only if every job before it passed or was skipped. Branch protection requires that one job and nothing else.
 
-A simplified sketch of the proposed workflow:
+A simplified sketch of the workflow (the real file also has `tokens` and `docs` jobs, and `ci-ok` also fails on a cancelled job):
 
 ```yaml
 jobs:
@@ -79,8 +77,6 @@ jobs:
             exit 1
           fi
 ```
-
-The action versions above need checking when we write the real file.
 
 ## Deploys
 
