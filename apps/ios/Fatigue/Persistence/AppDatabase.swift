@@ -354,6 +354,18 @@ nonisolated extension AppDatabase {
         return id
     }
 
+    // MARK: Renaming an exercise
+
+    /// Renames a custom exercise in place, so its brands, settings and every workout that used it come along.
+    /// Nothing happens when another exercise already has the new name, deleted or not, or the exercise is built in.
+    func renameExercise(from old: String, to new: String) throws {
+        guard old != new else { return }
+        try writer.write { db in
+            guard try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [new]) == nil else { return }
+            try db.execute(sql: "UPDATE exercise SET name = ?, updated_at = ? WHERE name = ? AND is_builtin = 0", arguments: [new, Self.now, old])
+        }
+    }
+
     // MARK: Moving history between brands
 
     /// Moves everything logged on one brand of an exercise onto another: its history, settings and so its records.
