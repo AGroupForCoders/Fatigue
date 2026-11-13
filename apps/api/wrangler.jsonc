@@ -4,5 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   // postgres.js needs Node's net and crypto modules, which Workers provide behind this flag.
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  // Serve the Worker at https://fatigue-api.<account>.workers.dev until there is a custom domain.
+  "workers_dev": true,
+  // Keep request logs and errors in the Cloudflare dashboard. Workers Logs is included on the paid plan.
+  "observability": { "enabled": true },
+  // Readable stack traces in those logs.
+  "upload_source_maps": true
+  // DATABASE_URL, BETTER_AUTH_SECRET and BETTER_AUTH_URL are secrets set with `wrangler secret put`,
+  // never `vars` in this file. See README.md.
 }
