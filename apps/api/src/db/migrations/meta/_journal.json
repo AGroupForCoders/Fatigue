@@ -8,6 +8,13 @@
       "when": 1794483922141,
       "tag": "0000_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794546859033,
+      "tag": "0001_social_profiles_friends",
+      "breakpoints": true
     }
   ]
 }
