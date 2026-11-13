@@ -474,6 +474,7 @@ private struct ExerciseSection: View {
             ) { edit in
                 let oldBrand = exercise.brand
                 catalog.save(edit.info, renamedFrom: exercise.name, brand: edit.brand, setup: edit.setup)
+                store.renameExercise(from: exercise.name, to: edit.info.name)
                 catalog.save(edit.otherSetups, for: edit.info.name)
                 // After saving, so the settings edited here are what gets merged.
                 if let move = edit.brandMove {

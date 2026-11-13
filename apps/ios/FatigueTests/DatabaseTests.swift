@@ -182,6 +182,32 @@ struct DatabaseTests {
         return (workouts, catalog)
     }
 
+    @Test func renamingACustomExerciseKeepsOneExerciseWithItsHistory() throws {
+        let database = try AppDatabase.inMemory()
+        let (workouts, catalog) = try beltSquat(in: database)
+        let logged = workouts.history.count { $0.exercises.contains { $0.name == "Belt Squat" } }
+        #expect(logged > 0)
+
+        catalog.save(ExerciseInfo(name: "Hip Belt Squat", equipment: .machine, primaryMuscle: .quadriceps, isCustom: true),
+                     renamedFrom: "Belt Squat", brand: nil, setup: catalog.setup(for: "Belt Squat", brand: nil))
+        workouts.renameExercise(from: "Belt Squat", to: "Hip Belt Squat")
+
+        // Straight away, without a restart.
+        #expect(workouts.history.count { $0.exercises.contains { $0.name == "Hip Belt Squat" } } == logged)
+        #expect(!workouts.routines.contains { $0.exercises.contains { $0.name == "Belt Squat" } })
+
+        // And after one: the old name is gone from the library, and the history and settings came along.
+        let reopenedCatalog = ExerciseCatalog.load(from: database)
+        #expect(reopenedCatalog.names.filter { $0.contains("Belt Squat") } == ["Hip Belt Squat"])
+        #expect(reopenedCatalog.setup(for: "Hip Belt Squat", brand: nil).settings.map(\.name) == catalog.setup(for: "Hip Belt Squat", brand: nil).settings.map(\.name))
+        let reopened = store(database)
+        #expect(reopened.history.count { $0.exercises.contains { $0.name == "Hip Belt Squat" } } == logged)
+        #expect(!reopened.history.contains { $0.exercises.contains { $0.name == "Belt Squat" } })
+        #expect(reopened.routines.contains { $0.exercises.contains { $0.name == "Hip Belt Squat" } })
+        let rows = try database.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM exercise WHERE name LIKE '%Belt Squat'") }
+        #expect(rows == 1)
+    }
+
     @Test func deletingACustomExerciseHidesItAndKeepsItsHistory() throws {
         let database = try AppDatabase.inMemory()
         let (workouts, catalog) = try beltSquat(in: database)

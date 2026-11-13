@@ -362,6 +362,24 @@ final class WorkoutStore {
         }
     }
 
+    /// Gives an exercise its new name in history and prebuilt workouts, after the catalog renamed it.
+    /// The database row is already renamed, so the workouts there need no saving again.
+    func renameExercise(from old: String, to new: String) {
+        guard old != new else { return }
+        for w in history.indices {
+            for e in history[w].exercises.indices where history[w].exercises[e].name == old {
+                history[w].exercises[e].name = new
+            }
+        }
+        var renamed = routines
+        for r in renamed.indices {
+            for e in renamed[r].exercises.indices where renamed[r].exercises[e].name == old {
+                renamed[r].exercises[e].name = new
+            }
+        }
+        if renamed != routines { routines = renamed }
+    }
+
     /// Moves everything you've logged on one brand of an exercise onto another, then reloads history,
     /// prebuilt workouts and the running workout so records and the exercise page show it.
     /// Without a database only the brand changes in memory. The catalog does its own part for settings.
