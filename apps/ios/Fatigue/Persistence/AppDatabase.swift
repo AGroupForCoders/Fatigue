@@ -489,6 +489,18 @@ nonisolated extension AppDatabase {
         }
     }
 
+    /// The label on each exercise-and-brand that has one, keyed "Name|Brand" with an empty brand for no brand,
+    /// the same way `ExerciseCatalog` keys setups. For the export, which is the only place labels show so far.
+    func brandLabels() throws -> [String: String] {
+        try writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT e.name, eb.brand, eb.label FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id
+                WHERE eb.deleted_at IS NULL AND eb.label IS NOT NULL
+                """)
+            return Dictionary(rows.map { ("\($0["name"] as String)|\(($0["brand"] as String?) ?? "")", $0["label"] as String) }, uniquingKeysWith: { a, _ in a })
+        }
+    }
+
     /// Saves the library's exercises, and each exercise-and-brand's settings with their next-time values.
     /// A setting that's gone from an exercise is marked deleted rather than removed, so past workouts keep it.
     func save(_ library: StoredLibrary) throws {
