@@ -667,7 +667,10 @@ private struct ExerciseSection: View {
     private var columnHeadings: some View {
         HStack(spacing: Tokens.Space.s) {
             Color.clear.frame(width: Tokens.Size.setNumberColumn, height: 1)
-            Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Previous")
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(exercise.setBoxes, id: \.self) { box in
                 switch box {
                 case .weight: Text(unit.rawValue).frame(width: Tokens.Size.weightColumn)
