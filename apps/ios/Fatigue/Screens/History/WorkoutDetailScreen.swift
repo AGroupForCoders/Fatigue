@@ -120,12 +120,11 @@ private struct ExerciseRecord: View {
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let exercise: WorkoutExercise
     let history: [FinishedWorkout]
-    @State private var showingStats = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s) {
             HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
-                Button { showingStats = true } label: {
+                NavigationLink(value: ExerciseRoute(name: exercise.name, brand: exercise.brand)) {
                     Text(exercise.name)
                         .textStyle(Tokens.Typography.exerciseName)
                         .foregroundStyle(palette.foreground)
@@ -133,10 +132,6 @@ private struct ExerciseRecord: View {
                 }
                 .buttonStyle(.press)
                 .accessibilityHint("Shows your progress on this exercise")
-                .sheet(isPresented: $showingStats) {
-                    ExerciseScreen(name: exercise.name, brand: exercise.brand, history: history)
-                        .environment(\.palette, palette)
-                }
                 if let brand = exercise.brand {
                     Text(brand.display)
                         .textStyle(Tokens.Typography.control)

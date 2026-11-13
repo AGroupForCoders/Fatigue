@@ -144,4 +144,50 @@ extension FinishedWorkout {
             ]),
         ]
     }
+
+    /// Six earlier weeks of the same three workouts, for debug builds, so every exercise has a line to graph.
+    /// Weights creep up week by week. Adductors switch between notch 7 and 8 and sometimes skip the dead stop,
+    /// so Split by and the filters have something to show. Not part of `samples()`, which tests count on.
+    static func earlierSamples(now: Date = .now) -> [FinishedWorkout] {
+        func day(_ daysAgo: Double) -> Date { now.addingTimeInterval(-daysAgo * 86_400) }
+        func reps(_ weight: Double, _ reps: Int, sets: Int = 3) -> [WorkoutSet] {
+            (0..<sets).map { index in
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: PlainNumber.string(weight), amount: String(reps), rpe: 8 + Double(index) * 0.5, isDone: true)
+            }
+        }
+        func exercise(_ name: String, brand: Brand? = nil, _ sets: [WorkoutSet], settings: [ExerciseSetting] = []) -> WorkoutExercise {
+            WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: settings, sets: sets)
+        }
+        return (1...6).flatMap { week -> [FinishedWorkout] in
+            // Older weeks are lighter, so the lines go up towards today.
+            let back = Double(week)
+            let offset = back * 7
+            let notch: Double = week.isMultiple(of: 2) ? 8 : 7
+            let deadStop: Double = week == 3 || week == 5 ? 0 : 1
+            let adductorSetup = SetSetup(kind: .reps, values: ["Notch": notch, "Dead stop": deadStop])
+            return [
+                FinishedWorkout(title: "Pull", startedAt: day(offset + 2), duration: 50 * 60, exercises: [
+                    exercise("Lat Pulldown", reps(65 - back * 2.5, 10)),
+                    exercise("Seated Row", brand: "Life Fitness", reps(60 - back * 2.5, 10)),
+                    exercise("Bicep Curl", reps(14 - (back >= 4 ? 2 : 0), 12)),
+                ]),
+                FinishedWorkout(title: "Push", startedAt: day(offset + 4), duration: 46 * 60, exercises: [
+                    exercise("Chest Press", brand: "Technogym", reps(70 - back * 2.5, 8)),
+                    exercise("Shoulder Press", brand: "Hammer Strength", reps(40 - back * 1.25, 10)),
+                    exercise("Triceps Pushdown", reps(30 - back * 1.25, 12, sets: 2)),
+                ]),
+                FinishedWorkout(title: "Leg day", startedAt: day(offset + 6), duration: 70 * 60, exercises: [
+                    exercise("Adductors", brand: "Technogym", [
+                        WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: PlainNumber.string(40 - back * 1.25), amount: "45", rpe: 8, isDone: true),
+                        WorkoutSet(setup: adductorSetup, weight: PlainNumber.string(55 - back * 2.5), amount: "8", rpe: 8.5, isDone: true),
+                        WorkoutSet(setup: adductorSetup, weight: PlainNumber.string(55 - back * 2.5), amount: "7", rpe: 9, isDone: true),
+                    ], settings: ExerciseCatalog.sampleAdductorSettings),
+                    exercise("Leg Press", reps(160 - back * 5, 10)),
+                    exercise("Leg Extension", reps(50 - back * 2.5, 12, sets: 2)),
+                    exercise("Hack Squat", reps(80 - back * 2.5, 8, sets: 2)),
+                    exercise("Seated Calf Raise", brand: "Hammer Strength", reps(60 - back * 2.5, 12)),
+                ]),
+            ]
+        }
+    }
 }
