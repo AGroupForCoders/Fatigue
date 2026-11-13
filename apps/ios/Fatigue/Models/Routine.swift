@@ -17,7 +17,7 @@ struct RoutineExercise: Identifiable, Equatable {
     var shape: [String] {
         [name, brand ?? "", String(restSeconds)]
             + settings.map { "\($0.name)=\($0.value)" }
-            + sets.map { "\($0.setup.kind.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
+            + sets.map { "\($0.setup.kind.rawValue) \($0.type.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
     }
 
     var id = UUID()
@@ -37,6 +37,7 @@ struct RoutineExercise: Identifiable, Equatable {
 /// One planned set: its setup and the target weight and reps or seconds.
 struct RoutineSet: Equatable {
     var setup: SetSetup
+    var type: SetType = .normal
     var weight = ""
     var amount = ""
 }
@@ -54,7 +55,7 @@ extension Routine {
                     restSeconds: exercise.restSeconds,
                     settings: exercise.settings,
                     sets: exercise.sets.map { set in
-                        WorkoutSet(setup: set.setup, weight: set.weight, amount: set.amount, previous: Self.target(set))
+                        WorkoutSet(setup: set.setup, type: set.type, weight: set.weight, amount: set.amount, previous: Self.target(set))
                     }
                 )
             },
@@ -74,7 +75,7 @@ extension Routine {
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
                 settings: exercise.settings,
-                sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
+                sets: exercise.sets.map { RoutineSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             )
         }
         return routine
@@ -301,7 +302,7 @@ extension WorkoutSession {
             // Start from last time's sets when there were any, so the cells are already filled in.
             let sets = last.isEmpty
                 ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
-                : last.map { WorkoutSet(setup: $0.setup, weight: $0.weight, amount: $0.amount, previous: "") }
+                : last.map { WorkoutSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount, previous: "") }
             exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets))
             fillPrevious(for: exercises.count - 1)
         }
