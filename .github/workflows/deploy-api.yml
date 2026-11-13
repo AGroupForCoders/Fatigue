@@ -6,11 +6,27 @@
 # meets an old schema; the old code keeps working against the new schema because
 # migrations only add things.
 #
-# Secrets this needs (repository Settings -> Secrets and variables -> Actions):
-#   CLOUDFLARE_API_TOKEN    "Edit Cloudflare Workers" template token
-#   CLOUDFLARE_ACCOUNT_ID   Workers & Pages overview, right-hand column
-#   DATABASE_URL            Neon production branch, pooled connection string
-# The Worker's own secrets are set once with `wrangler secret put`, not here.
+# Every value lives in the GitHub `production` environment, and each deploy copies
+# them onto the Worker, so GitHub is the one place to change one. Fill it in with
+# scripts/setup-production.sh.
+#
+#   Secrets                 What for
+#   CLOUDFLARE_API_TOKEN    Deploying ("Edit Cloudflare Workers" template)
+#   CLOUDFLARE_ACCOUNT_ID   Deploying, and the R2 endpoint
+#   DIRECT_DATABASE_URL     Migrations (Neon production branch, direct)
+#   DATABASE_URL            Worker (Neon production branch, pooled)
+#   BETTER_AUTH_SECRET      Worker
+#   R2_ACCESS_KEY_ID        Worker (R2 token scoped to the media bucket)
+#   R2_SECRET_ACCESS_KEY    Worker
+#   RESEND_API_KEY          Worker
+#
+#   Variables               What for
+#   BETTER_AUTH_URL         Worker, and the /health check after deploying
+#   R2_BUCKET               Worker
+#   EMAIL_FROM              Worker
+#
+# R2 and Resend can each be left out entirely, but not half set up.
+
 name: Deploy API
 
 on:
@@ -42,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: ${{ steps.deploy.outputs.deployment-url }}
+      url: ${{ vars.BETTER_AUTH_URL }}
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
@@ -54,38 +70,75 @@ jobs:
       - run: pnpm api:typecheck
       - run: pnpm api:test
 
+      - name: Build the Worker's settings
+        run: node scripts/production-config.mjs "$RUNNER_TEMP/worker-secrets.json" "$RUNNER_TEMP/worker-vars.txt"
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ vars.BETTER_AUTH_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ACCOUNT_ID: ${{ (secrets.R2_ACCESS_KEY_ID != '' && secrets.CLOUDFLARE_ACCOUNT_ID) || '' }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+
+      # A wrong or wrongly scoped R2 key would otherwise only show up when someone uploads a photo.
+      - name: Check the R2 keys can reach the bucket
+        if: vars.R2_BUCKET != ''
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 15 \
+            --aws-sigv4 "aws:amz:auto:s3" --user "$R2_ACCESS_KEY_ID:$R2_SECRET_ACCESS_KEY" \
+            "https://$ACCOUNT_ID.r2.cloudflarestorage.com/$R2_BUCKET?list-type=2&max-keys=1")
+          if [[ "$status" != 200 ]]; then
+            echo "::error::Listing $R2_BUCKET with the R2 keys answered $status. Check the keys and that their token covers this bucket."
+            exit 1
+          fi
+
       - name: Run migrations against production
         run: pnpm api:migrate
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
 
+      # Secrets go up with the new version itself, so the code and its settings change together.
       - name: Deploy to Cloudflare Workers
-        id: deploy
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          packageManager: pnpm
-          command: deploy
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r line; do
+            [[ -n "$line" ]] && args+=(--var "$line")
+          done < "$RUNNER_TEMP/worker-vars.txt"
+          pnpm exec wrangler deploy --secrets-file "$RUNNER_TEMP/worker-secrets.json" "${args[@]}"
+
+      - name: Remove the secrets file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/worker-secrets.json"
 
       - name: Check /health
         env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+          API_URL: ${{ vars.BETTER_AUTH_URL }}
         run: |
           set -euo pipefail
-          if [[ -z "$DEPLOYMENT_URL" ]]; then
-            echo "wrangler did not report a deployment URL; skipping the health check" >&2
-            exit 0
-          fi
-          echo "Checking $DEPLOYMENT_URL/health"
-          # The first request after a deploy can take a moment to land on the new version.
-          for attempt in 1 2 3 4 5; do
-            if curl --fail --silent --show-error --max-time 10 "$DEPLOYMENT_URL/health"; then
+          echo "Checking $API_URL/health"
+          # The first request after a deploy can take a moment to land on the new version, and the very
+          # first deploy also waits for the custom domain's certificate.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent --show-error --max-time 10 "$API_URL/health"; then
               echo
               exit 0
             fi
-            sleep $((attempt * 2))
+            sleep 10
           done
-          echo "::error::$DEPLOYMENT_URL/health did not answer 200 after the deploy"
+          echo "::error::$API_URL/health did not answer 200 after the deploy"
           exit 1
