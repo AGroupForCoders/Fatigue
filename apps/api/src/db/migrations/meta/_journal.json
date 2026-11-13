@@ -15,6 +15,13 @@
       "when": 1794546859033,
       "tag": "0001_social_profiles_friends",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794547719449,
+      "tag": "0002_social_posts",
+      "breakpoints": true
     }
   ]
 }
