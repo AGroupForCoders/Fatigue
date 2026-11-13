@@ -39,6 +39,7 @@ struct PostCard: View {
                             .textStyle(Tokens.Typography.exerciseName)
                             .foregroundStyle(palette.foreground)
                             .multilineTextAlignment(.leading)
+                            .lineLimit(2)
                         Spacer()
                         if !showsAuthor { PostWhen(post: post) }
                     }
@@ -54,6 +55,12 @@ struct PostCard: View {
                             .textStyle(Tokens.Typography.control)
                             .monospacedDigit()
                             .foregroundStyle(palette.foregroundMuted)
+                        if let gym = snapshot.gym {
+                            Label(gym.name, systemImage: "mappin.and.ellipse")
+                                .textStyle(Tokens.Typography.control)
+                                .foregroundStyle(palette.foregroundMuted)
+                                .lineLimit(1)
+                        }
                         exercises(snapshot)
                         if !snapshot.records.isEmpty {
                             Label(snapshot.records.count == 1 ? "1 record" : "\(snapshot.records.count) records", systemImage: "arrow.up")
@@ -84,8 +91,15 @@ struct PostCard: View {
                         .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
                         .frame(width: Tokens.Size.weightColumn, alignment: .leading)
-                    Text(exercise.name).foregroundStyle(palette.foreground)
-                    if let brand = exercise.brand { Text(brand).foregroundStyle(palette.foregroundFaint) }
+                    // The brand only shows when it fits whole next to the name; a long name truncates on its own.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
+                            Text(exercise.name).foregroundStyle(palette.foreground)
+                            if let brand = exercise.brand { Text(brand).foregroundStyle(palette.foregroundFaint) }
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        Text(exercise.name).foregroundStyle(palette.foreground)
+                    }
                 }
                 .lineLimit(1)
             }

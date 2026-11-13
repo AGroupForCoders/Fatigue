@@ -30,6 +30,7 @@ struct PostScreen: View {
             .padding(.top, Tokens.Space.s)
             .padding(.bottom, Tokens.Space.xxxl)
         }
+        .defaultScrollAnchor(Self.debugScrollAnchor)
         .background(palette.background)
         .toolbarRole(.editor)
         .toolbar {
@@ -127,14 +128,16 @@ struct PostScreen: View {
 
     private func exerciseView(_ exercise: PostSnapshot.Exercise) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s) {
-            HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
-                Text(exercise.name)
-                    .textStyle(Tokens.Typography.exerciseName)
-                    .foregroundStyle(palette.foreground)
-                if let brand = exercise.brand {
-                    Text(brand)
-                        .textStyle(Tokens.Typography.control)
-                        .foregroundStyle(palette.foregroundMuted)
+            // Name and brand side by side when they fit, the brand under the name when they don't.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
+                    exerciseName(exercise.name)
+                    if let brand = exercise.brand { brandText(brand) }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    exerciseName(exercise.name)
+                    if let brand = exercise.brand { brandText(brand) }
                 }
             }
             if !exercise.settings.isEmpty {
@@ -177,11 +180,36 @@ struct PostScreen: View {
     }
 
     /// Such as "52 min · 18 sets · 4,200 kg", in the viewer's unit.
+    private func exerciseName(_ name: String) -> some View {
+        Text(name)
+            .textStyle(Tokens.Typography.exerciseName)
+            .foregroundStyle(palette.foreground)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func brandText(_ brand: String) -> some View {
+        Text(brand)
+            .textStyle(Tokens.Typography.control)
+            .foregroundStyle(palette.foregroundMuted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Such as "52 min · 18 sets · 4,200 kg", in the viewer's unit. The gym has its own line wherever this shows.
     static func summary(_ snapshot: PostSnapshot, unit: WeightUnit) -> String {
         let minutes = max(1, snapshot.durationSeconds / 60)
-        var parts = [HistoryRow.duration(minutes), "\(snapshot.setCount) set\(snapshot.setCount == 1 ? "" : "s")"]
+        var parts = [HistoryRow.duration(minutes), "\(snapshot.setCount.formatted()) set\(snapshot.setCount == 1 ? "" : "s")"]
         if snapshot.volumeKg > 0 { parts.append(unit.wholeLabelled(snapshot.volumeKg)) }
-        if let gym = snapshot.gym { parts.append(gym.name) }
         return parts.joined(separator: " · ")
+    }
+
+    /// Debug builds can start the page scrolled with `-scrollAnchor center` or `-scrollAnchor bottom`, for screenshots.
+    private static var debugScrollAnchor: UnitPoint? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "-scrollAnchor"), index + 1 < args.count {
+            return args[index + 1] == "bottom" ? .bottom : args[index + 1] == "center" ? .center : nil
+        }
+        #endif
+        return nil
     }
 }

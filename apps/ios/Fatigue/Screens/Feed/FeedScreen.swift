@@ -45,6 +45,14 @@ struct FeedScreen: View {
         }
         .task(id: social.myProfile?.userId) {
             if social.myProfile != nil { await refresh() }
+            // Debug builds open the first post shared by someone else with `-openPost`, or its author with `-openPerson`, for screenshots.
+            #if DEBUG
+            let args = ProcessInfo.processInfo.arguments
+            if path.isEmpty, let post = social.feed.first(where: { $0.author.userId != social.myProfile?.userId }) {
+                if args.contains("-openPost") { path.append(PostRoute(post: post)) }
+                if args.contains("-openPerson") { path.append(PersonRoute(userId: post.author.userId, handle: post.author.handle, name: post.author.name)) }
+            }
+            #endif
         }
         .animation(.standard, value: social.feed)
     }
