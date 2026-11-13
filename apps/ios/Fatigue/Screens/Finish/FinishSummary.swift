@@ -145,8 +145,9 @@ struct FinishSummary: View {
     }
 
     /// The records this workout beat, such as "Adductors · Heaviest weight · 60 kg". Nothing when it beat none.
+    /// An exercise whose graph is split names the line, such as "Heaviest weight at notch 8".
     @ViewBuilder private var records: some View {
-        let beaten = ExerciseStats.beaten(by: workout, history: history)
+        let beaten = ExerciseStats.beaten(by: workout, history: history, splitBy: { ExerciseSplit.remembered(for: $0) })
         if !beaten.isEmpty {
             Hairline().padding(.top, Tokens.Space.xl)
             Text("Records")

@@ -250,6 +250,24 @@ final class WorkoutStore {
         persist { try $0.save(stored) }
     }
 
+    /// Changes how much harder a yes/no setting makes a set on an exercise and brand, re-scoring every past
+    /// set there and the running workout's. Nil makes the setting stop counting. See ADR 0002.
+    func setFactor(_ factor: Double?, ofSetting setting: String, exercise name: String, brand: String?) {
+        let rescored = ExerciseStats.rescored(history, exercise: name, brand: brand, setting: setting, factor: factor)
+        for (index, workout) in rescored.enumerated() where workout.exercises.contains(where: { $0.name == name && $0.brand == brand }) {
+            history[index] = workout
+            let stored = workout.stored
+            persist { try $0.save(stored) }
+        }
+        if let active {
+            for e in active.exercises.indices where active.exercises[e].name == name && active.exercises[e].brand == brand {
+                for s in active.exercises[e].settings.indices where active.exercises[e].settings[s].name == setting && active.exercises[e].settings[s].kind == .yesNo {
+                    active.exercises[e].settings[s].factor = factor
+                }
+            }
+        }
+    }
+
     /// Replaces a prebuilt workout with an edited copy.
     func update(_ routine: Routine) {
         guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }

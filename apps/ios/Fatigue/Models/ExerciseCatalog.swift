@@ -116,6 +116,18 @@ final class ExerciseCatalog {
         persist()
     }
 
+    /// Changes a yes/no setting's factor in what's saved for an exercise and brand, so the next workout there
+    /// scores with it. Nil makes the setting stop counting.
+    func setFactor(_ factor: Double?, ofSetting setting: String, for name: String, brand: String?) {
+        let key = Self.key(name, brand)
+        guard var setup = setups[key],
+              let index = setup.settings.firstIndex(where: { $0.name == setting && $0.kind == .yesNo }),
+              setup.settings[index].factor != factor else { return }
+        setup.settings[index].factor = factor
+        setups[key] = setup
+        persist()
+    }
+
     private static func key(_ name: String, _ brand: String?) -> String { "\(name)|\(brand ?? "")" }
 }
 
