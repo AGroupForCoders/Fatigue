@@ -111,7 +111,8 @@ Seat height, notch, dead stop and anything else you set up on this exercise and 
 
 ```
 workout ──< workout_exercise ──< workout_set ──< workout_set_override
-              └──< workout_exercise_setting
+   │          └──< workout_exercise_setting
+   └──< workout_media
 ```
 
 **`workout`**
@@ -185,6 +186,22 @@ A value that a group of sets changes from the exercise's value, such as notch 8 
 - Every set in a group carries the same overrides. Groups aren't stored: the app draws a new heading wherever the kind or the overrides change from one set to the next.
 - A set's value for a setting is its override if it has one, otherwise the exercise's value in `workout_exercise_setting`. Scores and records read this value.
 - If neither has a value, the set has no value for that setting, and that is what gives it a different shape from sets that do.
+
+**`workout_media`**
+
+A photo or video kept with a workout, such as a form check or a picture of the machine's settings.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `workout_id` | text | |
+| `kind` | text | `photo` or `video` |
+| `file_name` | text | The row's ID plus the file's extension, such as `7A1C….heic` |
+| `width`, `height` | integer, nullable | Pixels, the right way up |
+| `duration_seconds` | real, nullable | Videos only |
+| `created_at` | integer | When it was added |
+
+- The file itself lives in Application Support under `media/`, with a thumbnail made once in `media/thumbnails/`. Neither is in Caches, so the system never clears them.
+- For now the files stay on the phone. The row syncs like any other, but uploading the file to the server and showing it on a second phone is a follow-up that needs storage behind the API.
 
 ## Routines
 

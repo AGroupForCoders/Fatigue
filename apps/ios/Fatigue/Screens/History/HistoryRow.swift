@@ -2,29 +2,38 @@ import SwiftUI
 
 /// One finished workout in the history list: its name, then the day, time, sets and volume,
 /// then a list of the first five exercises, each with its set count in front. Anything past five is summed up as "… 2 more".
+/// The first photo or video on it sits at the top right.
 struct HistoryRow: View {
     @Environment(\.palette) private var palette
+    @Environment(MediaStore.self) private var media
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let workout: FinishedWorkout
 
     static let exerciseLimit = 5
+    static let coverSide: CGFloat = 56
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s) {
-            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                Text(workout.title)
-                    .textStyle(Tokens.Typography.exerciseName)
-                    .foregroundStyle(palette.foreground)
-                Text(Self.summary(workout, unit: unit))
-                    .textStyle(Tokens.Typography.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(palette.foregroundMuted)
-                if !workout.description.isEmpty {
-                    Text(workout.description)
-                        .textStyle(Tokens.Typography.control)
+            HStack(alignment: .top, spacing: Tokens.Space.m) {
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    Text(workout.title)
+                        .textStyle(Tokens.Typography.exerciseName)
+                        .foregroundStyle(palette.foreground)
+                    Text(Self.summary(workout, unit: unit))
+                        .textStyle(Tokens.Typography.caption)
+                        .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
-                        .lineLimit(2)
-                        .padding(.top, Tokens.Space.xs)
+                    if !workout.description.isEmpty {
+                        Text(workout.description)
+                            .textStyle(Tokens.Typography.control)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .lineLimit(2)
+                            .padding(.top, Tokens.Space.xs)
+                    }
+                }
+                if let cover = media.cover(for: workout.id) {
+                    Spacer(minLength: 0)
+                    MediaThumbnail(media: cover, side: Self.coverSide)
                 }
             }
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
