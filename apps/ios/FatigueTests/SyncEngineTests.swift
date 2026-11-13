@@ -117,6 +117,26 @@ struct SyncEngineTests {
         #expect(try second.syncItems().count == count)
     }
 
+    @Test func aBrandEditedAfterItsWorkoutsStillReachesANewPhone() async throws {
+        let server = FakeSyncServer()
+        server.pageSize = 5
+        let first = try phone()
+        let one = engine(first, server)
+        await one.syncNow()
+
+        // Editing a brand gives it a later version than the workouts that use it, so a new phone is sent
+        // those workouts pages before the brand they point at.
+        try await first.writer.write { try $0.execute(sql: "UPDATE exercise_brand SET label = 'City gym' WHERE brand IS NOT NULL") }
+        await one.syncNow()
+        #expect(server.pushes.last?.contains { $0.kind == .brand } == true)
+
+        let second = try AppDatabase.inMemory()
+        await engine(second, server).syncNow()
+
+        #expect(try second.syncItems() == first.syncItems())
+        #expect(WorkoutStore(database: second).history.map(\.id) == WorkoutStore(database: first).history.map(\.id))
+    }
+
     @Test func aChangeOnlyPushesWhenSomethingIsWaiting() async throws {
         let server = FakeSyncServer()
         let database = try phone()
