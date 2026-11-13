@@ -180,6 +180,23 @@ nonisolated final class AppDatabase: Sendable {
         migrator.registerMigration("v2-setting-factor") { db in
             try db.alter(table: "setting") { t in t.add(column: "factor", .double) }
         }
+        // Photos and videos on a workout. The files live in Application Support/media, named after the row's id.
+        // `workout_id` has no foreign key on purpose: saving a workout replaces its row, and a cascade would take
+        // the media with it. Rows are marked deleted rather than removed, so the deletion can sync later.
+        migrator.registerMigration("v3-workout-media") { db in
+            try db.create(table: "workout_media") { t in
+                t.primaryKey("id", .text)
+                t.column("workout_id", .text).notNull().indexed()
+                t.column("kind", .text).notNull()
+                t.column("file_name", .text).notNull()
+                t.column("width", .integer)
+                t.column("height", .integer)
+                t.column("duration_seconds", .double)
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull().defaults(to: 0)
+                t.column("deleted_at", .integer)
+            }
+        }
         return migrator
     }
 }
@@ -266,6 +283,21 @@ nonisolated struct StoredSetup: Sendable {
 nonisolated struct StoredLibrary: Sendable {
     var exercises: [StoredExerciseInfo] = []
     var setups: [StoredSetup] = []
+}
+
+/// A photo or video on a workout. The file itself sits in the media folder under `fileName`.
+nonisolated struct StoredMedia: Sendable, Equatable {
+    var id: String
+    var workoutId: String
+    /// "photo" or "video".
+    var kind: String
+    var fileName: String
+    var width: Int?
+    var height: Int?
+    var durationSeconds: Double?
+    var createdAt: Date
+    /// Set once it's deleted. Only read back when asked for, so sync can push deletions later.
+    var deletedAt: Date? = nil
 }
 
 // MARK: - Reading and writing
@@ -465,6 +497,54 @@ nonisolated extension AppDatabase {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: Media
+
+    /// Every photo and video, oldest first within a workout. Deleted ones are left out unless asked for.
+    func media(includingDeleted: Bool = false) throws -> [StoredMedia] {
+        try writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM workout_media \(includingDeleted ? "" : "WHERE deleted_at IS NULL ")ORDER BY created_at, id").map { row in
+                let deleted: Int64? = row["deleted_at"]
+                return StoredMedia(
+                    id: row["id"], workoutId: row["workout_id"], kind: row["kind"], fileName: row["file_name"],
+                    width: row["width"], height: row["height"], durationSeconds: row["duration_seconds"], createdAt: Self.date(row["created_at"]),
+                    deletedAt: deleted.map(Self.date)
+                )
+            }
+        }
+    }
+
+    func insert(_ media: StoredMedia) throws {
+        try writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO workout_media (id, workout_id, kind, file_name, width, height, duration_seconds, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [media.id, media.workoutId, media.kind, media.fileName, media.width, media.height, media.durationSeconds,
+                                 Self.millis(media.createdAt), Self.now])
+        }
+    }
+
+    /// Marks one photo or video deleted. The row stays so the deletion can sync later.
+    func deleteMedia(id: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE workout_media SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", arguments: [Self.now, Self.now, id])
+        }
+    }
+
+    /// Marks everything on a workout deleted, for when the workout itself goes.
+    func deleteMedia(workoutId: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE workout_media SET deleted_at = ?, updated_at = ? WHERE workout_id = ? AND deleted_at IS NULL", arguments: [Self.now, Self.now, workoutId])
+        }
+    }
+
+    /// Moves everything on one workout to another. Finishing saves the workout under a new id, so what was
+    /// added on the finish summary follows it into history.
+    func moveMedia(from workoutId: String, to newWorkoutId: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE workout_media SET workout_id = ?, updated_at = ? WHERE workout_id = ? AND deleted_at IS NULL", arguments: [newWorkoutId, Self.now, workoutId])
         }
     }
 

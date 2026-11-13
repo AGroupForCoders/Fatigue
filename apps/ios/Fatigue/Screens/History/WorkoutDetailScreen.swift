@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A finished workout, read only: every exercise with its brand, setup headings and sets.
+/// A finished workout, read only: its photos and videos, then every exercise with its brand, setup headings and sets.
 /// The menu at the top right edits it on the workout screen, saves it as a prebuilt workout, or deletes it.
 struct WorkoutDetailScreen: View {
     @Environment(\.palette) private var palette
@@ -94,6 +94,10 @@ struct WorkoutDetailScreen: View {
                     }
                 }
                 .padding(.bottom, Tokens.Space.xxl)
+                Hairline()
+
+                MediaRow(workoutID: workout.id)
+                    .padding(.vertical, Tokens.Space.xl)
                 Hairline()
 
                 ForEach(Array(workout.exercises.enumerated()), id: \.offset) { _, exercise in

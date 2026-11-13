@@ -36,6 +36,7 @@ struct FatigueApp: App {
             }
             .environment(auth)
             .environment(workouts)
+            .environment(workouts.media)
             .environment(catalog)
         }
     }

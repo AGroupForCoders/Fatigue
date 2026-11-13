@@ -112,18 +112,22 @@ final class WorkoutStore {
     private let now: () -> Date
     /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
     private let database: AppDatabase?
+    /// The photos and videos on each workout. They follow a workout when it's finished, and go when it's deleted.
+    let media: MediaStore
 
-    init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), now: @escaping () -> Date = Date.init) {
+    init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), media: MediaStore = MediaStore(), now: @escaping () -> Date = Date.init) {
         self.routines = routines
         self.history = history
+        self.media = media
         self.now = now
         self.database = nil
     }
 
     /// Loads everything saved on the phone, including a workout that was running when the app closed.
     /// Debug builds fill an empty database with the sample workouts, so there's something to look at.
-    init(database: AppDatabase, now: @escaping () -> Date = Date.init) {
+    init(database: AppDatabase, media: MediaStore? = nil, now: @escaping () -> Date = Date.init) {
         self.database = database
+        self.media = media ?? MediaStore(database: database)
         self.now = now
         let workouts = (try? database.workouts()) ?? []
         routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
@@ -213,7 +217,7 @@ final class WorkoutStore {
     ///   - description: Anything you wrote about it.
     ///   - unticked: Whether sets you didn't tick are dropped or counted as done.
     ///   - updateRoutine: Whether the prebuilt workout it came from takes today's exercises and sets.
-    /// History only lives in memory until the local database exists.
+    /// Photos and videos added on the finish summary move to the saved workout, or go with it when there's nothing to save.
     func finish(title: String? = nil, description: String = "", unticked: UntickedSets = .drop, updateRoutine: Bool = false) {
         guard let session = active else { return }
         if unticked == .count { session.tickAll() }
@@ -228,6 +232,9 @@ final class WorkoutStore {
             history.insert(finished, at: 0)
             let stored = finished.stored
             persist { try $0.save(stored) }
+            media.move(from: session.id, to: finished.id)
+        } else {
+            media.deleteAll(for: session.id)
         }
         isShowingActive = false
         active = nil
@@ -258,7 +265,10 @@ final class WorkoutStore {
 
     /// Throws the running workout away without saving it.
     func discard() {
-        if let session = active { persist { try $0.deleteWorkout(id: session.id.uuidString) } }
+        if let session = active {
+            persist { try $0.deleteWorkout(id: session.id.uuidString) }
+            media.deleteAll(for: session.id)
+        }
         isShowingActive = false
         active = nil
     }
@@ -269,16 +279,18 @@ final class WorkoutStore {
         if workout.setCount == 0 {
             history.remove(at: index)
             persist { try $0.deleteWorkout(id: workout.id.uuidString) }
+            media.deleteAll(for: workout.id)
         } else {
             history[index] = workout
             let stored = workout.stored
-        persist { try $0.save(stored) }
+            persist { try $0.save(stored) }
         }
     }
 
     func deleteFromHistory(_ workoutID: UUID) {
         history.removeAll { $0.id == workoutID }
         persist { try $0.deleteWorkout(id: workoutID.uuidString) }
+        media.deleteAll(for: workoutID)
     }
 
     func add(_ routine: Routine) {

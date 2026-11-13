@@ -8,11 +8,12 @@ struct FinishDetails {
     var updateRoutine: Bool
 }
 
-/// Shown when you finish a workout: how it went, a name and description to save it under,
-/// and, if it started from a prebuilt workout and you changed things, whether to update that one too.
+/// Shown when you finish a workout: how it went, a name and description to save it under, photos and
+/// videos to keep with it, and, if it started from a prebuilt workout and you changed things, whether to update that one too.
 struct FinishSummary: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(MediaStore.self) private var media
     let session: WorkoutSession
     let unticked: UntickedSets
     /// The prebuilt workout it started from, only when today's workout differs from it.
@@ -103,6 +104,13 @@ struct FinishSummary: View {
 
                     records
 
+                    if !workout.exercises.isEmpty {
+                        Hairline().padding(.top, Tokens.Space.xl)
+                        // Keyed by the running workout's id; finishing moves them to the saved one.
+                        MediaRow(workoutID: session.id)
+                            .padding(.top, Tokens.Space.l)
+                    }
+
                     if let changedRoutine {
                         Hairline().padding(.top, Tokens.Space.xl)
                         HStack(alignment: .center, spacing: Tokens.Space.m) {
@@ -132,9 +140,14 @@ struct FinishSummary: View {
             }
             .scrollDismissesKeyboard(.interactively)
 
-            PrimaryButton(title: workout.exercises.isEmpty ? "Finish without saving" : "Save workout") {
+            // Saving waits for media still being copied in, so nothing is left behind under the running workout's id.
+            let addingMedia = media.importing.contains(session.id)
+            PrimaryButton(title: addingMedia ? "Adding media…" : workout.exercises.isEmpty ? "Finish without saving" : "Save workout") {
                 onSave(FinishDetails(title: title, description: description, unticked: unticked, updateRoutine: updateRoutine))
             }
+            .disabled(addingMedia)
+            .opacity(addingMedia ? 0.5 : 1)
+            .animation(.standard, value: addingMedia)
             .padding(.horizontal, Tokens.Space.xxl)
             .padding(.vertical, Tokens.Space.l)
         }
