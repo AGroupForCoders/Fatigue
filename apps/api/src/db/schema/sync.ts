@@ -51,6 +51,8 @@ export const exercise = pgTable(
     id: text("id").notNull(),
     name: text("name").notNull(),
     equipment: text("equipment").notNull(),
+    /** "reps" or "time", and "weight" when loaded. Null for exercises from builds before measures. */
+    measures: text("measures").array(),
     ...syncColumns(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.id] }), index("exercise_version_idx").on(t.userId, t.version)],
@@ -99,6 +101,8 @@ export const setting = pgTable(
     rangeMin: doublePrecision("range_min"),
     rangeMax: doublePrecision("range_max"),
     splitByValue: boolean("split_by_value").notNull().default(false),
+    /** Typed on every set as one of the exercise's measures, rather than once per exercise. */
+    everySet: boolean("every_set").notNull().default(false),
     factor: doublePrecision("factor"),
     position: doublePrecision("position").notNull(),
     /** A removed setting stays for the workouts that used it. */

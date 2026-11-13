@@ -69,6 +69,7 @@ function aBrand(n: number, updatedAt: number, settingIds: number[] = []): Item<"
         rangeMin: null,
         rangeMax: null,
         splitByValue: false,
+        everySet: position === 0,
         factor: null,
         position,
         deletedAt: null,
@@ -104,7 +105,7 @@ describe("sync push and pull", () => {
   it("gives every kind of item back exactly", async () => {
     const db = await signedUp("anton");
     const items: AnyItem[] = [
-      { kind: "exercise", id: id(1), updatedAt: 1000, deletedAt: null, body: { name: "Sissy Squat", equipment: "bodyweight", muscles: [{ muscle: "glutes", share: 0.5 }, { muscle: "quadriceps", share: 1 }] } },
+      { kind: "exercise", id: id(1), updatedAt: 1000, deletedAt: null, body: { name: "Sissy Squat", equipment: "bodyweight", muscles: [{ muscle: "glutes", share: 0.5 }, { muscle: "quadriceps", share: 1 }], measures: ["weight", "reps"] } },
       aBrand(2, 1000, [200, 201]),
       {
         kind: "routine",
@@ -132,6 +133,22 @@ describe("sync push and pull", () => {
 
     expect((await push(db, "anton", 1, items, now)).map((r) => r.status)).toEqual(["saved", "saved", "saved", "saved", "saved"]);
     expect(await everything(db, "anton")).toEqual(items);
+  });
+
+  it("takes an exercise from a build before measures, and refuses measures that can't be", async () => {
+    const db = await signedUp("anton");
+    const exercise = (n: number, measures: unknown) => ({ kind: "exercise", id: id(n), updatedAt: 1000, deletedAt: null, body: { name: `Plank ${n}`, equipment: "bodyweight", muscles: [], measures } });
+    const results = await push(db, "anton", 1, [
+      exercise(1, undefined),
+      exercise(2, ["time"]),
+      exercise(3, ["reps", "time"]),
+      exercise(4, ["weight"]),
+      exercise(5, ["weight", "weight", "reps"]),
+      exercise(6, ["speed"]),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["saved", "saved", "invalid", "invalid", "invalid", "invalid"]);
+    const pulled = await pull(db, "anton", 0);
+    expect(pulled.items.map((i) => (i.body as { measures: unknown }).measures)).toEqual([null, ["time"]]);
   });
 
   it("keeps the later edit when two phones changed the same workout", async () => {
