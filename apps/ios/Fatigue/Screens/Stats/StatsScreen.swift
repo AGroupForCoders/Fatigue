@@ -7,11 +7,18 @@ struct StatsScreen: View {
     @Environment(\.palette) private var palette
     @Environment(WorkoutStore.self) private var store
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
-    @State private var opened: TrainingStats.ExerciseTrend?
 
     private var stats: TrainingStats { TrainingStats(history: store.history) }
 
     var body: some View {
+        NavigationStack {
+            page
+                .toolbar(.hidden, for: .navigationBar)
+                .exercisePages(history: store.history)
+        }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Stats")
@@ -34,10 +41,6 @@ struct StatsScreen: View {
             .padding(.bottom, Tokens.Space.xxxl)
         }
         .background(palette.background)
-        .sheet(item: $opened) { trend in
-            ExerciseScreen(name: trend.name, brand: trend.brand, history: store.history)
-                .environment(\.palette, palette)
-        }
     }
 
     // MARK: This week
@@ -111,7 +114,7 @@ struct StatsScreen: View {
                 .padding(.bottom, Tokens.Space.s)
             Hairline()
             ForEach(stats.exercises) { trend in
-                Button { opened = trend } label: { row(trend) }
+                NavigationLink(value: ExerciseRoute(name: trend.name, brand: trend.brand)) { row(trend) }
                     .buttonStyle(.pressRow)
                 Hairline(soft: true)
             }

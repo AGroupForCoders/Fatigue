@@ -22,6 +22,7 @@ struct ProfileScreen: View {
                 .navigationDestination(for: UUID.self) { id in
                     WorkoutDetailScreen(workoutID: id)
                 }
+                .exercisePages(history: store.history)
         }
         .onAppear {
             // Debug builds open the third workout in history with `-openHistory`, for screenshots.

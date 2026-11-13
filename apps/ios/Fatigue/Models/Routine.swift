@@ -147,7 +147,8 @@ final class WorkoutStore {
         #if DEBUG
         if routines.isEmpty, history.isEmpty, active == nil {
             routines = Routine.samples
-            history = FinishedWorkout.samples()
+            // With six earlier weeks, so the app opens with history to graph.
+            history = (FinishedWorkout.samples() + FinishedWorkout.earlierSamples()).sorted { $0.startedAt > $1.startedAt }
             try? database.save(routines.map(\.stored))
             for workout in history { try? database.save(workout.stored) }
         }

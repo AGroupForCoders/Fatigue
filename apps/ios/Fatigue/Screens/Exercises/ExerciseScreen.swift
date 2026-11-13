@@ -1,11 +1,26 @@
 import Charts
 import SwiftUI
 
+/// Where an exercise's page is pushed to: the exercise, opened on a brand.
+struct ExerciseRoute: Hashable {
+    let name: String
+    let brand: Brand?
+}
+
+extension View {
+    /// Lets a navigation stack push exercise pages, from a `NavigationLink(value: ExerciseRoute(...))`.
+    func exercisePages(history: [FinishedWorkout]) -> some View {
+        navigationDestination(for: ExerciseRoute.self) { route in
+            ExerciseScreen(name: route.name, brand: route.brand, history: history)
+        }
+    }
+}
+
 /// One exercise across every workout, on one brand at a time: a graph of a metric, its records, and
-/// every past set. Opens from an exercise's name, mid-workout or in history. See "Scores and stats" in the docs.
+/// every past set. Pushed as its own page from an exercise's name: mid-workout, in history, or from Stats.
+/// See "Scores and stats" in the docs.
 struct ExerciseScreen: View {
     @Environment(\.palette) private var palette
-    @Environment(\.dismiss) private var dismiss
     @Environment(WorkoutStore.self) private var store
     @Environment(ExerciseCatalog.self) private var catalog
     @AppStorage(WeightUnit.storageKey) private var weightUnit: WeightUnit = .kg
@@ -78,9 +93,7 @@ struct ExerciseScreen: View {
             .padding(.bottom, Tokens.Space.xxxl)
         }
         .background(palette.background)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(palette.background)
+        .toolbarRole(.editor)
         .animation(.standard, value: brand)
         .animation(.standard, value: metric)
         .animation(.standard, value: isWeighted)
@@ -107,13 +120,6 @@ struct ExerciseScreen: View {
                     .foregroundStyle(palette.foregroundMuted)
             }
             Spacer()
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .foregroundStyle(palette.foreground)
-                    .frame(width: Tokens.Size.control, height: Tokens.Size.control)
-            }
-            .buttonStyle(.press)
-            .accessibilityLabel("Close")
         }
     }
 

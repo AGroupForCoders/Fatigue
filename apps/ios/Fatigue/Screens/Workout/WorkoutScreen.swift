@@ -36,8 +36,23 @@ struct WorkoutScreen: View {
     }
     @FocusState private var focused: FocusedCell?
     @State private var addingExercises = false
+    /// Exercise pages pushed on top of the workout, from an exercise's name.
+    @State private var exercisePath: [ExerciseRoute] = []
 
+    /// The workout sits in its own navigation stack, so tapping an exercise's name pushes its page and back
+    /// comes straight back to your sets. The rest bar is outside the stack, so it stays on the exercise page too.
     var body: some View {
+        NavigationStack(path: $exercisePath) {
+            workout
+                .toolbar(.hidden, for: .navigationBar)
+                .exercisePages(history: history)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomPanel }
+        .animation(.standard, value: session.rest == nil)
+        .animation(.standard, value: session.openRPE)
+    }
+
+    private var workout: some View {
         ScrollViewReader { proxy in
             content
                 .onChange(of: focused) { old, new in
@@ -95,10 +110,7 @@ struct WorkoutScreen: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .background(palette.background)
-        .safeAreaInset(edge: .bottom, spacing: 0) { bottomPanel }
         .overlay { GrainOverlay() }
-        .animation(.standard, value: session.rest == nil)
-        .animation(.standard, value: session.openRPE)
         .task(id: session.rest?.endsAt) {
             guard let endsAt = session.rest?.endsAt else { return }
             try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
@@ -134,6 +146,10 @@ struct WorkoutScreen: View {
             if ProcessInfo.processInfo.arguments.contains("-openFinish"), mode == .live {
                 session.exercises[0].sets[2].weight = "57.5"
                 finishing = Finishing(unticked: .count)
+            }
+            // `-openExercise` pushes the first exercise's page.
+            if ProcessInfo.processInfo.arguments.contains("-openExercise"), exercisePath.isEmpty, let first = session.exercises.first {
+                exercisePath = [ExerciseRoute(name: first.name, brand: first.brand)]
             }
             #endif
         }
@@ -280,7 +296,6 @@ private struct ExerciseSection: View {
     @State private var pickingBrand = false
     @State private var editingSetup: SetupEdit?
     @State private var pickingRest = false
-    @State private var showingStats = false
 
     /// Debug builds can open a picker on launch with `-openBrand`, `-openRest`, `-openRPE`, `-editExercise` or `-editSettings`, for screenshots.
     private func openForScreenshots() {
@@ -291,7 +306,6 @@ private struct ExerciseSection: View {
         if args.contains("-openRest") { pickingRest = true }
         if args.contains("-editExercise") { editingExercise = true }
         if args.contains("-editSettings") { editingSettings = true }
-        if args.contains("-openExercise") { showingStats = true }
         if args.contains("-openRPE") { session.openRPE = exercise.sets.last?.id }
         #endif
     }
@@ -318,7 +332,7 @@ private struct ExerciseSection: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 // The name opens the exercise page: its graph, records and past sets on this brand.
-                Button { showingStats = true } label: {
+                NavigationLink(value: ExerciseRoute(name: exercise.name, brand: exercise.brand)) {
                     Text(exercise.name)
                         .textStyle(Tokens.Typography.exerciseName)
                         .foregroundStyle(palette.foreground)
@@ -431,10 +445,6 @@ private struct ExerciseSection: View {
                 withAnimation(.standard) { session.changeBrand(of: exerciseIndex, to: brand, catalog: catalog) }
             }
             .environment(\.palette, palette)
-        }
-        .sheet(isPresented: $showingStats) {
-            ExerciseScreen(name: exercise.name, brand: exercise.brand, history: history)
-                .environment(\.palette, palette)
         }
         .sheet(isPresented: $pickingRest) {
             RestSheet(exerciseName: exercise.name, seconds: $session.exercises[exerciseIndex].restSeconds)

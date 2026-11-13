@@ -96,11 +96,12 @@ struct DatabaseTests {
         let database = try AppDatabase.inMemory()
         let first = store(database)
         let id = first.history[0].id
+        let countBefore = first.history.count
         first.rename(id, title: "Pull, heavy", description: "PB")
         first.deleteFromHistory(first.history[1].id)
 
         let reopened = store(database)
-        #expect(reopened.history.count == 2)
+        #expect(reopened.history.count == countBefore - 1)
         #expect(reopened.history[0].title == "Pull, heavy")
     }
 
