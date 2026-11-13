@@ -88,6 +88,24 @@ nonisolated extension AppDatabase {
         }
     }
 
+    /// Lets every refused item be offered again, for after an update that might make the server take it.
+    func clearSyncFailures() throws {
+        try writer.write { try $0.execute(sql: "UPDATE sync_item SET failed_hash = NULL, error = NULL WHERE failed_hash IS NOT NULL") }
+    }
+
+    // MARK: What sync remembers
+
+    /// A value sync keeps on the phone, such as the schema of the build that last synced.
+    func syncState(_ key: String) throws -> String? {
+        try writer.read { try String.fetchOne($0, sql: "SELECT value FROM sync_state WHERE key = ?", arguments: [key]) }
+    }
+
+    func setSyncState(_ key: String, _ value: String) throws {
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO sync_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", arguments: [key, value])
+        }
+    }
+
     // MARK: Pulling
 
     /// The cursor from the last pull. Zero before the first one.
