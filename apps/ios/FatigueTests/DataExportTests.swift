@@ -138,6 +138,7 @@ struct DataExportTests {
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.hasPrefix("title,start_time"))
         #expect(contents.hasSuffix("\n"))
-        #expect(contents.components(separatedBy: "\n").count == 6) // header, 3 rows (one with a line break in the notes), trailing LF
+        // Header, 3 rows, the trailing LF, and the line break in the Adductors notes, which repeat on both of its rows.
+        #expect(contents.components(separatedBy: "\n").count == 7)
     }
 }

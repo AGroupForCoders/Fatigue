@@ -4,7 +4,8 @@ import Foundation
 /// and a quote inside it is doubled. Lines end in LF, which spreadsheets on every platform open fine.
 nonisolated enum CSV {
     static func field(_ text: String) -> String {
-        guard text.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return text }
+        // Checks scalars, not characters: "\r\n" is one Character in Swift, so it never equals "\n" or "\r".
+        guard text.unicodeScalars.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return text }
         return "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
