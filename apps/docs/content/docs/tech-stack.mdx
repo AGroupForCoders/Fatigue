@@ -53,7 +53,7 @@ Neon was chosen for Postgres because it sleeps when idle and wakes on the next r
 
 The API starts on Cloudflare Workers. There is no server to manage and it scales without configuration.
 
-We do not want to be stuck there, so the API avoids Cloudflare's own storage products and keeps Cloudflare-specific code in two files. The [API structure](/docs/api-structure) page shows which. Moving to a normal Node server on Railway or Fly.io should then be a small change.
+We do not want to be stuck there, so the API keeps Cloudflare-specific code in two files. Photos and videos go in Cloudflare R2, but through its S3-compatible API and not a Workers binding, so moving them to S3 or any other S3-compatible store means changing an endpoint and keys, not code. The [API structure](/docs/api-structure) page shows which. Moving to a normal Node server on Railway or Fly.io should then be a small change.
 
 ## Not checked yet
 
