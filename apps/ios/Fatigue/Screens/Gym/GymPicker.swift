@@ -50,9 +50,17 @@ final class GymSearch {
         if let here { request.region = MKCoordinateRegion(center: here, latitudinalMeters: 20_000, longitudinalMeters: 20_000) }
         guard let response = try? await MKLocalSearch(request: request).start(), !Task.isCancelled else { return }
         results = response.mapItems.compactMap { item in
-            let coordinate = item.placemark.coordinate
-            return Gym(name: item.name ?? "", address: item.placemark.title, latitude: coordinate.latitude, longitude: coordinate.longitude)
+            let place = item.placemark
+            return Gym(name: item.name ?? "", address: Self.shortAddress(of: place), latitude: place.coordinate.latitude, longitude: place.coordinate.longitude)
         }
+    }
+
+    /// The street and suburb, such as "186 Victoria St West, Auckland CBD". Enough to tell two branches of
+    /// one gym apart without the postcode and country running off the row.
+    static func shortAddress(of place: MKPlacemark) -> String? {
+        let street = [place.subThoroughfare, place.thoroughfare].compactMap { $0 }.joined(separator: " ")
+        let parts = [street.isEmpty ? nil : street, place.subLocality ?? place.locality].compactMap { $0 }
+        return parts.isEmpty ? place.title : parts.joined(separator: ", ")
     }
 }
 
@@ -65,7 +73,14 @@ struct GymPicker: View {
     let recent: [Gym]
     let onPick: (Gym?) -> Void
 
-    @State private var query = ""
+    /// Debug builds can fill the search on launch with `-gymQuery <text>`, for screenshots.
+    @State private var query: String = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "-gymQuery"), index + 1 < args.count { return args[index + 1] }
+        #endif
+        return ""
+    }()
     @State private var search = GymSearch()
     @FocusState private var searching: Bool
 
@@ -232,6 +247,12 @@ struct GymButton: View {
         }
         .buttonStyle(.press)
         .accessibilityLabel(gym.map { "Gym, \($0.name)" } ?? "Add gym")
+        .onAppear {
+            // Debug builds open the picker on launch with `-openGymPicker`, for screenshots.
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-openGymPicker") { picking = true }
+            #endif
+        }
         .sheet(isPresented: $picking) {
             GymPicker(current: gym, recent: recent, onPick: onPick)
                 .environment(\.palette, palette)
