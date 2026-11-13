@@ -288,11 +288,59 @@ nonisolated extension AppDatabase {
                            arguments: [exerciseId, name, ExerciseCatalogNames.builtIn.contains(name), now])
         }
         if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ?", arguments: [exerciseId, brand]) {
+            // A brand merged away earlier comes back when it's picked again.
+            try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL", arguments: [now, id])
             return id
         }
         let id = UUID().uuidString
         try db.execute(sql: "INSERT INTO exercise_brand (id, exercise_id, brand, updated_at) VALUES (?, ?, ?, ?)", arguments: [id, exerciseId, brand, now])
         return id
+    }
+
+    // MARK: Moving history between brands
+
+    /// Moves everything logged on one brand of an exercise onto another: its history, settings and so its records.
+    ///
+    /// When nothing has been logged on `to` yet this is a rename, and the row just changes brand. Otherwise the
+    /// two are merged: workouts and prebuilt workouts move over, and so do the settings. A setting that both
+    /// brands have (by name) keeps the destination's definition and next-time value, with the source's past
+    /// values re-pointed at it; one only the source has comes along with its values. The source brand row is
+    /// then marked deleted. Nothing happens when `from` and `to` are the same, or `from` has never been used.
+    func moveBrand(exercise name: String, from: String?, to: String?) throws {
+        guard from != to else { return }
+        try writer.write { db in
+            guard let exerciseId = try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [name]),
+                  let source = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ? AND deleted_at IS NULL", arguments: [exerciseId, from])
+            else { return }
+            let now = Self.now
+            guard let destination = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ?", arguments: [exerciseId, to]) else {
+                try db.execute(sql: "UPDATE exercise_brand SET brand = ?, updated_at = ? WHERE id = ?", arguments: [to, now, source])
+                return
+            }
+
+            try db.execute(sql: "UPDATE exercise_brand SET deleted_at = NULL, updated_at = ? WHERE id = ?", arguments: [now, destination])
+            try db.execute(sql: "UPDATE workout_exercise SET exercise_brand_id = ?, updated_at = ? WHERE exercise_brand_id = ?", arguments: [destination, now, source])
+            try db.execute(sql: "UPDATE routine_exercise SET exercise_brand_id = ?, updated_at = ? WHERE exercise_brand_id = ?", arguments: [destination, now, source])
+
+            let kept = try Row.fetchAll(db, sql: "SELECT id, name FROM setting WHERE exercise_brand_id = ? AND deleted_at IS NULL", arguments: [destination])
+            let keptByName = Dictionary(kept.map { (($0["name"] as String).lowercased(), $0["id"] as String) }, uniquingKeysWith: { a, _ in a })
+            var position = try Double.fetchOne(db, sql: "SELECT MAX(position) FROM setting WHERE exercise_brand_id = ?", arguments: [destination]) ?? -1
+            for setting in try Row.fetchAll(db, sql: "SELECT id, name FROM setting WHERE exercise_brand_id = ? ORDER BY position", arguments: [source]) {
+                let settingId: String = setting["id"]
+                if let target = keptByName[(setting["name"] as String).lowercased()] {
+                    for table in ["workout_exercise_setting", "workout_set_override", "routine_exercise_setting", "routine_set_override"] {
+                        // OR IGNORE keeps the destination's value where a row already has one for both.
+                        try db.execute(sql: "UPDATE OR IGNORE \(table) SET setting_id = ? WHERE setting_id = ?", arguments: [target, settingId])
+                        try db.execute(sql: "DELETE FROM \(table) WHERE setting_id = ?", arguments: [settingId])
+                    }
+                    try db.execute(sql: "UPDATE setting SET deleted_at = ?, updated_at = ? WHERE id = ?", arguments: [now, now, settingId])
+                } else {
+                    position += 1
+                    try db.execute(sql: "UPDATE setting SET exercise_brand_id = ?, position = ?, updated_at = ? WHERE id = ?", arguments: [destination, position, now, settingId])
+                }
+            }
+            try db.execute(sql: "UPDATE exercise_brand SET deleted_at = ?, updated_at = ? WHERE id = ?", arguments: [now, now, source])
+        }
     }
 
     /// Adds a setting or updates its definition. Its next-time value is only written when `withValue` is set,

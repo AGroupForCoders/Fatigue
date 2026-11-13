@@ -252,6 +252,7 @@ struct WorkoutScreen: View {
 private struct ExerciseSection: View {
     @Environment(\.palette) private var palette
     @Environment(ExerciseCatalog.self) private var catalog
+    @Environment(WorkoutStore.self) private var store
     @Bindable var session: WorkoutSession
     /// Keyed by id, not position, so removing or reordering exercises never points a section at the wrong one.
     let exerciseID: UUID
@@ -290,6 +291,13 @@ private struct ExerciseSection: View {
 
     private var knownBrands: [KnownBrand] {
         KnownBrand.list(for: exercise.name, history: history, saved: catalog.brands(for: exercise.name))
+    }
+
+    /// Moves what's logged on one brand of this exercise onto another: history and the running workout
+    /// in the store, settings in the catalog.
+    private func moveBrand(from: String?, to: String?) {
+        store.moveBrand(exercise: exercise.name, from: from, to: to)
+        catalog.moveBrand(for: exercise.name, from: from, to: to)
     }
 
     var body: some View {
@@ -409,7 +417,8 @@ private struct ExerciseSection: View {
         .padding(.bottom, Tokens.Space.s)
         .onAppear(perform: openForScreenshots)
         .sheet(isPresented: $pickingBrand) {
-            BrandSheet(exerciseName: exercise.name, known: knownBrands, current: exercise.brand) { brand in
+            BrandSheet(exerciseName: exercise.name, known: knownBrands, current: exercise.brand) { brand, movingHistory in
+                if movingHistory { moveBrand(from: exercise.brand, to: brand) }
                 withAnimation(.standard) { session.changeBrand(of: exerciseIndex, to: brand, catalog: catalog) }
             }
             .environment(\.palette, palette)
@@ -444,6 +453,11 @@ private struct ExerciseSection: View {
                 let oldBrand = exercise.brand
                 catalog.save(edit.info, renamedFrom: exercise.name, brand: edit.brand, setup: edit.setup)
                 catalog.save(edit.otherSetups, for: edit.info.name)
+                // After saving, so the settings edited here are what gets merged.
+                if let move = edit.brandMove {
+                    store.moveBrand(exercise: edit.info.name, from: move.from, to: move.to)
+                    catalog.moveBrand(for: edit.info.name, from: move.from, to: move.to)
+                }
                 withAnimation(.standard) {
                     session.applyEdit(to: exerciseIndex, name: edit.info.name, settings: edit.setup.settings, renamedSettings: edit.renamedSettings)
                     // Picking another brand in the editor moves this exercise onto it.
@@ -855,6 +869,7 @@ private struct ReorderExercises: View {
 #Preview("Light") {
     WorkoutScreen(session: .sample())
         .environment(ExerciseCatalog())
+        .environment(WorkoutStore())
         .environment(\.palette, .light)
         .preferredColorScheme(.light)
 }
@@ -862,6 +877,7 @@ private struct ReorderExercises: View {
 #Preview("Dark") {
     WorkoutScreen(session: .sample())
         .environment(ExerciseCatalog())
+        .environment(WorkoutStore())
         .environment(\.palette, .dark)
         .preferredColorScheme(.dark)
 }

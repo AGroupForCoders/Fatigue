@@ -10,6 +10,14 @@ struct ExerciseEdit {
     var renamedSettings: [String: String]
     /// Settings edited on other brands before switching away from them, keyed by brand ("" for no brand).
     var otherSetups: [String: BrandSetup] = [:]
+    /// History to move between brands when saving, if you asked for that in the brand picker.
+    var brandMove: BrandMove? = nil
+}
+
+/// Moving what's logged on one brand of an exercise onto another. `nil` on either side is no brand.
+struct BrandMove: Equatable {
+    var from: String?
+    var to: String?
 }
 
 /// Creates a custom exercise, or edits one: name, equipment and muscles, then the settings saved
@@ -32,6 +40,8 @@ struct ExerciseEditor: View {
     /// Settings edited on brands you've switched away from, keyed by brand ("" for no brand).
     @State private var drafts: [String: [EditableSetting]] = [:]
     @State private var pickingBrand = false
+    /// Set when the brand picker was told to bring the history along. Done when you save.
+    @State private var brandMove: BrandMove?
     @State private var editingSetting: EditableSetting?
     @FocusState private var editingName: Bool
 
@@ -103,11 +113,14 @@ struct ExerciseEditor: View {
                     let renamed = Dictionary(uniqueKeysWithValues: settings.compactMap { editable in
                         editable.originalName.flatMap { $0 != editable.setting.name ? ($0, editable.setting.name) : nil }
                     })
+                    let move = brandMove?.to == brand ? brandMove : nil
                     var others = drafts.mapValues { BrandSetup(settings: $0.map(\.setting)) }
                     others[brand ?? ""] = nil
+                    // Everything on the brand being moved goes with it, so there's nothing to save back there.
+                    if let move { others[move.from ?? ""] = nil }
                     onSave(ExerciseEdit(
                         info: saved, brand: brand, setup: BrandSetup(settings: settings.map(\.setting)),
-                        renamedSettings: renamed, otherSetups: others
+                        renamedSettings: renamed, otherSetups: others, brandMove: move
                     ))
                     dismiss()
                 }
@@ -123,8 +136,8 @@ struct ExerciseEditor: View {
         .presentationBackground(palette.background)
         .onAppear { if isNew { editingName = true } }
         .sheet(isPresented: $pickingBrand) {
-            BrandSheet(exerciseName: trimmedName.isEmpty ? "New exercise" : trimmedName, known: knownBrands, current: brand) { picked in
-                switchBrand(to: picked)
+            BrandSheet(exerciseName: trimmedName.isEmpty ? "New exercise" : trimmedName, known: knownBrands, current: brand) { picked, movingHistory in
+                switchBrand(to: picked, movingHistory: movingHistory)
             }
             .environment(\.palette, palette)
         }
@@ -150,11 +163,20 @@ struct ExerciseEditor: View {
 
     /// Keeps what you've edited on the current brand, then shows the settings for the picked one:
     /// edited earlier in this sheet if you've been there, otherwise as saved.
-    private func switchBrand(to picked: String?) {
+    /// With `movingHistory` the history and settings on the brand you're leaving come along when you save.
+    private func switchBrand(to picked: String?, movingHistory: Bool = false) {
         guard picked != brand else { return }
         drafts[brand ?? ""] = settings
+        brandMove = movingHistory ? BrandMove(from: brand, to: picked) : nil
+        var next = drafts[picked ?? ""] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
+        if movingHistory {
+            // What the merge will leave: the picked brand's settings, plus the ones only this brand has.
+            for editable in settings where !next.contains(where: { $0.setting.name.caseInsensitiveCompare(editable.setting.name) == .orderedSame }) {
+                next.append(editable)
+            }
+        }
         withAnimation(.standard) {
-            settings = drafts[picked ?? ""] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
+            settings = next
             brand = picked
         }
     }
