@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import type { Database } from "../../db/client";
 import * as t from "../../db/schema";
-import { InvalidItem, kinds, parseItem, type AnyItem, type Bodies, type BrandSetting, type Item, type ItemExercise, type Kind } from "./sync.items";
+import { InvalidItem, kinds, parseItem, type AnyItem, type Bodies, type BrandSetting, type Item, type ItemExercise, type Kind, type Measure } from "./sync.items";
 
 /** The most items one push or one page of a pull carries. */
 export const pageSize = 100;
@@ -115,7 +115,7 @@ function write(db: Database, userId: string, item: AnyItem, sync: Sync) {
 
 async function writeExercise(db: Database, userId: string, item: Item<"exercise">, sync: Sync) {
   const body = item.body!;
-  const row = { name: body.name, equipment: body.equipment, ...sync };
+  const row = { name: body.name, equipment: body.equipment, measures: body.measures, ...sync };
   await db
     .insert(t.exercise)
     .values({ userId, id: item.id, ...row })
@@ -316,7 +316,12 @@ const readers: { [K in Kind]: (db: Database, userId: string, ids: string[]) => P
       (m) => m.exerciseId,
     );
     return new Map(
-      rows.map((row) => [row.id, { name: row.name, equipment: row.equipment, muscles: (muscles.get(row.id) ?? []).map((m) => ({ muscle: m.muscle, share: m.share })) }]),
+      rows.map((row) => [row.id, {
+          name: row.name,
+          equipment: row.equipment,
+          muscles: (muscles.get(row.id) ?? []).map((m) => ({ muscle: m.muscle, share: m.share })),
+          measures: (row.measures as Measure[] | null) ?? null,
+        }]),
     );
   },
 

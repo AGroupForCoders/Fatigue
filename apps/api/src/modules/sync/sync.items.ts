@@ -8,6 +8,9 @@ export type Kind = (typeof kinds)[number];
 export type SettingValue = { settingId: string; value: number | null; textValue: string | null };
 export type Override = { settingId: string; value: number };
 
+export const measureNames = ["weight", "reps", "time"] as const;
+export type Measure = (typeof measureNames)[number];
+
 export type ItemSet = {
   id: string;
   kind: "reps" | "hold";
@@ -42,13 +45,21 @@ export type BrandSetting = {
   rangeMin: number | null;
   rangeMax: number | null;
   splitByValue: boolean;
+  /** A tracked setting typed on every set, as one of the exercise's measures, rather than once per exercise. */
+  everySet: boolean;
   factor: number | null;
   position: number;
   deletedAt: number | null;
 };
 
 export type Bodies = {
-  exercise: { name: string; equipment: string; muscles: { muscle: string; share: number }[] };
+  exercise: {
+    name: string;
+    equipment: string;
+    muscles: { muscle: string; share: number }[];
+    /** What every set of it records: "reps" or "time", and "weight" when loaded. Null from builds before measures. */
+    measures: Measure[] | null;
+  };
   brand: { exerciseId: string; brand: string | null; label: string | null; settings: BrandSetting[] };
   routine: { name: string; position: number; exercises: ItemExercise[] };
   workout: {
@@ -194,6 +205,14 @@ function exercises(value: unknown, at: string, inWorkout: boolean): ItemExercise
   });
 }
 
+/** An exercise's measures: reps or time, exactly one, and weight if it's loaded. */
+function measures(value: unknown, at: string): Measure[] {
+  const names = list(value, at, measureNames.length).map((raw, i) => oneOf(raw, measureNames, `${at}[${i}]`));
+  if (new Set(names).size !== names.length) throw new InvalidItem(`${at} lists a measure twice`);
+  if (names.filter((n) => n !== "weight").length !== 1) throw new InvalidItem(`${at} needs reps or time, not both`);
+  return names;
+}
+
 const bodies: { [K in Kind]: (o: Json) => Bodies[K] } = {
   exercise: (o) => ({
     name: text(o.name, "body.name"),
@@ -202,6 +221,7 @@ const bodies: { [K in Kind]: (o: Json) => Bodies[K] } = {
       const muscle = object(raw, `body.muscles[${i}]`);
       return { muscle: text(muscle.muscle, `body.muscles[${i}].muscle`), share: number(muscle.share, `body.muscles[${i}].share`) };
     }),
+    measures: optional(o.measures, (v) => measures(v, "body.measures")),
   }),
   brand: (o) => ({
     exerciseId: id(o.exerciseId, "body.exerciseId"),
@@ -220,6 +240,7 @@ const bodies: { [K in Kind]: (o: Json) => Bodies[K] } = {
         rangeMin: optional(s.rangeMin, (v) => number(v, `${here}.rangeMin`)),
         rangeMax: optional(s.rangeMax, (v) => number(v, `${here}.rangeMax`)),
         splitByValue: s.splitByValue === true,
+        everySet: s.everySet === true,
         factor: optional(s.factor, (v) => number(v, `${here}.factor`)),
         position: number(s.position ?? i, `${here}.position`),
         deletedAt: optional(s.deletedAt, (v) => whole(v, `${here}.deletedAt`)),
