@@ -17,8 +17,8 @@ struct TrainingStatsTests {
     private func workout(daysAgo: Double, _ name: String = "Leg Press", weight: String = "100") -> FinishedWorkout {
         FinishedWorkout(title: "Legs", startedAt: now.addingTimeInterval(-daysAgo * 86_400), duration: 3600, exercises: [
             WorkoutExercise(name: name, restSeconds: 90, sets: [
-                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "10", previous: "", isDone: true),
-                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "10", previous: "", isDone: true),
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "10", isDone: true),
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "10", isDone: true),
             ]),
         ])
     }

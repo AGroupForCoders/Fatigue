@@ -5,7 +5,23 @@ nonisolated struct Account: Codable, Equatable, Sendable {
     let id: String
     var name: String
     let email: String
+    /// Whether they've opened the link in the verification email. The app works either way.
+    var emailVerified = false
     let createdAt: Date
+
+    private enum CodingKeys: String, CodingKey { case id, name, email, emailVerified, createdAt }
+}
+
+nonisolated extension Account {
+    /// Accounts cached before verification existed have no `emailVerified`, so it defaults to false.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        email = try container.decode(String.self, forKey: .email)
+        emailVerified = try container.decodeIfPresent(Bool.self, forKey: .emailVerified) ?? false
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
 }
 
 /// Something the API said no to, with a message fit to show under the form.

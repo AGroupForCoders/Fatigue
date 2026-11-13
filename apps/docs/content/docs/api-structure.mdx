@@ -30,6 +30,7 @@ apps/api/src/
 │   └── migrations/
 ├── middleware/
 └── lib/
+    └── mail/                 email templates and the Resend sender
 ```
 
 A feature stays at three files until one of them gets big enough to split. We do not create a folder per endpoint, because a feature with six endpoints would then be six folders and eighteen files.
@@ -56,7 +57,7 @@ That leaves five modules:
 
 | Module | What it does |
 | --- | --- |
-| `auth` | Sign-up, sign-in and sessions, through Better Auth. |
+| `auth` | Sign-up, sign-in, sessions, password reset and email verification, through Better Auth. The pages the email links land on live here too. |
 | `sync` | Accepts changed rows from a device and returns rows changed since its last sync. |
 | `exercises` | Serves the built-in exercise and brand lists. |
 | `import` | Takes a Hevy CSV export and turns it into workouts. |

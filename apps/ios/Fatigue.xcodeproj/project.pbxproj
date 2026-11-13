@@ -14,16 +14,64 @@
 			remoteGlobalIDString = F1A70000000000000000A001;
 			remoteInfo = Fatigue;
 		};
+		F1A70000000000000000D103 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F1A70000000000000000E001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F1A70000000000000000A003;
+			remoteInfo = RestWidgetExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F1A70000000000000000F00A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				F1A70000000000000000D0D3 /* RestWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		F1A70000000000000000B001 /* Fatigue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fatigue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1A70000000000000000B002 /* FatigueTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FatigueTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1A70000000000000000B003 /* RestWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RestWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F1A70000000000000000C101 /* Exceptions for "Fatigue" folder in "RestWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				DesignSystem/TextStyle.swift,
+				DesignSystem/Tokens.swift,
+				Models/RestActivityAttributes.swift,
+				Models/RestIntents.swift,
+				Resources/Fonts/Inter-Light.ttf,
+				Resources/Fonts/Inter-Medium.ttf,
+				Resources/Fonts/Inter-Regular.ttf,
+			);
+			target = F1A70000000000000000A003 /* RestWidgetExtension */;
+		};
+		F1A70000000000000000C102 /* Exceptions for "RestWidget" folder in "RestWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F1A70000000000000000A003 /* RestWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F1A70000000000000000C001 /* Fatigue */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F1A70000000000000000C101 /* Exceptions for "Fatigue" folder in "RestWidgetExtension" target */,
+			);
 			path = Fatigue;
 			sourceTree = "<group>";
 		};
@@ -32,10 +80,19 @@
 			path = FatigueTests;
 			sourceTree = "<group>";
 		};
+		F1A70000000000000000C003 /* RestWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F1A70000000000000000C102 /* Exceptions for "RestWidget" folder in "RestWidgetExtension" target */,
+			);
+			path = RestWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXBuildFile section */
 		F1A70000000000000000D0D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F1A70000000000000000D0D1 /* GRDB */; };
+		F1A70000000000000000D0D3 /* RestWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F1A70000000000000000B003 /* RestWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +111,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F1A70000000000000000F008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -62,6 +126,7 @@
 			children = (
 				F1A70000000000000000C001 /* Fatigue */,
 				F1A70000000000000000C002 /* FatigueTests */,
+				F1A70000000000000000C003 /* RestWidget */,
 				F1A70000000000000000C011 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,6 +136,7 @@
 			children = (
 				F1A70000000000000000B001 /* Fatigue.app */,
 				F1A70000000000000000B002 /* FatigueTests.xctest */,
+				F1A70000000000000000B003 /* RestWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -85,10 +151,12 @@
 				F1A70000000000000000F001 /* Sources */,
 				F1A70000000000000000F002 /* Frameworks */,
 				F1A70000000000000000F003 /* Resources */,
+				F1A70000000000000000F00A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				F1A70000000000000000D104 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F1A70000000000000000C001 /* Fatigue */,
@@ -124,6 +192,28 @@
 			productReference = F1A70000000000000000B002 /* FatigueTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		F1A70000000000000000A003 /* RestWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1A70000000000000000E104 /* Build configuration list for PBXNativeTarget "RestWidgetExtension" */;
+			buildPhases = (
+				F1A70000000000000000F007 /* Sources */,
+				F1A70000000000000000F008 /* Frameworks */,
+				F1A70000000000000000F009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F1A70000000000000000C003 /* RestWidget */,
+			);
+			name = RestWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = RestWidgetExtension;
+			productReference = F1A70000000000000000B003 /* RestWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -140,6 +230,9 @@
 					F1A70000000000000000A002 = {
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = F1A70000000000000000A001;
+					};
+					F1A70000000000000000A003 = {
+						CreatedOnToolsVersion = 26.0;
 					};
 				};
 			};
@@ -162,6 +255,7 @@
 			targets = (
 				F1A70000000000000000A001 /* Fatigue */,
 				F1A70000000000000000A002 /* FatigueTests */,
+				F1A70000000000000000A003 /* RestWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -175,6 +269,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F1A70000000000000000F006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1A70000000000000000F009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -198,6 +299,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F1A70000000000000000F007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -205,6 +313,11 @@
 			isa = PBXTargetDependency;
 			target = F1A70000000000000000A001 /* Fatigue */;
 			targetProxy = F1A70000000000000000D101 /* PBXContainerItemProxy */;
+		};
+		F1A70000000000000000D104 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F1A70000000000000000A003 /* RestWidgetExtension */;
+			targetProxy = F1A70000000000000000D103 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -280,7 +393,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Fatigue-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Fatigue;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -308,7 +423,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Fatigue-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Fatigue;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -364,6 +481,58 @@
 			};
 			name = Release;
 		};
+		F1A70000000000000000E207 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RestWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Rest;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agroupforcoders.fatigue.RestWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		F1A70000000000000000E208 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RestWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Rest;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agroupforcoders.fatigue.RestWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -390,6 +559,15 @@
 			buildConfigurations = (
 				F1A70000000000000000E205 /* Debug */,
 				F1A70000000000000000E206 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F1A70000000000000000E104 /* Build configuration list for PBXNativeTarget "RestWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1A70000000000000000E207 /* Debug */,
+				F1A70000000000000000E208 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

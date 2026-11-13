@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// A finished workout, read only: every exercise with its brand, setup headings and sets.
+/// A finished workout, read only: its photos and videos, then every exercise with its brand, setup headings and sets.
 /// The menu at the top right edits it on the workout screen, saves it as a prebuilt workout, or deletes it.
 struct WorkoutDetailScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(WorkoutStore.self) private var store
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let workoutID: UUID
 
     @State private var editing: WorkoutSession?
@@ -35,7 +36,8 @@ struct WorkoutDetailScreen: View {
                         if let workout { withAnimation(.standard) { store.replace(workout.updated(from: session)) } }
                         editing = nil
                         if workout == nil { dismiss() }
-                    }
+                    },
+                    onDeleteExercise: { store.removeFromRoutines(exerciseNamed: $0) }
                 )
             }
         }
@@ -82,7 +84,7 @@ struct WorkoutDetailScreen: View {
                     Text(workout.title)
                         .textStyle(Tokens.Typography.title)
                         .foregroundStyle(palette.foreground)
-                    Text(HistoryRow.summary(workout))
+                    Text(HistoryRow.summary(workout, unit: unit))
                         .textStyle(Tokens.Typography.control)
                         .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
@@ -94,6 +96,10 @@ struct WorkoutDetailScreen: View {
                     }
                 }
                 .padding(.bottom, Tokens.Space.xxl)
+                Hairline()
+
+                MediaRow(workoutID: workout.id)
+                    .padding(.vertical, Tokens.Space.xl)
                 Hairline()
 
                 ForEach(Array(workout.exercises.enumerated()), id: \.offset) { _, exercise in
@@ -111,6 +117,7 @@ struct WorkoutDetailScreen: View {
 /// One exercise of a finished workout: name and brand, notes, then its sets under their setup headings.
 private struct ExerciseRecord: View {
     @Environment(\.palette) private var palette
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let exercise: WorkoutExercise
     let history: [FinishedWorkout]
     @State private var showingStats = false
@@ -131,7 +138,7 @@ private struct ExerciseRecord: View {
                         .environment(\.palette, palette)
                 }
                 if let brand = exercise.brand {
-                    Text(brand)
+                    Text(brand.display)
                         .textStyle(Tokens.Typography.control)
                         .foregroundStyle(palette.foregroundMuted)
                 }
@@ -155,7 +162,7 @@ private struct ExerciseRecord: View {
                             .padding(.top, Tokens.Space.s)
                     }
                     ForEach(group.setIndices, id: \.self) { index in
-                        setLine(number: index + 1, set: exercise.sets[index])
+                        setLine(mark: exercise.sets.mark(at: index), spoken: exercise.sets.spokenName(at: index), set: exercise.sets[index])
                     }
                 }
             }
@@ -163,12 +170,14 @@ private struct ExerciseRecord: View {
         .padding(.vertical, Tokens.Space.xl)
     }
 
-    private func setLine(number: Int, set: WorkoutSet) -> some View {
+    /// `mark` is the set's number, or W, D or F for a warm-up, drop set or set to failure.
+    private func setLine(mark: String, spoken: String, set: WorkoutSet) -> some View {
         HStack(spacing: Tokens.Space.l) {
-            Text("\(number)")
-                .foregroundStyle(palette.foregroundFaint)
+            Text(mark)
+                .foregroundStyle(set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
-            Text("\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")")
+                .accessibilityLabel(spoken)
+            Text(PreviousSet(kind: set.kind, weightKg: Double(set.weight), amount: set.amount).text(in: unit))
                 .foregroundStyle(palette.foreground)
             if let rpe = set.rpe {
                 Text("@\(PlainNumber.string(rpe))")

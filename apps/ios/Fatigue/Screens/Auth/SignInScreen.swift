@@ -12,6 +12,7 @@ struct SignInScreen: View {
     @State private var password = ""
     @State private var error: String?
     @State private var isWorking = false
+    @State private var forgotPassword = false
     @FocusState private var focused: Field?
 
     private var canSubmit: Bool {
@@ -51,13 +52,27 @@ struct SignInScreen: View {
                         .onSubmit(submit)
                 }
 
-                Group {
+                HStack(alignment: .top, spacing: Tokens.Space.m) {
                     if let error {
                         Text(error)
                             .foregroundStyle(palette.accent)
                     } else if isCreating {
                         Text("At least 8 characters.")
                             .foregroundStyle(palette.foregroundMuted)
+                    }
+                    Spacer(minLength: 0)
+                    if !isCreating {
+                        Button {
+                            focused = nil
+                            forgotPassword = true
+                        } label: {
+                            Text("Forgot password?")
+                                .foregroundStyle(palette.foregroundMuted)
+                                .frame(minHeight: Tokens.Space.xxl)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressRow)
+                        .transition(.opacity)
                     }
                 }
                 .textStyle(Tokens.Typography.caption)
@@ -94,6 +109,10 @@ struct SignInScreen: View {
         .background(palette.background)
         .overlay { GrainOverlay() }
         .sensoryFeedback(.error, trigger: error) { _, new in new != nil }
+        .sheet(isPresented: $forgotPassword) {
+            ForgotPasswordSheet(email: email)
+                .environment(\.palette, palette)
+        }
     }
 
     private func submit() {

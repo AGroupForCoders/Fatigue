@@ -121,6 +121,7 @@ struct RoutineEditor: View {
 /// can update those sets (see the finish summary).
 private struct RoutineExerciseEditorRow: View {
     @Environment(\.palette) private var palette
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Binding var exercise: RoutineExercise
 
     /// Whether every set shares a setup and target, so one weight and reps can stand for all of them.
@@ -136,7 +137,7 @@ private struct RoutineExerciseEditorRow: View {
                     .textStyle(Tokens.Typography.body)
                     .foregroundStyle(palette.foreground)
                 if let brand = exercise.brand {
-                    Text(brand)
+                    Text(brand.display)
                         .textStyle(Tokens.Typography.caption)
                         .foregroundStyle(palette.foregroundMuted)
                 }
@@ -159,10 +160,12 @@ private struct RoutineExerciseEditorRow: View {
                 }
                 Spacer()
                 if setsMatch {
-                    target("kg", text: Binding(
+                    WeightEntry(kilograms: Binding(
                         get: { exercise.sets.first?.weight ?? "" },
                         set: { value in for index in exercise.sets.indices { exercise.sets[index].weight = value } }
-                    ))
+                    )) { text in
+                        target(unit.rawValue, text: text)
+                    }
                     Text("×").foregroundStyle(palette.foregroundFaint)
                     target(exercise.sets.first?.setup.kind == .hold ? "s" : "reps", text: Binding(
                         get: { exercise.sets.first?.amount ?? "" },
@@ -191,6 +194,7 @@ private struct RoutineExerciseEditorRow: View {
         .accessibilityLabel(label)
     }
 
+    /// A target cell with its unit as the placeholder: the weight unit, "s" or "reps".
     private func target(_ unit: String, text: Binding<String>) -> some View {
         TextField("", text: text, prompt: Text(unit).foregroundStyle(palette.foregroundFaint))
             .keyboardType(.decimalPad)
@@ -200,7 +204,7 @@ private struct RoutineExerciseEditorRow: View {
             .foregroundStyle(palette.foreground)
             .frame(width: Tokens.Size.amountColumn, height: Tokens.Size.cell - Tokens.Space.s)
             .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
-            .accessibilityLabel(unit == "kg" ? "Target weight" : "Target \(unit == "s" ? "seconds" : "reps")")
+            .accessibilityLabel(unit == self.unit.rawValue ? "Target weight" : "Target \(unit == "s" ? "seconds" : "reps")")
     }
 }
 

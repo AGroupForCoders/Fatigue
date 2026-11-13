@@ -4,25 +4,26 @@ import SwiftUI
 struct ExerciseEdit {
     var info: ExerciseInfo
     /// The brand picked at the top, and its settings.
-    var brand: String?
+    var brand: Brand?
     var setup: BrandSetup
     /// Old setting name to new, for settings renamed in this edit, so group overrides follow the rename.
     var renamedSettings: [String: String]
-    /// Settings edited on other brands before switching away from them, keyed by brand ("" for no brand).
-    var otherSetups: [String: BrandSetup] = [:]
+    /// Settings edited on other brands before switching away from them, keyed by brand (nil for no brand).
+    var otherSetups: [Brand?: BrandSetup] = [:]
     /// History to move between brands when saving, if you asked for that in the brand picker.
     var brandMove: BrandMove? = nil
 }
 
 /// Moving what's logged on one brand of an exercise onto another. `nil` on either side is no brand.
 struct BrandMove: Equatable {
-    var from: String?
-    var to: String?
+    var from: Brand?
+    var to: Brand?
 }
 
 /// Creates a custom exercise, or edits one: name, equipment and muscles, then the settings saved
 /// for the brand picked under the name. Switching brand switches which settings you're editing. Each setting has a value for the whole exercise, and a number setting
-/// can count towards the score with a direction and a range.
+/// can count towards the score with a direction and a range. A custom exercise can be deleted from here;
+/// it leaves the picker and prebuilt workouts, and workouts that used it keep their sets.
 struct ExerciseEditor: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
@@ -31,14 +32,19 @@ struct ExerciseEditor: View {
     /// Brands you've used for this exercise, for the brand picker.
     let knownBrands: [KnownBrand]
     /// The settings saved for a brand, loaded when you switch to it.
-    let savedSetup: (String?) -> BrandSetup
+    let savedSetup: (Brand?) -> BrandSetup
     let onSave: (ExerciseEdit) -> Void
+    /// How many finished workouts logged sets on this exercise, for the delete confirmation.
+    let workoutsUsingIt: Int
+    /// Deletes the exercise from the library. Nil, or a built-in exercise, hides Delete exercise.
+    let onDelete: (() -> Void)?
 
     @State private var info: ExerciseInfo
-    @State private var brand: String?
+    @State private var confirmingDelete = false
+    @State private var brand: Brand?
     @State private var settings: [EditableSetting]
-    /// Settings edited on brands you've switched away from, keyed by brand ("" for no brand).
-    @State private var drafts: [String: [EditableSetting]] = [:]
+    /// Settings edited on brands you've switched away from, keyed by brand (nil for no brand).
+    @State private var drafts: [Brand?: [EditableSetting]] = [:]
     @State private var pickingBrand = false
     /// Set when the brand picker was told to bring the history along. Done when you save.
     @State private var brandMove: BrandMove?
@@ -59,21 +65,27 @@ struct ExerciseEditor: View {
         knownBrands = []
         savedSetup = { _ in BrandSetup() }
         self.onSave = onSave
+        workoutsUsingIt = 0
+        onDelete = nil
         _brand = State(initialValue: nil)
         _info = State(initialValue: ExerciseInfo(name: name, equipment: .machine, primaryMuscle: .chest, isCustom: true))
         _settings = State(initialValue: [])
     }
 
     /// For an exercise you already have, on the brand it's being done on.
+    /// `onDelete` is only offered for a custom exercise; `workoutsUsingIt` is said in its confirmation.
     init(
-        editing info: ExerciseInfo, brand: String?, setup: BrandSetup, existingNames: [String],
-        knownBrands: [KnownBrand], savedSetup: @escaping (String?) -> BrandSetup, onSave: @escaping (ExerciseEdit) -> Void
+        editing info: ExerciseInfo, brand: Brand?, setup: BrandSetup, existingNames: [String],
+        knownBrands: [KnownBrand], savedSetup: @escaping (Brand?) -> BrandSetup,
+        workoutsUsingIt: Int = 0, onDelete: (() -> Void)? = nil, onSave: @escaping (ExerciseEdit) -> Void
     ) {
         isNew = false
         self.existingNames = existingNames.filter { $0 != info.name }
         self.knownBrands = knownBrands
         self.savedSetup = savedSetup
         self.onSave = onSave
+        self.workoutsUsingIt = workoutsUsingIt
+        self.onDelete = info.isCustom ? onDelete : nil
         _brand = State(initialValue: brand)
         _info = State(initialValue: info)
         _settings = State(initialValue: setup.settings.map { EditableSetting(setting: $0, originalName: $0.name) })
@@ -94,6 +106,7 @@ struct ExerciseEditor: View {
                     header
                     about
                     settingsSection
+                    deleteSection
                 }
                 .padding(.horizontal, Tokens.Space.xxl)
                 .padding(.top, Tokens.Space.xxl)
@@ -115,9 +128,9 @@ struct ExerciseEditor: View {
                     })
                     let move = brandMove?.to == brand ? brandMove : nil
                     var others = drafts.mapValues { BrandSetup(settings: $0.map(\.setting)) }
-                    others[brand ?? ""] = nil
+                    others[brand] = nil
                     // Everything on the brand being moved goes with it, so there's nothing to save back there.
-                    if let move { others[move.from ?? ""] = nil }
+                    if let move { others[move.from] = nil }
                     onSave(ExerciseEdit(
                         info: saved, brand: brand, setup: BrandSetup(settings: settings.map(\.setting)),
                         renamedSettings: renamed, otherSetups: others, brandMove: move
@@ -135,6 +148,14 @@ struct ExerciseEditor: View {
         .presentationDetents([.large])
         .presentationBackground(palette.background)
         .onAppear { if isNew { editingName = true } }
+        .confirmationDialog("Delete \(trimmedName.isEmpty ? "exercise" : trimmedName)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete exercise", role: .destructive) {
+                onDelete?()
+                dismiss()
+            }
+        } message: {
+            Text(Self.deleteMessage(workoutsUsingIt: workoutsUsingIt))
+        }
         .sheet(isPresented: $pickingBrand) {
             BrandSheet(exerciseName: trimmedName.isEmpty ? "New exercise" : trimmedName, known: knownBrands, current: brand) { picked, movingHistory in
                 switchBrand(to: picked, movingHistory: movingHistory)
@@ -164,11 +185,11 @@ struct ExerciseEditor: View {
     /// Keeps what you've edited on the current brand, then shows the settings for the picked one:
     /// edited earlier in this sheet if you've been there, otherwise as saved.
     /// With `movingHistory` the history and settings on the brand you're leaving come along when you save.
-    private func switchBrand(to picked: String?, movingHistory: Bool = false) {
+    private func switchBrand(to picked: Brand?, movingHistory: Bool = false) {
         guard picked != brand else { return }
-        drafts[brand ?? ""] = settings
+        drafts[brand] = settings
         brandMove = movingHistory ? BrandMove(from: brand, to: picked) : nil
-        var next = drafts[picked ?? ""] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
+        var next = drafts[picked] ?? savedSetup(picked).settings.map { EditableSetting(setting: $0, originalName: $0.name) }
         if movingHistory {
             // What the merge will leave: the picked brand's settings, plus the ones only this brand has.
             for editable in settings where !next.contains(where: { $0.setting.name.caseInsensitiveCompare(editable.setting.name) == .orderedSame }) {
@@ -184,10 +205,10 @@ struct ExerciseEditor: View {
     /// The brand, first of the rows under the name. Tapping it picks another, or adds one.
     private var brandButton: some View {
         Button { pickingBrand = true } label: {
-            OutlinedLabel(text: brand ?? "No brand", showsChevron: true, isMuted: brand == nil)
+            OutlinedLabel(text: brand?.display ?? "No brand", showsChevron: true, isMuted: brand == nil)
         }
         .buttonStyle(.press)
-        .accessibilityLabel("Brand, \(brand ?? "no brand")")
+        .accessibilityLabel("Brand, \(brand?.display ?? "no brand")")
     }
 
     private var header: some View {
@@ -340,6 +361,35 @@ struct ExerciseEditor: View {
             control()
         }
         .frame(minHeight: Tokens.Size.setRow)
+    }
+
+    /// Delete exercise, for a custom exercise you already have. Built-in exercises can't be deleted.
+    @ViewBuilder private var deleteSection: some View {
+        if onDelete != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                Button { confirmingDelete = true } label: {
+                    Text("Delete exercise")
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.accent)
+                        .frame(maxWidth: .infinity, minHeight: Tokens.Size.setRow, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressRow)
+                Hairline()
+            }
+            .padding(.top, Tokens.Space.xxxl)
+        }
+    }
+
+    /// What the delete confirmation says: the exercise leaves the picker and your prebuilt workouts,
+    /// and any finished workouts that used it keep their sets.
+    static func deleteMessage(workoutsUsingIt count: Int) -> String {
+        let removed = "It's removed from the picker and your prebuilt workouts."
+        switch count {
+        case ..<1: return removed
+        case 1: return "1 finished workout uses it and keeps its sets. \(removed)"
+        default: return "\(count) finished workouts use it and keep their sets. \(removed)"
+        }
     }
 }
 

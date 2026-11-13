@@ -23,6 +23,8 @@ struct WorkoutScreen: View {
     var routine: Routine? = nil
     /// Called from the finish summary when live, or from Save when editing a past workout.
     var onFinish: (FinishDetails) -> Void = { _ in }
+    /// Called with an exercise's name after it's deleted from the library, to take it out of prebuilt workouts.
+    var onDeleteExercise: (String) -> Void = { _ in }
     @State private var confirmingUnticked = false
     @State private var reordering = false
     @State private var finishing: Finishing?
@@ -62,7 +64,10 @@ struct WorkoutScreen: View {
                 let records = RecordBook.marks(for: session.exercises, after: history.filter { $0.startedAt < session.startedAt })
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(session.exercises) { exercise in
-                        ExerciseSection(session: session, exerciseID: exercise.id, records: records, history: history, focus: $focused, onReorder: { reordering = true })
+                        ExerciseSection(
+                            session: session, exerciseID: exercise.id, records: records, history: history, focus: $focused,
+                            onReorder: { reordering = true }, onDeleteExercise: onDeleteExercise
+                        )
                         Hairline()
                     }
                     if session.exercises.isEmpty {
@@ -97,9 +102,9 @@ struct WorkoutScreen: View {
         .task(id: session.rest?.endsAt) {
             guard let endsAt = session.rest?.endsAt else { return }
             try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
-            if !Task.isCancelled { restFinished = session.finishRestIfDue() }
+            if !Task.isCancelled, session.finishRestIfDue() { restsFinished += 1 }
         }
-        .sensoryFeedback(.impact(weight: .medium), trigger: restFinished) { _, finished in finished }
+        .sensoryFeedback(.impact(weight: .medium), trigger: restsFinished)
         .confirmationDialog(
             "\(session.untickedCount) set\(session.untickedCount == 1 ? " isn't" : "s aren't") ticked",
             isPresented: $confirmingUnticked,
@@ -144,7 +149,8 @@ struct WorkoutScreen: View {
         }
     }
 
-    @State private var restFinished = false
+    /// Counts rests that ended on this screen, so each one gets its haptic.
+    @State private var restsFinished = 0
 
     /// The panel pinned to the bottom: the RPE scale while picking an RPE, otherwise the rest timer.
     /// The container rises from the bottom edge when the first of them appears. Switching between
@@ -161,7 +167,7 @@ struct WorkoutScreen: View {
         if let id = session.openRPE, let place = session.place(of: id) {
             let set = session.exercises[place.exercise].sets[place.set]
             RPEPanel(
-                title: "\(session.exercises[place.exercise].name) · Set \(place.set + 1)",
+                title: "\(session.exercises[place.exercise].name) · \(session.exercises[place.exercise].sets.spokenName(at: place.set))",
                 selected: set.rpe,
                 onPick: { value in
                     session.exercises[place.exercise].sets[place.set].rpe = value
@@ -253,6 +259,7 @@ private struct ExerciseSection: View {
     @Environment(\.palette) private var palette
     @Environment(ExerciseCatalog.self) private var catalog
     @Environment(WorkoutStore.self) private var store
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Bindable var session: WorkoutSession
     /// Keyed by id, not position, so removing or reordering exercises never points a section at the wrong one.
     let exerciseID: UUID
@@ -262,6 +269,8 @@ private struct ExerciseSection: View {
     let history: [FinishedWorkout]
     var focus: FocusState<FocusedCell?>.Binding
     var onReorder: () -> Void = {}
+    /// Takes a deleted exercise out of prebuilt workouts. The library and this workout are handled here.
+    var onDeleteExercise: (String) -> Void = { _ in }
 
     private var exerciseIndex: Int { session.exercises.firstIndex { $0.id == exerciseID } ?? 0 }
     @State private var editingExercise = false
@@ -290,12 +299,12 @@ private struct ExerciseSection: View {
     private var exercise: WorkoutExercise { session.exercises[exerciseIndex] }
 
     private var knownBrands: [KnownBrand] {
-        KnownBrand.list(for: exercise.name, history: history, saved: catalog.brands(for: exercise.name))
+        KnownBrand.list(for: exercise.name, history: history, saved: catalog.brands(for: exercise.name), unit: unit)
     }
 
     /// Moves what's logged on one brand of this exercise onto another: history and the running workout
     /// in the store, settings in the catalog.
-    private func moveBrand(from: String?, to: String?) {
+    private func moveBrand(from: Brand?, to: Brand?) {
         store.moveBrand(exercise: exercise.name, from: from, to: to)
         catalog.moveBrand(for: exercise.name, from: from, to: to)
     }
@@ -357,7 +366,7 @@ private struct ExerciseSection: View {
                 .accessibilityLabel("Add a note")
 
                 Button { pickingBrand = true } label: {
-                    OutlinedLabel(text: exercise.brand ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
+                    OutlinedLabel(text: exercise.brand?.display ?? "No brand", showsChevron: true, isMuted: exercise.brand == nil)
                 }
                 .buttonStyle(.press)
                 .accessibilityLabel("Brand")
@@ -400,10 +409,10 @@ private struct ExerciseSection: View {
                         if group.heading.isEmpty || setIndex != group.setIndices.first {
                             Hairline(soft: true)
                         }
-                        SwipeToDelete(accessibilityName: "set \(setIndex + 1)") {
+                        SwipeToDelete(accessibilityName: exercise.sets.spokenName(at: setIndex).lowercased()) {
                             session.deleteSet(setID)
                         } content: {
-                            SetRow(session: session, setID: setID, number: setIndex + 1, isRecord: records[setID] != nil, focus: focus)
+                            SetRow(session: session, setID: setID, isRecord: records[setID] != nil, focus: focus)
                         }
                     }
                     .transition(.opacity)
@@ -442,13 +451,16 @@ private struct ExerciseSection: View {
             catalog.saveSettings(settings, for: exercise.name, brand: exercise.brand)
         }
         .sheet(isPresented: $editingExercise) {
+            let known = catalog.info(named: exercise.name)
             ExerciseEditor(
-                editing: catalog.info(named: exercise.name) ?? ExerciseInfo(name: exercise.name, equipment: .other, primaryMuscle: .chest, isCustom: true),
+                editing: known ?? ExerciseInfo(name: exercise.name, equipment: .other, primaryMuscle: .chest, isCustom: true),
                 brand: exercise.brand,
                 setup: BrandSetup(settings: exercise.settings),
                 existingNames: catalog.names,
                 knownBrands: knownBrands,
-                savedSetup: { [name = exercise.name] brand in catalog.setup(for: name, brand: brand) }
+                savedSetup: { [name = exercise.name] brand in catalog.setup(for: name, brand: brand) },
+                workoutsUsingIt: history.count(using: exercise.name),
+                onDelete: known == nil ? nil : { deleteExercise() }
             ) { edit in
                 let oldBrand = exercise.brand
                 catalog.save(edit.info, renamedFrom: exercise.name, brand: edit.brand, setup: edit.setup)
@@ -476,6 +488,17 @@ private struct ExerciseSection: View {
                 }
             }
             .environment(\.palette, palette)
+        }
+    }
+
+    /// Deletes this exercise from the library and prebuilt workouts. It leaves this workout too, unless
+    /// you've ticked sets on it: those stay, and are saved under its name like any other history.
+    private func deleteExercise() {
+        let name = exercise.name
+        guard catalog.delete(exerciseNamed: name) else { return }
+        onDeleteExercise(name)
+        if !exercise.sets.contains(where: \.isDone) {
+            withAnimation(.standard) { session.removeExercise(at: exerciseIndex) }
         }
     }
 
@@ -683,7 +706,7 @@ private struct ExerciseSection: View {
         HStack(spacing: Tokens.Space.s) {
             Color.clear.frame(width: Tokens.Size.setNumberColumn, height: 1)
             Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
-            Text("kg").frame(width: Tokens.Size.weightColumn)
+            Text(unit.rawValue).frame(width: Tokens.Size.weightColumn)
             Text(exercise.sets.allSatisfy { $0.kind == .hold } ? "Time" : "Reps").frame(width: Tokens.Size.amountColumn)
             Text("RPE").frame(width: Tokens.Size.rpeColumn)
             Color.clear.frame(width: Tokens.Size.tickColumn, height: 1)
@@ -693,13 +716,13 @@ private struct ExerciseSection: View {
     }
 }
 
-/// One set: its number, what you did last time, weight, reps or time, RPE and the tick box.
+/// One set: its number or type letter, what you did last time, weight, reps or time, RPE and the tick box.
+/// Tapping the number opens a menu to mark the set as a warm-up, a drop set or a set to failure.
 private struct SetRow: View {
     @Environment(\.palette) private var palette
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Bindable var session: WorkoutSession
     let setID: UUID
-    /// The set's number within its exercise, starting at 1.
-    let number: Int
     /// Whether this ticked set beat your best for its shape, shown as a small arrow by its number.
     var isRecord = false
     var focus: FocusState<FocusedCell?>.Binding
@@ -714,28 +737,49 @@ private struct SetRow: View {
     }
 
     private func row(_ set: WorkoutSet, exercise e: Int, index i: Int) -> some View {
-        HStack(spacing: Tokens.Space.s) {
-            HStack(spacing: 1) {
-                Text("\(number)")
-                    .contentTransition(.numericText(value: Double(number)))
-                if isRecord {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 9, weight: .bold))
-                        .transition(.scale.combined(with: .opacity))
+        let sets = session.exercises[e].sets
+        let mark = sets.mark(at: i)
+        let spoken = sets.spokenName(at: i)
+        return HStack(spacing: Tokens.Space.s) {
+            Menu {
+                ForEach(SetType.allCases, id: \.self) { type in
+                    Button {
+                        withAnimation(.standard) { session.changeType(of: setID, to: type) }
+                    } label: {
+                        if set.type == type {
+                            Label(type.name, systemImage: "checkmark")
+                        } else {
+                            Text(type.name)
+                        }
+                    }
                 }
+            } label: {
+                HStack(spacing: 1) {
+                    Text(mark)
+                        .contentTransition(.numericText())
+                    if isRecord {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 9, weight: .bold))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .foregroundStyle(isRecord ? palette.accent : set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
+                .animation(.standard, value: isRecord)
+                .animation(.standard, value: mark)
+                .frame(width: Tokens.Size.setNumberColumn, height: Tokens.Size.setRow, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(isRecord ? palette.accent : palette.foregroundFaint)
-            .animation(.standard, value: isRecord)
-            .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(isRecord ? "Set \(number), record" : "Set \(number)")
-            Text(set.previous.isEmpty ? "-" : set.previous)
+            .accessibilityLabel(isRecord ? "\(spoken), record" : spoken)
+            .accessibilityHint("Changes the set's type")
+            Text(set.previous?.text(in: unit) ?? "-")
                 .foregroundStyle(palette.foregroundMuted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            NumberCell(text: $session.exercises[e].sets[i].weight, isDone: set.isDone, accessibilityName: "Weight in kilograms", focus: focus, cell: .weight(set.id))
-                .frame(width: Tokens.Size.weightColumn)
+            WeightEntry(kilograms: $session.exercises[e].sets[i].weight) { text in
+                NumberCell(text: text, isDone: set.isDone, accessibilityName: "Weight in \(unit.name)", focus: focus, cell: .weight(set.id))
+            }
+            .frame(width: Tokens.Size.weightColumn)
             NumberCell(
                 text: $session.exercises[e].sets[i].amount,
                 suffix: set.kind == .hold ? "s" : "",
@@ -868,16 +912,20 @@ private struct ReorderExercises: View {
 
 #Preview("Light") {
     WorkoutScreen(session: .sample())
+        .environment(WorkoutStore())
         .environment(ExerciseCatalog())
         .environment(WorkoutStore())
+        .environment(MediaStore())
         .environment(\.palette, .light)
         .preferredColorScheme(.light)
 }
 
 #Preview("Dark") {
     WorkoutScreen(session: .sample())
+        .environment(WorkoutStore())
         .environment(ExerciseCatalog())
         .environment(WorkoutStore())
+        .environment(MediaStore())
         .environment(\.palette, .dark)
         .preferredColorScheme(.dark)
 }

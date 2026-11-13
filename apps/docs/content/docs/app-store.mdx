@@ -1,0 +1,134 @@
+---
+title: App Store readiness
+description: Everything the first release needs before Apple will review it, and what is left to do by hand.
+---
+
+Apple reviews the first release of an app and rejects it if the privacy policy, privacy questionnaire, icon, screenshots or account deletion are missing. This page holds the parts that can be written ahead of time, so whoever opens App Store Connect copies them in, and a checklist of the steps that need an Apple account. It tracks [issue #55](https://github.com/AGroupForCoders/Fatigue/issues/55).
+
+## Developer account
+
+The recommendation and its trade-offs are on the [MVP page](/docs/mvp#still-open). The decision is the owner's.
+
+## Privacy policy
+
+The policy is the [privacy page](/docs/privacy) of this site. App Store Connect wants a public URL, so it needs the docs site deployed first; where the docs deploy is [not chosen yet](/docs/ci-cd#deploys). The policy has two placeholders to fill in before it goes live: the support email and the seller name.
+
+## App Privacy questionnaire
+
+These answers come from reading the code: the app and the API's Better Auth setup and database schema. The same data types are declared in `apps/ios/Fatigue/PrivacyInfo.xcprivacy`, and App Store Connect compares the two, so change both together.
+
+**Does the app collect data?** Yes.
+
+| Data type | Category in App Store Connect | Linked to the user | Used for tracking | Purpose |
+| --- | --- | --- | --- | --- |
+| Email address | Contact Info → Email Address | Yes | No | App Functionality (sign-in) |
+| Name | Contact Info → Name | Yes | No | App Functionality (shown on the profile) |
+| User ID | Identifiers → User ID | Yes | No | App Functionality (the account's id on the server) |
+| Fitness | Health & Fitness → Fitness | Yes | No | App Functionality (workouts backed up and synced) |
+
+Notes for whoever fills it in:
+
+- **Fitness** covers the workout data once sync ships. If the first release stores workouts on the phone only, remove it here and from the manifest, and add it back with the release that syncs.
+- Better Auth stores the **IP address and user agent** on each session row. Apple treats data kept only for security and not for analytics as "App Functionality"; if the form asks, it falls under Other Data Types, linked to the user, not used for tracking.
+- The **profile photo** never leaves the phone, so it is not collected. Neither are preferences such as weight unit or theme.
+- **Tracking:** No. There is no advertising SDK, no analytics and no identifier shared with other companies. `NSPrivacyTracking` is `false` in the manifest.
+- **Third-party SDKs:** the app's only dependency is GRDB (SQLite). It accesses no data and is not on Apple's list of SDKs that need their own manifest.
+- **Required reason APIs:** the app reads `UserDefaults` for its own preferences and cached account, declared with reason `CA92.1`. It uses no file timestamp, disk space, system boot time or keyboard APIs.
+
+## Listing text
+
+Proposed text for App Store Connect. Everything is within Apple's limits: name 30 characters, subtitle 30, promotional text 170, keywords 100, description 4000.
+
+**Name:** Fatigue
+
+**Subtitle:** Lift. Track every machine.
+
+**Promotional text:**
+
+> Log sets in a gym with no signal, and keep history and records per machine brand. Unlimited custom exercises. No ads, no tracking.
+
+**Description:**
+
+> Fatigue is a weightlifting tracker for people who lift on machines as well as bars.
+>
+> **Machines are not interchangeable.** 80 kg on a Hammer Strength lat pulldown is not 80 kg on a Technogym one. Most trackers mix them into one exercise, so your history and records are a blur of two different lifts. In Fatigue you pick the brand for an exercise, and history and records are kept per brand. Add a label for the model or the gym if you train in more than one place.
+>
+> **Custom exercises are free.** Create as many as you need. They get brands, settings, history and records just like the built-in ones.
+>
+> **It never waits on the network.** Every set is saved on your phone first. Log in a basement gym and let it back up later.
+>
+> Also in Fatigue:
+>
+> - Start a workout empty or from a routine, and reorder exercises by dragging.
+> - Log weight and reps, holds, unloaded sets, RPE, warm-ups, drop sets and sets to failure.
+> - Record machine settings such as seat height or a range-of-motion notch, so you set up the same way every time.
+> - A rest timer that tells you when rest is over, even with the phone locked.
+> - See what you did last time on the same brand, right under the set you are about to do.
+> - Every set gets a score, so one number tells you whether you beat last time.
+> - Stats: this week against last, weekly volume, and a trend line per exercise.
+> - Import your history from a Hevy CSV export.
+> - Light and dark mode.
+>
+> Sign in with an email and password. No ads, no analytics, no selling your data. Delete your account from inside the app whenever you like.
+
+**Keywords** (comma-separated, 100 characters max):
+
+> workout,weightlifting,gym,lifting,log,tracker,strength,machine,routine,sets,reps,hevy,progress
+
+**Category:** Health & Fitness. Secondary: none.
+
+**Age rating:** 4+. None of the questionnaire's content applies.
+
+**Support URL:** the docs site. **Marketing URL:** optional, leave empty.
+
+**Review notes:** give the reviewer a test account's email and password, say that sign-up works without email verification, and that account deletion is in Profile → Settings → Delete account.
+
+## App icon
+
+`Assets.xcassets/AppIcon.appiconset` has the single 1024×1024 universal slot Xcode generates, but no image in it. Xcode will not archive a release without one. The icon is a design task, not a code one, so it is on the checklist below rather than generated here. It needs one 1024×1024 PNG with no alpha channel and no rounded corners.
+
+## Screenshots
+
+Apple needs screenshots for the 6.9" and 6.5" iPhone sizes (anything else is optional and falls back to those). Take them from the Simulator with sample data, in both light and dark mode, and lead with the workout screen. Suggested set, in order:
+
+1. The workout screen mid-set, with the rest timer running and last time's set showing.
+2. An exercise page with records per brand.
+3. The brand picker with a label.
+4. The Stats tab.
+5. Routines.
+
+## Release checklist
+
+The work that needs an Apple account, secrets or a Mac with Xcode. Tick these off on [issue #55](https://github.com/AGroupForCoders/Fatigue/issues/55).
+
+**Account**
+
+- [ ] Decide individual or organisation ([MVP page](/docs/mvp#still-open)) and enrol in the Apple Developer Program.
+- [ ] If organisation: get a D-U-N-S number first; Apple's lookup takes a few days.
+
+**Project**
+
+- [ ] Add the 1024×1024 app icon to `AppIcon.appiconset`.
+- [ ] Create the App ID `com.agroupforcoders.fatigue` in the developer portal. The project already uses that bundle id.
+- [ ] Set `DEVELOPMENT_TEAM` in the project and turn on automatic signing.
+- [ ] Point `APIConfig.baseURL` for release builds at the deployed API ([issue #51](https://github.com/AGroupForCoders/Fatigue/issues/51)).
+
+**App Store Connect**
+
+- [ ] Create the app record, name "Fatigue", primary language English, bundle id as above.
+- [ ] Paste the [listing text](#listing-text) and set category and age rating.
+- [ ] Deploy the docs site, fill in the two placeholders on the [privacy page](/docs/privacy), and paste its URL as the privacy policy URL.
+- [ ] Fill in the [App Privacy questionnaire](#app-privacy-questionnaire).
+- [ ] Upload [screenshots](#screenshots) for 6.9" and 6.5" iPhones.
+- [ ] Create a test account on the production API and put it in the review notes.
+
+**Build and test**
+
+- [ ] Archive a release build and upload it to TestFlight.
+- [ ] On the TestFlight build: sign up, sign out, sign in, rename, then delete the account. Confirm the user row is gone from the production database and the token no longer works.
+- [ ] Check that a rest notification arrives with the phone locked.
+- [ ] Check the privacy manifest made it into the bundle: `Fatigue.app/PrivacyInfo.xcprivacy` exists in the archive.
+
+**Submit**
+
+- [ ] Submit for review, with the review notes above.

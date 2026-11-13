@@ -15,21 +15,21 @@ struct Routine: Identifiable, Equatable {
 struct RoutineExercise: Identifiable, Equatable {
     /// Everything about the exercise except its id, for telling whether a workout changed it.
     var shape: [String] {
-        [name, brand ?? "", String(restSeconds)]
+        [name, brand?.key ?? "", String(restSeconds)]
             + settings.map { "\($0.name)=\($0.value)" }
-            + sets.map { "\($0.setup.kind.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
+            + sets.map { "\($0.setup.kind.rawValue) \($0.type.rawValue) \($0.setup.values.sorted { $0.key < $1.key }) \($0.weight)x\($0.amount)" }
     }
 
     var id = UUID()
     var name: String
-    var brand: String?
+    var brand: Brand?
     var restSeconds = 90
     var settings: [ExerciseSetting] = []
     var sets: [RoutineSet]
 
     /// A new exercise in the routine editor: three plain rep sets with nothing filled in,
     /// and the settings saved for it with no brand.
-    static func new(named name: String, brand: String? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
+    static func new(named name: String, brand: Brand? = nil, settings: [ExerciseSetting] = []) -> RoutineExercise {
         RoutineExercise(name: name, brand: brand, settings: settings, sets: Array(repeating: RoutineSet(setup: SetSetup(kind: .reps)), count: 3))
     }
 }
@@ -37,6 +37,8 @@ struct RoutineExercise: Identifiable, Equatable {
 /// One planned set: its setup and the target weight and reps or seconds.
 struct RoutineSet: Equatable {
     var setup: SetSetup
+    var type: SetType = .normal
+    /// Always kilograms, as on `WorkoutSet`.
     var weight = ""
     var amount = ""
 }
@@ -54,7 +56,7 @@ extension Routine {
                     restSeconds: exercise.restSeconds,
                     settings: exercise.settings,
                     sets: exercise.sets.map { set in
-                        WorkoutSet(setup: set.setup, weight: set.weight, amount: set.amount, previous: Self.target(set))
+                        WorkoutSet(setup: set.setup, type: set.type, weight: set.weight, amount: set.amount, previous: Self.target(set))
                     }
                 )
             },
@@ -74,7 +76,7 @@ extension Routine {
                 brand: exercise.brand,
                 restSeconds: exercise.restSeconds,
                 settings: exercise.settings,
-                sets: exercise.sets.map { RoutineSet(setup: $0.setup, weight: $0.weight, amount: $0.amount) }
+                sets: exercise.sets.map { RoutineSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             )
         }
         return routine
@@ -86,9 +88,9 @@ extension Routine {
         updated(from: session).exercises.map(\.shape) != exercises.map(\.shape)
     }
 
-    private static func target(_ set: RoutineSet) -> String {
-        guard !set.weight.isEmpty, !set.amount.isEmpty else { return "" }
-        return "\(set.weight) × \(set.amount)\(set.setup.kind == .hold ? "s" : "")"
+    private static func target(_ set: RoutineSet) -> PreviousSet? {
+        guard !set.weight.isEmpty, !set.amount.isEmpty else { return nil }
+        return PreviousSet(kind: set.setup.kind, weightKg: Double(set.weight), amount: set.amount)
     }
 }
 
@@ -107,28 +109,41 @@ final class WorkoutStore {
     /// The workout running now, if any. Only one runs at a time.
     private(set) var active: WorkoutSession?
     /// Whether the running workout fills the screen, or sits in the bar above the bottom nav.
-    /// Debug builds open a running workout on launch with `-openWorkout`, for screenshots.
+    /// A workout restored from the database opens full screen on launch. Debug builds also
+    /// start one open with `-openWorkout`, for screenshots.
     var isShowingActive = ProcessInfo.processInfo.arguments.contains("-openWorkout")
+    /// Called whenever the running workout's rest timer starts, moves or ends. The app points this at
+    /// the notification and the Live Activity, which follow the timer outside the app.
+    var onRestChange: ((RestTimer?, WorkoutSession) -> Void)?
     private let now: () -> Date
     /// Where everything is saved. Nil keeps it in memory, as tests and previews do.
     private let database: AppDatabase?
+    /// Where the rest timer is saved between launches. Nil, like `database`, keeps it in memory.
+    private let defaults: UserDefaults?
+    /// The photos and videos on each workout. They follow a workout when it's finished, and go when it's deleted.
+    let media: MediaStore
 
-    init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), now: @escaping () -> Date = Date.init) {
+    init(routines: [Routine] = Routine.samples, history: [FinishedWorkout] = FinishedWorkout.samples(), media: MediaStore = MediaStore(), now: @escaping () -> Date = Date.init) {
         self.routines = routines
         self.history = history
+        self.media = media
         self.now = now
         self.database = nil
+        self.defaults = nil
     }
 
-    /// Loads everything saved on the phone, including a workout that was running when the app closed.
+    /// Loads everything saved on the phone, including a workout that was running when the app closed,
+    /// and its rest timer if that's still running.
     /// Debug builds fill an empty database with the sample workouts, so there's something to look at.
-    init(database: AppDatabase, now: @escaping () -> Date = Date.init) {
+    init(database: AppDatabase, media: MediaStore? = nil, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.database = database
+        self.defaults = defaults
+        self.media = media ?? MediaStore(database: database)
         self.now = now
         let workouts = (try? database.workouts()) ?? []
         routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
         history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:))
-        active = workouts.first { $0.finishedAt == nil }.map(WorkoutSession.init(stored:))
+        active = workouts.first { $0.finishedAt == nil }.map { WorkoutSession(stored: $0, now: now) }
         #if DEBUG
         if routines.isEmpty, history.isEmpty, active == nil {
             routines = Routine.samples
@@ -141,7 +156,14 @@ final class WorkoutStore {
             // Previous isn't stored, since it comes from history; fill it in again.
             active.previousLookup = previousSets
             for index in active.exercises.indices { active.fillPrevious(for: index) }
+            if let saved = SavedRest.load(from: defaults), saved.workoutID == active.id { active.resumeRest(saved.rest) }
+            follow(active)
+            // The app opens straight into a running workout. The store is only built on a cold
+            // launch, so coming back from the background leaves a minimised workout minimised.
+            isShowingActive = true
         }
+        // A saved timer that ran out, or belonged to a workout since finished, is of no use now.
+        if active?.rest == nil { SavedRest.save(nil, to: defaults) }
     }
 
     func start(_ routine: Routine) {
@@ -158,16 +180,40 @@ final class WorkoutStore {
 
     private func begin(_ session: WorkoutSession) {
         session.previousLookup = previousSets
+        follow(session)
         active = session
         isShowingActive = true
     }
 
+    /// Keeps the saved copy of the rest timer up to date, and passes each change on to `onRestChange`.
+    private func follow(_ session: WorkoutSession) {
+        session.onRestChange = { [weak self, weak session] rest in
+            guard let self, let session else { return }
+            if let defaults { SavedRest.save(rest.map { SavedRest(workoutID: session.id, rest: $0) }, to: defaults) }
+            onRestChange?(rest, session)
+        }
+    }
+
+    /// Does what a button on the rest Live Activity asks, to the running workout's rest timer.
+    func perform(_ action: RestAction) {
+        guard let active else { return }
+        switch action {
+        case .skip: active.skipRest()
+        case .extend(let seconds): active.adjustRest(by: seconds)
+        }
+    }
+
     /// Your sets on an exercise and brand the last time you did it, newest workout first.
-    func previousSets(name: String, brand: String?) -> [WorkoutSet] {
+    func previousSets(name: String, brand: Brand?) -> [WorkoutSet] {
         for workout in history {
             if let exercise = workout.exercises.first(where: { $0.name == name && $0.brand == brand }) { return exercise.sets }
         }
         return []
+    }
+
+    /// Every finished workout as export rows, one per set, newest workout first.
+    func exportRows() -> [ExportRow] {
+        history.flatMap { $0.exportRows() }
     }
 
     /// Saves the running workout as it is now. Called after every change, and when the app goes to the background.
@@ -213,7 +259,7 @@ final class WorkoutStore {
     ///   - description: Anything you wrote about it.
     ///   - unticked: Whether sets you didn't tick are dropped or counted as done.
     ///   - updateRoutine: Whether the prebuilt workout it came from takes today's exercises and sets.
-    /// History only lives in memory until the local database exists.
+    /// Photos and videos added on the finish summary move to the saved workout, or go with it when there's nothing to save.
     func finish(title: String? = nil, description: String = "", unticked: UntickedSets = .drop, updateRoutine: Bool = false) {
         guard let session = active else { return }
         if unticked == .count { session.tickAll() }
@@ -228,7 +274,11 @@ final class WorkoutStore {
             history.insert(finished, at: 0)
             let stored = finished.stored
             persist { try $0.save(stored) }
+            media.move(from: session.id, to: finished.id)
+        } else {
+            media.deleteAll(for: session.id)
         }
+        session.skipRest()
         isShowingActive = false
         active = nil
     }
@@ -250,6 +300,24 @@ final class WorkoutStore {
         persist { try $0.save(stored) }
     }
 
+    /// Changes how much harder a yes/no setting makes a set on an exercise and brand, re-scoring every past
+    /// set there and the running workout's. Nil makes the setting stop counting. See ADR 0002.
+    func setFactor(_ factor: Double?, ofSetting setting: String, exercise name: String, brand: Brand?) {
+        let rescored = ExerciseStats.rescored(history, exercise: name, brand: brand, setting: setting, factor: factor)
+        for (index, workout) in rescored.enumerated() where workout.exercises.contains(where: { $0.name == name && $0.brand == brand }) {
+            history[index] = workout
+            let stored = workout.stored
+            persist { try $0.save(stored) }
+        }
+        if let active {
+            for e in active.exercises.indices where active.exercises[e].name == name && active.exercises[e].brand == brand {
+                for s in active.exercises[e].settings.indices where active.exercises[e].settings[s].name == setting && active.exercises[e].settings[s].kind == .yesNo {
+                    active.exercises[e].settings[s].factor = factor
+                }
+            }
+        }
+    }
+
     /// Replaces a prebuilt workout with an edited copy.
     func update(_ routine: Routine) {
         guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
@@ -258,7 +326,11 @@ final class WorkoutStore {
 
     /// Throws the running workout away without saving it.
     func discard() {
-        if let session = active { persist { try $0.deleteWorkout(id: session.id.uuidString) } }
+        if let session = active {
+            persist { try $0.deleteWorkout(id: session.id.uuidString) }
+            session.skipRest()
+            media.deleteAll(for: session.id)
+        }
         isShowingActive = false
         active = nil
     }
@@ -269,17 +341,18 @@ final class WorkoutStore {
         if workout.setCount == 0 {
             history.remove(at: index)
             persist { try $0.deleteWorkout(id: workout.id.uuidString) }
+            media.deleteAll(for: workout.id)
         } else {
             history[index] = workout
             let stored = workout.stored
-        persist { try $0.save(stored) }
+            persist { try $0.save(stored) }
         }
     }
 
     /// Moves everything you've logged on one brand of an exercise onto another, then reloads history,
     /// prebuilt workouts and the running workout so records and the exercise page show it.
     /// Without a database only the brand changes in memory. The catalog does its own part for settings.
-    func moveBrand(exercise name: String, from: String?, to: String?) {
+    func moveBrand(exercise name: String, from: Brand?, to: Brand?) {
         guard from != to else { return }
         guard let database else {
             for w in history.indices {
@@ -308,6 +381,7 @@ final class WorkoutStore {
     func deleteFromHistory(_ workoutID: UUID) {
         history.removeAll { $0.id == workoutID }
         persist { try $0.deleteWorkout(id: workoutID.uuidString) }
+        media.deleteAll(for: workoutID)
     }
 
     func add(_ routine: Routine) {
@@ -317,20 +391,72 @@ final class WorkoutStore {
     func delete(_ routineID: UUID) {
         routines.removeAll { $0.id == routineID }
     }
+
+    /// Brings every workout in a Hevy export into history. Exercise names are matched to the library,
+    /// and ones that match nothing are added to it as custom exercises. A workout that's already in
+    /// history, because the same file was imported before, is skipped, so importing twice adds nothing.
+    @discardableResult
+    func importHevy(csv: String, catalog: ExerciseCatalog) throws -> HevyImportResult {
+        let workouts = try HevyImport.parse(csv)
+        var names = catalog.names
+        var resolved: [String: String] = [:]
+        var result = HevyImportResult()
+        func name(for hevyName: String) -> String {
+            if let name = resolved[hevyName] { return name }
+            let name: String
+            if let match = HevyExerciseMatcher.match(hevyName, among: names) {
+                name = match
+            } else {
+                name = hevyName
+                catalog.save(HevyExerciseMatcher.customExercise(named: name), brand: nil, setup: BrandSetup())
+                names.append(name)
+                result.newExercises.append(name)
+            }
+            resolved[hevyName] = name
+            return name
+        }
+
+        var added: [FinishedWorkout] = []
+        for workout in workouts {
+            if history.contains(where: { $0.id == workout.id }) || added.contains(where: { $0.id == workout.id }) {
+                result.alreadyThere += 1
+                continue
+            }
+            let stored = workout.stored(exerciseName: name(for:))
+            persist { try $0.save(stored) }
+            added.append(FinishedWorkout(stored: stored))
+            result.imported += 1
+        }
+        if !added.isEmpty {
+            history = (history + added).sorted { $0.startedAt > $1.startedAt }
+        }
+        return result
+    }
+
+    /// Takes an exercise out of every prebuilt workout, after it's deleted from the library.
+    /// Finished workouts aren't touched, so nothing you logged on it is lost.
+    func removeFromRoutines(exerciseNamed name: String) {
+        guard routines.contains(where: { $0.exercises.contains { $0.name == name } }) else { return }
+        routines = routines.map { routine in
+            var routine = routine
+            routine.exercises.removeAll { $0.name == name }
+            return routine
+        }
+    }
 }
 
 extension WorkoutSession {
     /// Adds exercises picked from the library, each with one empty rep set to start,
     /// on the brand picked when it was created (no brand otherwise), with the settings saved for it.
-    func addExercises(named names: [String], brands: [String: String] = [:], catalog: ExerciseCatalog? = nil) {
+    func addExercises(named names: [String], brands: [String: Brand] = [:], catalog: ExerciseCatalog? = nil) {
         for name in names {
             let brand = brands[name]
             let saved = catalog?.setup(for: name, brand: brand) ?? BrandSetup()
             let last = previousLookup?(name, brand) ?? []
             // Start from last time's sets when there were any, so the cells are already filled in.
             let sets = last.isEmpty
-                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
-                : last.map { WorkoutSet(setup: $0.setup, weight: $0.weight, amount: $0.amount, previous: "") }
+                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "")]
+                : last.map { WorkoutSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets))
             fillPrevious(for: exercises.count - 1)
         }
@@ -343,15 +469,8 @@ extension WorkoutSession {
         let last = previousLookup?(exercise.name, exercise.brand) ?? []
         guard !last.isEmpty else { return }
         for index in exercise.sets.indices {
-            exercises[exerciseIndex].sets[index].previous = Self.describe(last[min(index, last.count - 1)])
+            exercises[exerciseIndex].sets[index].previous = PreviousSet(last[min(index, last.count - 1)])
         }
-    }
-
-    /// A past set in the Previous column's form, such as "55 × 8 @8.5" or "40 × 45s @8".
-    static func describe(_ set: WorkoutSet) -> String {
-        var text = "\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")"
-        if let rpe = set.rpe { text += " @\(PlainNumber.string(rpe))" }
-        return text
     }
 
     /// Applies an edit from the exercise editor to an exercise in this workout.
@@ -371,7 +490,7 @@ extension WorkoutSession {
     }
 
     /// Switches an exercise to another brand, bringing in the settings saved for that brand.
-    func changeBrand(of exerciseIndex: Int, to brand: String?, catalog: ExerciseCatalog) {
+    func changeBrand(of exerciseIndex: Int, to brand: Brand?, catalog: ExerciseCatalog) {
         exercises[exerciseIndex].brand = brand
         exercises[exerciseIndex].settings = catalog.setup(for: exercises[exerciseIndex].name, brand: brand).settings
         fillPrevious(for: exerciseIndex)
