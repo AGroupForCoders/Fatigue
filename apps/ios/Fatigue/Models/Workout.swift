@@ -105,10 +105,50 @@ struct ExerciseNote: Identifiable, Equatable {
     var text: String
 }
 
+/// Who made the equipment an exercise is done on, with an optional label such as the model or the gym
+/// that tells two of the same brand apart. Brand and label together decide which history, settings and
+/// records you get: a Technogym adductor at the city gym and the one at work are two brands.
+/// No brand is `nil` wherever a `Brand?` is used.
+struct Brand: Hashable, Sendable {
+    var name: String
+    var label: String?
+
+    /// Nil when there's no brand name, so a label alone never makes a brand. Blank text counts as empty.
+    init?(name: String?, label: String? = nil) {
+        guard let trimmed = name?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return nil }
+        self.name = trimmed
+        let label = label?.trimmingCharacters(in: .whitespaces) ?? ""
+        self.label = label.isEmpty ? nil : label
+    }
+
+    /// What the brand button and headings show: "Technogym · City gym", or just "Technogym" without a label.
+    var display: String {
+        label.map { "\(name) · \($0)" } ?? name
+    }
+
+    /// The brand as one string for dictionary keys: the name, then "|" and the label if there is one.
+    var key: String {
+        label.map { "\(name)|\($0)" } ?? name
+    }
+
+    /// Reads a brand back from `key`. Empty is no brand.
+    init?(key: String) {
+        let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        self.init(name: parts.first.map(String.init), label: parts.count > 1 ? String(parts[1]) : nil)
+    }
+}
+
+extension Brand: ExpressibleByStringLiteral {
+    /// A brand with no label, so `"Technogym"` reads as one where a `Brand` is expected.
+    init(stringLiteral value: String) {
+        self.init(name: value)!
+    }
+}
+
 struct WorkoutExercise: Identifiable {
     var id = UUID()
     var name: String
-    var brand: String?
+    var brand: Brand?
     var restSeconds: Int
     var notes: [ExerciseNote] = []
     /// Settings like seat height or notch, in the order they show under the name and in headings.
@@ -119,25 +159,25 @@ struct WorkoutExercise: Identifiable {
 /// A brand you have used for an exercise, for the brand picker.
 struct KnownBrand: Identifiable, Equatable {
     /// `nil` means no brand.
-    let name: String?
+    let brand: Brand?
     let lastSet: String
     let when: String
-    var id: String { name ?? "" }
+    var id: String { brand?.key ?? "" }
 
     /// The brands you've used for an exercise, newest first, each with your last set on it.
     /// Brands with saved settings but no sets yet come after, with no last set.
-    static func list(for exercise: String, history: [FinishedWorkout], saved: [String], now: Date = .now) -> [KnownBrand] {
+    static func list(for exercise: String, history: [FinishedWorkout], saved: [Brand], now: Date = .now) -> [KnownBrand] {
         var brands: [KnownBrand] = []
         for workout in history.sorted(by: { $0.startedAt > $1.startedAt }) {
-            for done in workout.exercises where done.name == exercise && !brands.contains(where: { $0.name == done.brand }) {
+            for done in workout.exercises where done.name == exercise && !brands.contains(where: { $0.brand == done.brand }) {
                 guard let last = done.sets.last(where: \.isDone) else { continue }
                 let lastSet = "\(last.weight.isEmpty ? "-" : last.weight) × \(last.amount)\(last.kind == .hold ? "s" : "")"
                 let when = workout.startedAt.formatted(.relative(presentation: .named, unitsStyle: .wide))
-                brands.append(KnownBrand(name: done.brand, lastSet: lastSet, when: when))
+                brands.append(KnownBrand(brand: done.brand, lastSet: lastSet, when: when))
             }
         }
-        for name in saved.sorted() where !brands.contains(where: { $0.name == name }) {
-            brands.append(KnownBrand(name: name, lastSet: "", when: ""))
+        for brand in saved.sorted(by: { $0.display < $1.display }) where !brands.contains(where: { $0.brand == brand }) {
+            brands.append(KnownBrand(brand: brand, lastSet: "", when: ""))
         }
         return brands
     }
@@ -243,7 +283,7 @@ final class WorkoutSession {
     var startsRestWhenTicked = true
     /// Looks up your sets on an exercise and brand from last time, for the Previous column.
     /// Set by the store; nil in tests and previews.
-    @ObservationIgnored var previousLookup: ((String, String?) -> [WorkoutSet])?
+    @ObservationIgnored var previousLookup: ((String, Brand?) -> [WorkoutSet])?
     /// The prebuilt workout this was started from, so finishing can offer to update it.
     var routineID: UUID?
     /// The set whose RPE scale is open, if any. Only one is open at a time.

@@ -41,7 +41,7 @@ enum SetScore {
 /// progress per value adds the value too, so notch 8 is only ever compared with notch 8.
 struct SetShape: Hashable {
     let exercise: String
-    let brand: String?
+    let brand: Brand?
     let kind: SetKind
     let isLoaded: Bool
     let tracked: Set<String>

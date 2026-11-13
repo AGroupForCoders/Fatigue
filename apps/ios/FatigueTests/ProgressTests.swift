@@ -6,7 +6,7 @@ import Testing
 private let lowerNotch = ExerciseSetting(name: "Notch", value: "5", direction: .lower, rangeMin: 1, rangeMax: 10)
 
 @MainActor
-private func adductors(_ sets: [WorkoutSet], settings: [ExerciseSetting] = [lowerNotch], brand: String? = "Technogym") -> WorkoutExercise {
+private func adductors(_ sets: [WorkoutSet], settings: [ExerciseSetting] = [lowerNotch], brand: Brand? = "Technogym") -> WorkoutExercise {
     WorkoutExercise(name: "Adductors", brand: brand, restSeconds: 90, settings: settings, sets: sets)
 }
 

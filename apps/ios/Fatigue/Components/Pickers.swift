@@ -81,39 +81,49 @@ struct RPEPanel: View {
 }
 
 /// A sheet for picking the brand of an exercise: the brands you've used, with your last set on each,
-/// then suggestions, then a field to type your own.
+/// then suggestions, then a field to type your own, and a label such as the model or the gym under it.
+/// Brand and label together decide which history and settings you get.
 struct BrandSheet: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     let exerciseName: String
     let known: [KnownBrand]
-    let current: String?
-    let onUse: (String?) -> Void
+    let current: Brand?
+    let onUse: (Brand?) -> Void
 
+    /// The brand picked from the rows or suggestions, by name. The label below is kept apart so it can be edited.
     @State private var picked: String?
     @State private var typed = ""
+    @State private var label: String
 
     private static let suggestions = ["Technogym", "Hammer Strength", "Life Fitness", "Matrix", "Cybex", "Prime", "Precor"]
 
-    init(exerciseName: String, known: [KnownBrand], current: String?, onUse: @escaping (String?) -> Void) {
+    init(exerciseName: String, known: [KnownBrand], current: Brand?, onUse: @escaping (Brand?) -> Void) {
         self.exerciseName = exerciseName
         self.known = known
         self.current = current
         self.onUse = onUse
-        _picked = State(initialValue: current)
+        _picked = State(initialValue: current?.name)
+        _label = State(initialValue: current?.label ?? "")
     }
 
     private var rows: [KnownBrand] {
-        known.contains { $0.name == nil } ? known : known + [KnownBrand(name: nil, lastSet: "", when: "")]
+        known.contains { $0.brand == nil } ? known : known + [KnownBrand(brand: nil, lastSet: "", when: "")]
     }
 
     private var suggested: [String] {
-        Self.suggestions.filter { name in !known.contains { $0.name == name } }
+        Self.suggestions.filter { name in !known.contains { $0.brand?.name == name } }
     }
 
-    private var choice: String? {
+    /// The brand name that'll be used: what you typed, or else what you picked.
+    private var chosenName: String? {
         let text = typed.trimmingCharacters(in: .whitespaces)
         return text.isEmpty ? picked : text
+    }
+
+    /// The brand and label together. Nil is no brand, and a label with no brand is dropped.
+    private var choice: Brand? {
+        Brand(name: chosenName, label: label)
     }
 
     var body: some View {
@@ -125,7 +135,7 @@ struct BrandSheet: View {
                             Text(exerciseName)
                                 .textStyle(Tokens.Typography.title)
                                 .foregroundStyle(palette.foreground)
-                            Text("History and records are kept per brand.")
+                            Text("History, settings and records are kept per brand and label.")
                                 .textStyle(Tokens.Typography.body)
                                 .foregroundStyle(palette.foregroundMuted)
                         }
@@ -140,24 +150,25 @@ struct BrandSheet: View {
                     .padding(.bottom, Tokens.Space.xxl)
 
                     Hairline()
-                    ForEach(rows) { brand in
+                    ForEach(rows) { known in
                         Button {
-                            picked = brand.name
+                            picked = known.brand?.name
+                            label = known.brand?.label ?? ""
                             typed = ""
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                                    Text(brand.name ?? "No brand")
+                                    Text(known.brand?.display ?? "No brand")
                                         .textStyle(Tokens.Typography.exerciseName)
                                         .foregroundStyle(palette.foreground)
-                                    if !brand.lastSet.isEmpty {
-                                        Text("\(brand.lastSet), \(brand.when)")
+                                    if !known.lastSet.isEmpty {
+                                        Text("\(known.lastSet), \(known.when)")
                                             .textStyle(Tokens.Typography.caption)
                                             .foregroundStyle(palette.foregroundMuted)
                                     }
                                 }
                                 Spacer()
-                                if typed.isEmpty, picked == brand.name {
+                                if choice == known.brand {
                                     Image(systemName: "checkmark").foregroundStyle(palette.foreground)
                                 }
                             }
@@ -200,11 +211,28 @@ struct BrandSheet: View {
                         .submitLabel(.done)
                         .frame(minHeight: Tokens.Size.primaryButton)
                     Hairline()
+
+                    if chosenName != nil {
+                        Text("Label")
+                            .textStyle(Tokens.Typography.caption)
+                            .foregroundStyle(palette.foregroundMuted)
+                            .padding(.top, Tokens.Space.xxl)
+                            .padding(.bottom, Tokens.Space.xs)
+                        TextField("", text: $label, prompt: Text("Such as the model or the gym").foregroundStyle(palette.foregroundMuted))
+                            .textStyle(Tokens.Typography.body)
+                            .foregroundStyle(palette.foreground)
+                            .textInputAutocapitalization(.words)
+                            .submitLabel(.done)
+                            .frame(minHeight: Tokens.Size.primaryButton)
+                            .accessibilityLabel("Label")
+                        Hairline()
+                    }
                 }
+                .animation(.standard, value: chosenName != nil)
                 .padding(.horizontal, Tokens.Space.xxl)
                 .padding(.top, Tokens.Space.xxl)
             }
-            PrimaryButton(title: "Use \(choice ?? "no brand")") {
+            PrimaryButton(title: "Use \(choice?.display ?? "no brand")") {
                 onUse(choice)
                 dismiss()
             }

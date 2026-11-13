@@ -221,6 +221,8 @@ nonisolated struct StoredExercise: Sendable {
     var id: String
     var name: String
     var brand: String?
+    /// The brand's label, such as the model or the gym. Only meaningful with a brand.
+    var label: String? = nil
     var restSeconds: Int
     var settings: [StoredSetting]
     var notes: [StoredNote]
@@ -259,6 +261,7 @@ nonisolated struct StoredExerciseInfo: Sendable {
 nonisolated struct StoredSetup: Sendable {
     var name: String
     var brand: String?
+    var label: String? = nil
     /// With their next-time values.
     var settings: [StoredSetting]
 }
@@ -278,7 +281,8 @@ nonisolated extension AppDatabase {
     // MARK: Exercises, brands and settings
 
     /// The id of an exercise on a brand, adding the exercise and the brand the first time.
-    private static func exerciseBrandId(name: String, brand: String?, in db: Database) throws -> String {
+    /// Brand and label together pick the row: the same brand with another label is another row.
+    static func exerciseBrandId(name: String, brand: String?, label: String?, in db: Database) throws -> String {
         let exerciseId: String
         if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise WHERE name = ?", arguments: [name]) {
             exerciseId = id
@@ -287,11 +291,11 @@ nonisolated extension AppDatabase {
             try db.execute(sql: "INSERT INTO exercise (id, name, equipment, is_builtin, updated_at) VALUES (?, ?, 'other', ?, ?)",
                            arguments: [exerciseId, name, ExerciseCatalogNames.builtIn.contains(name), now])
         }
-        if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ?", arguments: [exerciseId, brand]) {
+        if let id = try String.fetchOne(db, sql: "SELECT id FROM exercise_brand WHERE exercise_id = ? AND brand IS ? AND label IS ?", arguments: [exerciseId, brand, label]) {
             return id
         }
         let id = UUID().uuidString
-        try db.execute(sql: "INSERT INTO exercise_brand (id, exercise_id, brand, updated_at) VALUES (?, ?, ?, ?)", arguments: [id, exerciseId, brand, now])
+        try db.execute(sql: "INSERT INTO exercise_brand (id, exercise_id, brand, label, updated_at) VALUES (?, ?, ?, ?, ?)", arguments: [id, exerciseId, brand, label, now])
         return id
     }
 
@@ -354,13 +358,13 @@ nonisolated extension AppDatabase {
 
     private static func workoutExercises(of workoutId: String, in db: Database) throws -> [StoredExercise] {
         try Row.fetchAll(db, sql: """
-            SELECT we.id, we.rest_seconds, e.name, eb.brand FROM workout_exercise we
+            SELECT we.id, we.rest_seconds, e.name, eb.brand, eb.label FROM workout_exercise we
             JOIN exercise_brand eb ON eb.id = we.exercise_brand_id JOIN exercise e ON e.id = eb.exercise_id
             WHERE we.workout_id = ? AND we.deleted_at IS NULL ORDER BY we.position
             """, arguments: [workoutId]).map { row in
             let id: String = row["id"]
             return StoredExercise(
-                id: id, name: row["name"], brand: row["brand"], restSeconds: row["rest_seconds"],
+                id: id, name: row["name"], brand: row["brand"], label: row["label"], restSeconds: row["rest_seconds"],
                 settings: try settings("""
                     SELECT s.id, s.name, s.kind, ws.value, ws.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
                     FROM workout_exercise_setting ws JOIN setting s ON s.id = ws.setting_id
@@ -381,7 +385,7 @@ nonisolated extension AppDatabase {
             try db.execute(sql: "INSERT INTO workout (id, title, note, started_at, finished_at, routine_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                            arguments: [workout.id, workout.title, workout.note, Self.millis(workout.startedAt), workout.finishedAt.map(Self.millis), workout.routineId, Self.now])
             for (position, exercise) in workout.exercises.enumerated() {
-                let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, in: db)
+                let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, label: exercise.label, in: db)
                 try db.execute(sql: "INSERT INTO workout_exercise (id, workout_id, exercise_brand_id, position, rest_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                                arguments: [exercise.id, workout.id, brandId, position, exercise.restSeconds, Self.now])
                 for (index, setting) in exercise.settings.enumerated() {
@@ -417,13 +421,13 @@ nonisolated extension AppDatabase {
             try Row.fetchAll(db, sql: "SELECT * FROM routine WHERE deleted_at IS NULL ORDER BY position").map { row in
                 let id: String = row["id"]
                 let exercises = try Row.fetchAll(db, sql: """
-                    SELECT re.id, re.rest_seconds, e.name, eb.brand FROM routine_exercise re
+                    SELECT re.id, re.rest_seconds, e.name, eb.brand, eb.label FROM routine_exercise re
                     JOIN exercise_brand eb ON eb.id = re.exercise_brand_id JOIN exercise e ON e.id = eb.exercise_id
                     WHERE re.routine_id = ? AND re.deleted_at IS NULL ORDER BY re.position
                     """, arguments: [id]).map { row in
                     let exerciseId: String = row["id"]
                     return StoredExercise(
-                        id: exerciseId, name: row["name"], brand: row["brand"], restSeconds: row["rest_seconds"],
+                        id: exerciseId, name: row["name"], brand: row["brand"], label: row["label"], restSeconds: row["rest_seconds"],
                         settings: try Self.settings("""
                             SELECT s.id, s.name, s.kind, rs.value, rs.text_value, s.direction, s.range_min, s.range_max, s.split_by_value, s.factor
                             FROM routine_exercise_setting rs JOIN setting s ON s.id = rs.setting_id
@@ -446,7 +450,7 @@ nonisolated extension AppDatabase {
             for (position, routine) in routines.enumerated() {
                 try db.execute(sql: "INSERT INTO routine (id, name, position, updated_at) VALUES (?, ?, ?, ?)", arguments: [routine.id, routine.name, position, Self.now])
                 for (index, exercise) in routine.exercises.enumerated() {
-                    let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, in: db)
+                    let brandId = try Self.exerciseBrandId(name: exercise.name, brand: exercise.brand, label: exercise.label, in: db)
                     try db.execute(sql: "INSERT INTO routine_exercise (id, routine_id, exercise_brand_id, position, rest_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                                    arguments: [exercise.id, routine.id, brandId, index, exercise.restSeconds, Self.now])
                     for (settingIndex, setting) in exercise.settings.enumerated() {
@@ -480,9 +484,9 @@ nonisolated extension AppDatabase {
                 )
             }
             let setups = try Row.fetchAll(db, sql: """
-                SELECT eb.id, e.name, eb.brand FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id WHERE eb.deleted_at IS NULL
+                SELECT eb.id, e.name, eb.brand, eb.label FROM exercise_brand eb JOIN exercise e ON e.id = eb.exercise_id WHERE eb.deleted_at IS NULL
                 """).map { row in
-                StoredSetup(name: row["name"], brand: row["brand"],
+                StoredSetup(name: row["name"], brand: row["brand"], label: row["label"],
                             settings: try Self.settings("SELECT * FROM setting WHERE exercise_brand_id = ? AND deleted_at IS NULL ORDER BY position", owner: row["id"], in: db))
             }
             return StoredLibrary(exercises: exercises, setups: setups.filter { !$0.settings.isEmpty })
@@ -505,7 +509,7 @@ nonisolated extension AppDatabase {
                 }
             }
             for setup in library.setups {
-                let brandId = try Self.exerciseBrandId(name: setup.name, brand: setup.brand, in: db)
+                let brandId = try Self.exerciseBrandId(name: setup.name, brand: setup.brand, label: setup.label, in: db)
                 for (index, setting) in setup.settings.enumerated() {
                     try Self.upsert(setting, exerciseBrandId: brandId, position: index, withValue: true, in: db)
                 }

@@ -93,7 +93,7 @@ struct FinishSummary: View {
                             Text(exercise.name)
                                 .foregroundStyle(palette.foreground)
                             if let brand = exercise.brand {
-                                Text(brand).foregroundStyle(palette.foregroundFaint)
+                                Text(brand.display).foregroundStyle(palette.foregroundFaint)
                             }
                         }
                         .textStyle(Tokens.Typography.control)
@@ -162,7 +162,7 @@ struct FinishSummary: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(record.record)
                             .foregroundStyle(palette.foreground)
-                        Text([record.exercise, record.brand].compactMap { $0 }.joined(separator: " · "))
+                        Text([record.exercise, record.brand?.display].compactMap { $0 }.joined(separator: " · "))
                             .textStyle(Tokens.Typography.caption)
                             .foregroundStyle(palette.foregroundMuted)
                     }
