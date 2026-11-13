@@ -285,21 +285,24 @@ final class SyncEngine {
     }
 
     private func pull(into database: AppDatabase, token: String) async throws(SyncFailure) {
-        var cursor = (try? database.syncCursor()) ?? 0
-        var total = PullOutcome()
+        let start = (try? database.syncCursor()) ?? 0
+        var cursor = start
+        var items: [SyncItem] = []
         while true {
             let page = try await api.pull(after: cursor, token: token)
-            // One transaction per page. If it fails nothing is written, and the next sync asks again from the old cursor.
-            guard let outcome = try? database.applyPulled(page.items, cursor: page.cursor) else {
-                throw .server("Couldn't save what the server sent.")
-            }
-            total.applied += outcome.applied
-            total.keptLocal += outcome.keptLocal
-            if let unit = outcome.weightUnit { total.weightUnit = unit }
+            items += page.items
             cursor = page.cursor
             if !page.more { break }
         }
-        if total.applied > 0 || total.weightUnit != nil { onPulled(total) }
+        guard cursor != start || !items.isEmpty else { return }
+        // Every page in one transaction, not one each. Pages come in the order items last changed, so a
+        // workout can be pages ahead of a brand it uses that was edited later. Written page by page, that
+        // workout's page would point at a brand the phone doesn't have yet, fail its foreign key check, and
+        // be asked for again forever. If this fails nothing is written, and the next sync asks from the old cursor.
+        guard let outcome = try? database.applyPulled(items, cursor: cursor) else {
+            throw .server("Couldn't save what the server sent.")
+        }
+        if outcome.applied > 0 || outcome.weightUnit != nil { onPulled(outcome) }
     }
 
     private func scheduleRetry() {
