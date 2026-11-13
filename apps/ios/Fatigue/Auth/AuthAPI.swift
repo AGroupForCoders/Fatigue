@@ -10,6 +10,12 @@ protocol AuthAPI: Sendable {
     func signOut(token: String) async throws
     func rename(to name: String, token: String) async throws
     func deleteAccount(password: String, token: String) async throws
+    /// Emails a reset link. Says the same thing whether or not the email has an account.
+    func requestPasswordReset(email: String) async throws
+    /// Sets a new password with the token from the reset link.
+    func resetPassword(token: String, newPassword: String) async throws
+    /// Emails the verification link again.
+    func sendVerificationEmail(email: String, token: String) async throws
 }
 
 /// Talks to Better Auth on the Fatigue API.
@@ -26,7 +32,8 @@ nonisolated struct LiveAuthAPI: AuthAPI {
     }
 
     func signUp(name: String, email: String, password: String) async throws -> (Account, token: String) {
-        let (data, response) = try await send("sign-up/email", body: ["name": name, "email": email, "password": password])
+        let body = ["name": name, "email": email, "password": password, "callbackURL": emailVerifiedPage]
+        let (data, response) = try await send("sign-up/email", body: body)
         return try accountAndToken(data, response)
     }
 
@@ -47,6 +54,24 @@ nonisolated struct LiveAuthAPI: AuthAPI {
     func deleteAccount(password: String, token: String) async throws {
         _ = try await send("delete-user", body: ["password": password], token: token)
     }
+
+    func requestPasswordReset(email: String) async throws {
+        _ = try await send("request-password-reset", body: ["email": email, "redirectTo": resetPasswordPage])
+    }
+
+    func resetPassword(token: String, newPassword: String) async throws {
+        _ = try await send("reset-password", body: ["token": token, "newPassword": newPassword])
+    }
+
+    func sendVerificationEmail(email: String, token: String) async throws {
+        _ = try await send("send-verification-email", body: ["email": email, "callbackURL": emailVerifiedPage], token: token)
+    }
+
+    /// Where the link in a reset email lands once the API has checked it. The page opens the app with the token.
+    private var resetPasswordPage: String { baseURL.appending(path: "auth/reset-password").absoluteString }
+
+    /// Where the link in a verification email lands once the email is verified. The page opens the app.
+    private var emailVerifiedPage: String { baseURL.appending(path: "auth/email-verified").absoluteString }
 
     private func accountAndToken(_ data: Data, _ response: HTTPURLResponse) throws -> (Account, token: String) {
         struct Body: Decodable { let user: Account }

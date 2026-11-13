@@ -15,6 +15,8 @@ final class AuthStore {
     }
 
     private(set) var state: State = .loading
+    /// A token from a reset link the phone just opened. Non-nil shows the "Set a new password" screen.
+    var passwordReset: PasswordReset?
     private let api: any AuthAPI
     private let tokens: TokenStore
     private let defaults: UserDefaults
@@ -30,7 +32,8 @@ final class AuthStore {
         if case .signedIn(let account) = state { account } else { nil }
     }
 
-    /// Picks up the session saved on this phone, if there is one.
+    /// Picks up the session saved on this phone, if there is one. Also refreshes the account,
+    /// which is how a verified email shows up.
     func restore() async {
         guard let token = tokens.read() else { state = .signedOut; return }
         let cached = cachedAccount
@@ -78,6 +81,34 @@ final class AuthStore {
         clear()
     }
 
+    func requestPasswordReset(email: String) async throws {
+        try await api.requestPasswordReset(email: email.trimmed)
+    }
+
+    /// Sets the new password. The server then signs out every session, including this phone's if it had one.
+    func resetPassword(newPassword: String) async throws {
+        guard let reset = passwordReset else { return }
+        try await api.resetPassword(token: reset.token, newPassword: newPassword)
+        if case .signedIn = state { clear() }
+    }
+
+    func sendVerificationEmail() async throws {
+        guard let account, let token = tokens.read() else { return }
+        try await api.sendVerificationEmail(email: account.email, token: token)
+    }
+
+    /// Handles a link from one of the emails opening the app.
+    func open(_ url: URL) {
+        switch DeepLink(url: url) {
+        case .resetPassword(let token):
+            passwordReset = PasswordReset(token: token)
+        case .emailVerified:
+            Task { await restore() }
+        case nil:
+            break
+        }
+    }
+
     private func signedIn(_ account: Account, token: String) {
         tokens.save(token)
         cachedAccount = account
@@ -95,6 +126,12 @@ final class AuthStore {
         get { defaults.data(forKey: Self.cachedAccountKey).flatMap { try? JSONDecoder().decode(Account.self, from: $0) } }
         set { defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: Self.cachedAccountKey) }
     }
+}
+
+/// Lets a reset token drive `.sheet(item:)`.
+nonisolated struct PasswordReset: Identifiable, Equatable, Sendable {
+    let token: String
+    var id: String { token }
 }
 
 private extension String {

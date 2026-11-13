@@ -10,7 +10,12 @@
   // Keep request logs and errors in the Cloudflare dashboard. Workers Logs is included on the paid plan.
   "observability": { "enabled": true },
   // Readable stack traces in those logs.
-  "upload_source_maps": true
-  // DATABASE_URL, BETTER_AUTH_SECRET and BETTER_AUTH_URL are secrets set with `wrangler secret put`,
-  // never `vars` in this file. See README.md.
+  "upload_source_maps": true,
+  // Plain settings for the email links. The sender is a placeholder until the Resend domain is set up (see README).
+  // Locally, .env overrides them. DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL and RESEND_API_KEY are
+  // secrets set with `wrangler secret put`, never `vars` in this file.
+  "vars": {
+    "EMAIL_FROM": "Fatigue <no-reply@example.com>",
+    "APP_DEEP_LINK_SCHEME": "fatigue"
+  }
 }
