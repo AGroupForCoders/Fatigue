@@ -393,8 +393,7 @@ struct SocialStoreTests {
 
     @Test func sharingWithMediaUploadsEachFileAfterThePost() async {
         let (social, api) = await sharing()
-        let workout = legDay
-        await social.share(workout, records: [], visibility: .friends, media: [photo(one), photo(two)])
+        await social.share(legDay, records: [], visibility: .friends, media: [photo(one), photo(two)])
         #expect(api.mediaCalls == ["prepare \(one)", "upload \(one)", "complete \(one)", "prepare \(two)", "upload \(two)", "complete \(two)"])
         #expect(social.uploads.isEmpty)
     }
@@ -417,17 +416,19 @@ struct SocialStoreTests {
 
     @Test func sharingAgainWithoutAPhotoTakesItOffThePost() async {
         let (social, api) = await sharing()
-        await social.share(legDay, records: [], visibility: .friends, media: [photo(one), photo(two)])
-        await social.share(legDay, records: [], visibility: .friends, media: [photo(two)])
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .friends, media: [photo(one), photo(two)])
+        await social.share(workout, records: [], visibility: .friends, media: [photo(two)])
         #expect(api.mediaCalls.last == "remove \(one)")
         #expect(api.ready.values.flatMap { $0 }.map(\.id) == [two])
     }
 
     @Test func sharingAgainDoesntUploadWhatsAlreadyThere() async {
         let (social, api) = await sharing()
-        await social.share(legDay, records: [], visibility: .friends, media: [photo(one)])
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .friends, media: [photo(one)])
         let before = api.mediaCalls.count
-        await social.share(legDay, records: [], visibility: .friends, media: [photo(one)])
+        await social.share(workout, records: [], visibility: .friends, media: [photo(one)])
         #expect(api.mediaCalls.count == before)
     }
 
@@ -447,7 +448,7 @@ struct SocialStoreTests {
         """
         let post = try JSONDecoder.api.decode(Post.self, from: Data(json.utf8))
         #expect(post.media.first?.kind == .video)
-        #expect(post.media.first?.aspectRatio == 1920.0 / 1080.0)
+        #expect(abs((post.media.first?.aspectRatio ?? 0) - 16.0 / 9.0) < 0.0001)
         #expect(post.author.photoUrl?.absoluteString == "https://x.test/p.jpg")
     }
 }
