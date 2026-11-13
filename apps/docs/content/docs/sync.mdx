@@ -135,7 +135,7 @@ Sync bugs lose data without any error, so it gets three layers of tests.
 
 - **API.** The push and pull rules against a real Postgres. The later edit wins, the cursor never skips an item, and one account can't read or write another's rows.
 - **iOS.** The scan and the pull against a fake server. Retries, the failed item, and a pull cut short.
-- **Both together.** Two in-memory phone databases and one server in a single test, running scripted cases such as offline edits on both phones, a delete on one and an edit on the other, and a sign-out with items waiting.
+- **Both together.** Two in-memory phone databases and one server in a single test, running scripted cases such as offline edits on both phones, a delete on one and an edit on the other, and a sign-out with items waiting. These are `SyncTwoPhoneTests` in the iOS tests. The server is the real API on an in-memory Postgres (`pnpm --filter @fatigue/api test:server`, on port 8788), and CI starts it before the iOS tests. To run them locally, start that server and pass `TEST_RUNNER_FATIGUE_TEST_API=http://localhost:8788` to `xcodebuild test`; without it they're skipped.
 
 ## What has to change first
 

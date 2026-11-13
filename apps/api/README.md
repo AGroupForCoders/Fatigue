@@ -72,6 +72,8 @@ The snapshot is stored as it comes, up to 256 KB. The server never reads inside 
 
 Service tests run against PGlite, a Postgres that runs in memory, with every migration applied (`src/db/test-db.ts`). They need no database running.
 
+`pnpm --filter @fatigue/api test:server` runs the whole API on Node against a fresh in-memory Postgres, on http://localhost:8788, for tests that need a real server end to end. The iOS two-phone sync tests use it, and CI starts it in the iOS job. Nothing it stores is kept.
+
 ## Changing the Better Auth config
 
 Better Auth's tables in `src/db/schema/auth.ts` are generated. After changing its config in `src/modules/auth/auth.ts`, run `pnpm --filter @fatigue/api auth:schema`, then `pnpm --filter @fatigue/api db:generate` to write the migration.

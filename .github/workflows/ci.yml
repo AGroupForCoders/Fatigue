@@ -48,6 +48,10 @@ jobs:
             ios:
               - '.github/workflows/ci.yml'
               - 'apps/ios/**'
+              # The two-phone sync tests run against the API, so a change to sync or the tables runs them too.
+              - 'apps/api/src/modules/sync/**'
+              - 'apps/api/src/db/**'
+              - 'apps/api/scripts/test-server.ts'
             tokens:
               - *workspace
               - 'packages/tokens/**'
@@ -107,8 +111,30 @@ jobs:
           path: ${{ env.DERIVED_DATA }}/SourcePackages
           key: spm-${{ runner.os }}-${{ hashFiles('apps/ios/Fatigue.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
+      # The two-phone sync tests (SyncTwoPhoneTests) talk to the real API, run here on an in-memory
+      # Postgres. The simulator reaches it on localhost.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start the test API
+        run: |
+          set -euo pipefail
+          nohup pnpm --filter @fatigue/api test:server > "$RUNNER_TEMP/test-api.log" 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://localhost:8788/health; then echo; exit 0; fi
+            sleep 1
+          done
+          echo "::error::The test API didn't start"
+          cat "$RUNNER_TEMP/test-api.log"
+          exit 1
       - name: Build and test
         working-directory: apps/ios
+        env:
+          # Passed to the test process as FATIGUE_TEST_API.
+          TEST_RUNNER_FATIGUE_TEST_API: http://localhost:8788
         # Parallel testing runs the tests on throwaway simulator clones, and the
         # Keychain is not reliable on those, so the tests run on the booted device.
         # The build stays signed (ad hoc, no team needed for a simulator) because an
@@ -131,6 +157,9 @@ jobs:
           name: ios-test-results
           path: ${{ runner.temp }}/Fatigue.xcresult
           if-no-files-found: ignore
+      - name: Show the test API's log
+        if: failure()
+        run: cat "$RUNNER_TEMP/test-api.log" || true
 
   tokens:
     name: Tokens
