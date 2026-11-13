@@ -6,6 +6,7 @@ struct WorkoutDetailScreen: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(WorkoutStore.self) private var store
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let workoutID: UUID
 
     @State private var editing: WorkoutSession?
@@ -83,7 +84,7 @@ struct WorkoutDetailScreen: View {
                     Text(workout.title)
                         .textStyle(Tokens.Typography.title)
                         .foregroundStyle(palette.foreground)
-                    Text(HistoryRow.summary(workout))
+                    Text(HistoryRow.summary(workout, unit: unit))
                         .textStyle(Tokens.Typography.control)
                         .monospacedDigit()
                         .foregroundStyle(palette.foregroundMuted)
@@ -112,6 +113,7 @@ struct WorkoutDetailScreen: View {
 /// One exercise of a finished workout: name and brand, notes, then its sets under their setup headings.
 private struct ExerciseRecord: View {
     @Environment(\.palette) private var palette
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let exercise: WorkoutExercise
     let history: [FinishedWorkout]
     @State private var showingStats = false
@@ -171,7 +173,7 @@ private struct ExerciseRecord: View {
                 .foregroundStyle(set.type == .normal ? palette.foregroundFaint : palette.foregroundMuted)
                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
                 .accessibilityLabel(spoken)
-            Text("\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")")
+            Text(PreviousSet(kind: set.kind, weightKg: Double(set.weight), amount: set.amount).text(in: unit))
                 .foregroundStyle(palette.foreground)
             if let rpe = set.rpe {
                 Text("@\(PlainNumber.string(rpe))")

@@ -116,23 +116,53 @@ struct SetSetup: Hashable {
     var values: [String: Double] = [:]
 }
 
-/// One set in a running workout. Weight and amount are kept as typed text for this spike,
+/// One set in a running workout. Weight and amount are kept as text for this spike,
 /// so the cells can be edited directly. The real model stores numbers.
 struct WorkoutSet: Identifiable {
     var id = UUID()
     var setup: SetSetup
     var type: SetType = .normal
+    /// Always kilograms, whatever unit is picked in Settings; `WeightUnit` converts for the cells. Empty is unloaded.
     var weight: String
     /// Reps for a rep set, seconds for a hold.
     var amount: String
     var rpe: Double?
-    /// What you did last time, such as "55 × 8 @8.5".
-    var previous: String
+    /// What you did last time, or the target from a prebuilt workout. Nil when there's neither.
+    var previous: PreviousSet?
     var isDone = false
 
     var kind: SetKind { setup.kind }
     /// Whether this set counts towards volume, records and scores. Warm-ups don't.
     var counts: Bool { type.counts }
+}
+
+/// What a set's Previous column shows. Kept as values, not text, so it reads in whichever unit is picked.
+struct PreviousSet: Equatable {
+    var kind: SetKind
+    /// Nil when unloaded.
+    var weightKg: Double?
+    /// Reps for a rep set, seconds for a hold.
+    var amount: String
+    var rpe: Double?
+
+    /// A past set, with its RPE.
+    init(_ set: WorkoutSet) {
+        self.init(kind: set.kind, weightKg: Double(set.weight), amount: set.amount, rpe: set.rpe)
+    }
+
+    init(kind: SetKind, weightKg: Double?, amount: String, rpe: Double? = nil) {
+        self.kind = kind
+        self.weightKg = weightKg
+        self.amount = amount
+        self.rpe = rpe
+    }
+
+    /// Such as "55 × 8 @8.5", or "40 × 45s @8" for a hold, with the weight in `unit` and "-" when unloaded.
+    func text(in unit: WeightUnit) -> String {
+        var text = "\(weightKg.map(unit.text(fromKilograms:)) ?? "-") × \(amount)\(kind == .hold ? "s" : "")"
+        if let rpe { text += " @\(PlainNumber.string(rpe))" }
+        return text
+    }
 }
 
 /// A free-form note under an exercise's name. An exercise can have several.
@@ -200,14 +230,14 @@ struct KnownBrand: Identifiable, Equatable {
     let when: String
     var id: String { brand?.key ?? "" }
 
-    /// The brands you've used for an exercise, newest first, each with your last set on it.
+    /// The brands you've used for an exercise, newest first, each with your last set on it in `unit`.
     /// Brands with saved settings but no sets yet come after, with no last set.
-    static func list(for exercise: String, history: [FinishedWorkout], saved: [Brand], now: Date = .now) -> [KnownBrand] {
+    static func list(for exercise: String, history: [FinishedWorkout], saved: [Brand], unit: WeightUnit, now: Date = .now) -> [KnownBrand] {
         var brands: [KnownBrand] = []
         for workout in history.sorted(by: { $0.startedAt > $1.startedAt }) {
             for done in workout.exercises where done.name == exercise && !brands.contains(where: { $0.brand == done.brand }) {
                 guard let last = done.sets.last(where: \.isDone) else { continue }
-                let lastSet = "\(last.weight.isEmpty ? "-" : last.weight) × \(last.amount)\(last.kind == .hold ? "s" : "")"
+                let lastSet = PreviousSet(kind: last.kind, weightKg: Double(last.weight), amount: last.amount).text(in: unit)
                 let when = workout.startedAt.formatted(.relative(presentation: .named, unitsStyle: .wide))
                 brands.append(KnownBrand(brand: done.brand, lastSet: lastSet, when: when))
             }
@@ -403,7 +433,7 @@ final class WorkoutSession {
         let sets = exercises[exerciseIndex].sets
         let after = sets.lastIndex { $0.setup == setup }
         let template = after.map { sets[$0] } ?? sets.last
-        let set = WorkoutSet(setup: setup, weight: template?.weight ?? "", amount: template?.amount ?? "", previous: "")
+        let set = WorkoutSet(setup: setup, weight: template?.weight ?? "", amount: template?.amount ?? "", previous: nil)
         exercises[exerciseIndex].sets.insert(set, at: after.map { $0 + 1 } ?? sets.count)
     }
 
@@ -493,25 +523,25 @@ extension WorkoutSession {
                     notes: [ExerciseNote(text: "Pads on the widest setting.")],
                     settings: ExerciseCatalog.sampleAdductorSettings,
                     sets: [
-                        WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "50", rpe: 8, previous: "40 × 45s @8", isDone: true),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: "55 × 8 @8.5", isDone: true),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", previous: "55 × 7 @9"),
+                        WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "50", rpe: 8, previous: PreviousSet(kind: .hold, weightKg: 40, amount: "45", rpe: 8), isDone: true),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: PreviousSet(kind: .reps, weightKg: 55, amount: "8", rpe: 8.5), isDone: true),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", previous: PreviousSet(kind: .reps, weightKg: 55, amount: "7", rpe: 9)),
                     ]
                 ),
                 WorkoutExercise(
                     name: "Leg Press", brand: nil, restSeconds: 150,
                     sets: [
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10", previous: "160 × 10 @8"),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10", previous: "160 × 10 @8.5"),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10", previous: "160 × 9 @9"),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10", previous: PreviousSet(kind: .reps, weightKg: 160, amount: "10", rpe: 8)),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10", previous: PreviousSet(kind: .reps, weightKg: 160, amount: "10", rpe: 8.5)),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "160", amount: "10", previous: PreviousSet(kind: .reps, weightKg: 160, amount: "9", rpe: 9)),
                     ]
                 ),
                 WorkoutExercise(
                     name: "Seated Calf Raise", brand: "Hammer Strength", restSeconds: 90,
                     sets: [
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "12", previous: "60 × 12 @8"),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "12", previous: "60 × 11 @9"),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "12", previous: "60 × 10 @9.5"),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "12", previous: PreviousSet(kind: .reps, weightKg: 60, amount: "12", rpe: 8)),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "12", previous: PreviousSet(kind: .reps, weightKg: 60, amount: "11", rpe: 9)),
+                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "60", amount: "12", previous: PreviousSet(kind: .reps, weightKg: 60, amount: "10", rpe: 9.5)),
                     ]
                 ),
             ],

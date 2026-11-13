@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct SetTypeTests {
     private func set(_ weight: String, _ reps: String, type: SetType = .normal, done: Bool = true) -> WorkoutSet {
-        WorkoutSet(setup: SetSetup(kind: .reps), type: type, weight: weight, amount: reps, previous: "", isDone: done)
+        WorkoutSet(setup: SetSetup(kind: .reps), type: type, weight: weight, amount: reps, isDone: done)
     }
 
     private func legPress(_ sets: [WorkoutSet]) -> WorkoutExercise {
@@ -53,15 +53,15 @@ struct SetTypeTests {
         ])
         #expect(stats.points(.setVolume, weighted: false).map(\.value) == [800])
         #expect(stats.points(.weight, weighted: false).map(\.value) == [100])
-        #expect(stats.records().heaviestWeight?.value == 100)
-        #expect(stats.records().bestSessionVolume?.detail == "1 set")
+        #expect(stats.records(in: .kg).heaviestWeight?.value == 100)
+        #expect(stats.records(in: .kg).bestSessionVolume?.detail == "1 set")
         #expect(stats.sessions[0].sets.count == 2)
     }
 
     @Test func aWorkoutOfOnlyWarmUpsHasNoPoints() {
         let stats = ExerciseStats(name: "Leg Press", brand: "Technogym", history: [workout(day: 1, [set("60", "10", type: .warmup)])])
         #expect(stats.points(.setVolume, weighted: false).isEmpty)
-        #expect(stats.records().heaviestWeight == nil)
+        #expect(stats.records(in: .kg).heaviestWeight == nil)
     }
 
     // MARK: Records and scores
@@ -96,7 +96,7 @@ struct SetTypeTests {
 
     @Test func theFinishSummaryIgnoresWarmUpsWhenListingBeatenRecords() {
         let today = workout(day: 2, [set("200", "10", type: .warmup), set("100", "10")])
-        #expect(ExerciseStats.beaten(by: today, history: [workout(day: 1, [set("100", "10")])]).isEmpty)
+        #expect(ExerciseStats.beaten(by: today, history: [workout(day: 1, [set("100", "10")])], in: .kg).isEmpty)
     }
 
     // MARK: Persistence

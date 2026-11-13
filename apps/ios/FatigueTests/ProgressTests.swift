@@ -12,12 +12,12 @@ private func adductors(_ sets: [WorkoutSet], settings: [ExerciseSetting] = [lowe
 
 @MainActor
 private func reps(_ weight: String, _ amount: String, notch: Double? = nil, done: Bool = true) -> WorkoutSet {
-    WorkoutSet(setup: SetSetup(kind: .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: amount, previous: "", isDone: done)
+    WorkoutSet(setup: SetSetup(kind: .reps, values: notch.map { ["Notch": $0] } ?? [:]), weight: weight, amount: amount, isDone: done)
 }
 
 @MainActor
 private func hold(_ weight: String, _ amount: String) -> WorkoutSet {
-    WorkoutSet(setup: SetSetup(kind: .hold), weight: weight, amount: amount, previous: "", isDone: true)
+    WorkoutSet(setup: SetSetup(kind: .hold), weight: weight, amount: amount, isDone: true)
 }
 
 @MainActor

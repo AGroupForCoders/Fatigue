@@ -66,7 +66,7 @@ struct HistoryTests {
         #expect(HistoryRow.when(now.addingTimeInterval(-86_400), now: now) == "Yesterday")
         var workout = FinishedWorkout.samples(now: now)[0]
         workout.startedAt = now
-        #expect(HistoryRow.summary(workout, now: now) == "Today · 52 min · 9 sets · \(Int(workout.volume).formatted()) kg")
+        #expect(HistoryRow.summary(workout, unit: .kg, now: now) == "Today · 52 min · 9 sets · \(Int(workout.volume.rounded()).formatted()) kg")
         #expect(HistoryRow.duration(74) == "1 h 14 min")
     }
 

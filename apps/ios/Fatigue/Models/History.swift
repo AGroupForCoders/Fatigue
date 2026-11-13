@@ -113,7 +113,7 @@ extension FinishedWorkout {
     static func samples(now: Date = .now) -> [FinishedWorkout] {
         func day(_ daysAgo: Double) -> Date { now.addingTimeInterval(-daysAgo * 86_400) }
         func reps(_ weight: String, _ reps: String, rpe: [Double]) -> [WorkoutSet] {
-            rpe.map { WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: reps, rpe: $0, previous: "", isDone: true) }
+            rpe.map { WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: reps, rpe: $0, isDone: true) }
         }
         func exercise(_ name: String, brand: Brand? = nil, _ sets: [WorkoutSet], settings: [ExerciseSetting] = []) -> WorkoutExercise {
             WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: settings, sets: sets)
@@ -131,9 +131,9 @@ extension FinishedWorkout {
             ]),
             FinishedWorkout(title: "Leg day", startedAt: day(6), duration: 74 * 60, exercises: [
                 exercise("Adductors", brand: "Technogym", [
-                    WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, previous: "", isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: "", isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "7", rpe: 9, previous: "", isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "7", rpe: 9, isDone: true),
                 ], settings: ExerciseCatalog.sampleAdductorSettings),
                 exercise("Leg Press", reps("160", "10", rpe: [8, 8.5, 9])),
                 exercise("Leg Extension", reps("50", "12", rpe: [8, 9])),

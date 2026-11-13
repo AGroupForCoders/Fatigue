@@ -38,6 +38,7 @@ struct RoutineExercise: Identifiable, Equatable {
 struct RoutineSet: Equatable {
     var setup: SetSetup
     var type: SetType = .normal
+    /// Always kilograms, as on `WorkoutSet`.
     var weight = ""
     var amount = ""
 }
@@ -87,9 +88,9 @@ extension Routine {
         updated(from: session).exercises.map(\.shape) != exercises.map(\.shape)
     }
 
-    private static func target(_ set: RoutineSet) -> String {
-        guard !set.weight.isEmpty, !set.amount.isEmpty else { return "" }
-        return "\(set.weight) × \(set.amount)\(set.setup.kind == .hold ? "s" : "")"
+    private static func target(_ set: RoutineSet) -> PreviousSet? {
+        guard !set.weight.isEmpty, !set.amount.isEmpty else { return nil }
+        return PreviousSet(kind: set.setup.kind, weightKg: Double(set.weight), amount: set.amount)
     }
 }
 
@@ -321,8 +322,8 @@ extension WorkoutSession {
             let last = previousLookup?(name, brand) ?? []
             // Start from last time's sets when there were any, so the cells are already filled in.
             let sets = last.isEmpty
-                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "", previous: "")]
-                : last.map { WorkoutSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount, previous: "") }
+                ? [WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "")]
+                : last.map { WorkoutSet(setup: $0.setup, type: $0.type, weight: $0.weight, amount: $0.amount) }
             exercises.append(WorkoutExercise(name: name, brand: brand, restSeconds: 90, settings: saved.settings, sets: sets))
             fillPrevious(for: exercises.count - 1)
         }
@@ -335,15 +336,8 @@ extension WorkoutSession {
         let last = previousLookup?(exercise.name, exercise.brand) ?? []
         guard !last.isEmpty else { return }
         for index in exercise.sets.indices {
-            exercises[exerciseIndex].sets[index].previous = Self.describe(last[min(index, last.count - 1)])
+            exercises[exerciseIndex].sets[index].previous = PreviousSet(last[min(index, last.count - 1)])
         }
-    }
-
-    /// A past set in the Previous column's form, such as "55 × 8 @8.5" or "40 × 45s @8".
-    static func describe(_ set: WorkoutSet) -> String {
-        var text = "\(set.weight.isEmpty ? "-" : set.weight) × \(set.amount)\(set.kind == .hold ? "s" : "")"
-        if let rpe = set.rpe { text += " @\(PlainNumber.string(rpe))" }
-        return text
     }
 
     /// Applies an edit from the exercise editor to an exercise in this workout.

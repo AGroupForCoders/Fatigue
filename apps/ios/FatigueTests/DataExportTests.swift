@@ -16,12 +16,12 @@ struct DataExportTests {
                 notes: [ExerciseNote(text: "Pads wide"), ExerciseNote(text: "Slow eccentric")],
                 settings: ExerciseCatalog.sampleAdductorSettings,
                 sets: [
-                    WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, previous: "", isDone: true),
-                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: "", isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "45", rpe: 8, isDone: true),
+                    WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, isDone: true),
                 ]
             ),
             WorkoutExercise(name: "Leg Press", brand: nil, restSeconds: 90, sets: [
-                WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "12", previous: "", isDone: true),
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: "", amount: "12", isDone: true),
             ]),
         ])
     }

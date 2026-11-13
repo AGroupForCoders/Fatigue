@@ -8,20 +8,20 @@ struct BrandTests {
         FinishedWorkout(
             title: "Legs", startedAt: Date(timeIntervalSince1970: 1_000_000 - daysAgo * 86_400), duration: 3600,
             exercises: [WorkoutExercise(name: "Adductors", brand: brand, restSeconds: 90, sets: [
-                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "8", previous: "", isDone: done),
+                WorkoutSet(setup: SetSetup(kind: .reps), weight: weight, amount: "8", isDone: done),
             ])]
         )
     }
 
     @Test func brandsComeNewestFirstWithTheLastSetOnEach() {
         let history = [workout(14, brand: "Hammer Strength", weight: "50"), workout(3, brand: "Technogym", weight: "55"), workout(20, brand: "Technogym", weight: "40")]
-        let brands = KnownBrand.list(for: "Adductors", history: history, saved: [], now: Date(timeIntervalSince1970: 1_000_000))
+        let brands = KnownBrand.list(for: "Adductors", history: history, saved: [], unit: .kg, now: Date(timeIntervalSince1970: 1_000_000))
         #expect(brands.map(\.brand) == ["Technogym", "Hammer Strength"])
         #expect(brands[0].lastSet == "55 × 8")
     }
 
     @Test func savedBrandsWithNoSetsComeLast() {
-        let brands = KnownBrand.list(for: "Adductors", history: [workout(3, brand: nil, weight: "45")], saved: ["Matrix"])
+        let brands = KnownBrand.list(for: "Adductors", history: [workout(3, brand: nil, weight: "45")], saved: ["Matrix"], unit: .kg)
         #expect(brands.map(\.brand) == [nil, "Matrix"])
         #expect(brands[1].lastSet.isEmpty)
     }
@@ -70,7 +70,7 @@ struct BrandTests {
     @Test func theSameBrandWithAnotherLabelIsAnotherBrand() {
         let cityGym = Brand(name: "Technogym", label: "City gym")
         let history = [workout(3, brand: cityGym, weight: "55"), workout(5, brand: "Technogym", weight: "40")]
-        let brands = KnownBrand.list(for: "Adductors", history: history, saved: [], now: Date(timeIntervalSince1970: 1_000_000))
+        let brands = KnownBrand.list(for: "Adductors", history: history, saved: [], unit: .kg, now: Date(timeIntervalSince1970: 1_000_000))
         #expect(brands.map(\.brand) == [cityGym, "Technogym"])
         #expect(ExerciseStats(name: "Adductors", brand: cityGym, history: history).sessions.count == 1)
         #expect(ExerciseStats.brands(for: "Adductors", in: history).count == 2)

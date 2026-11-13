@@ -182,7 +182,7 @@ struct DatabaseTests {
         workouts.start(workouts.routines[2])
         // The sample Pull history has Seated Row on Life Fitness at 60 × 10 @8, 8.5 and 9.
         let row = try #require(workouts.active?.exercises.first { $0.name == "Seated Row" })
-        #expect(row.sets.map(\.previous) == ["60 × 10 @8", "60 × 10 @8.5", "60 × 10 @9"])
+        #expect(row.sets.map { $0.previous?.text(in: .kg) } == ["60 × 10 @8", "60 × 10 @8.5", "60 × 10 @9"])
     }
 
     @Test func renamingASettingKeepsItsHistory() throws {

@@ -13,6 +13,7 @@ struct FinishDetails {
 struct FinishSummary: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let session: WorkoutSession
     let unticked: UntickedSets
     /// The prebuilt workout it started from, only when today's workout differs from it.
@@ -146,7 +147,7 @@ struct FinishSummary: View {
 
     /// The records this workout beat, such as "Adductors · Heaviest weight · 60 kg". Nothing when it beat none.
     @ViewBuilder private var records: some View {
-        let beaten = ExerciseStats.beaten(by: workout, history: history)
+        let beaten = ExerciseStats.beaten(by: workout, history: history, in: unit)
         if !beaten.isEmpty {
             Hairline().padding(.top, Tokens.Space.xl)
             Text("Records")
@@ -183,7 +184,7 @@ struct FinishSummary: View {
         HStack(alignment: .top, spacing: 0) {
             stat(HistoryRow.duration(max(1, Int((workout.duration / 60).rounded()))), label: "Time")
             stat("\(workout.setCount)", label: "Sets")
-            stat(workout.volume > 0 ? "\(Int(workout.volume).formatted()) kg" : "-", label: "Volume")
+            stat(workout.volume > 0 ? unit.wholeLabelled(workout.volume) : "-", label: "Volume")
         }
     }
 

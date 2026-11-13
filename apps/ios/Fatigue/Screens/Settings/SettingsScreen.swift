@@ -7,7 +7,7 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
     @Environment(AuthStore.self) private var auth
-    @AppStorage("weightUnit") private var weightUnit = "kg"
+    @AppStorage(WeightUnit.storageKey) private var weightUnit: WeightUnit = .kg
     @State private var name = ""
     @State private var renameError: String?
     @State private var deleting = false
@@ -72,7 +72,7 @@ struct SettingsScreen: View {
                     .padding(.bottom, Tokens.Space.s)
                 Hairline()
                 settingRow("Weight") {
-                    choices(["kg", "lb"], selected: weightUnit) { weightUnit = $0 }
+                    choices(WeightUnit.allCases.map(\.rawValue), selected: weightUnit.rawValue) { weightUnit = WeightUnit(rawValue: $0) ?? .kg }
                 }
                 Hairline(soft: true)
                 settingRow("Theme") {

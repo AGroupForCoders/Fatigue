@@ -257,6 +257,7 @@ struct WorkoutScreen: View {
 private struct ExerciseSection: View {
     @Environment(\.palette) private var palette
     @Environment(ExerciseCatalog.self) private var catalog
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Bindable var session: WorkoutSession
     /// Keyed by id, not position, so removing or reordering exercises never points a section at the wrong one.
     let exerciseID: UUID
@@ -296,7 +297,7 @@ private struct ExerciseSection: View {
     private var exercise: WorkoutExercise { session.exercises[exerciseIndex] }
 
     private var knownBrands: [KnownBrand] {
-        KnownBrand.list(for: exercise.name, history: history, saved: catalog.brands(for: exercise.name))
+        KnownBrand.list(for: exercise.name, history: history, saved: catalog.brands(for: exercise.name), unit: unit)
     }
 
     var body: some View {
@@ -690,7 +691,7 @@ private struct ExerciseSection: View {
         HStack(spacing: Tokens.Space.s) {
             Color.clear.frame(width: Tokens.Size.setNumberColumn, height: 1)
             Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
-            Text("kg").frame(width: Tokens.Size.weightColumn)
+            Text(unit.rawValue).frame(width: Tokens.Size.weightColumn)
             Text(exercise.sets.allSatisfy { $0.kind == .hold } ? "Time" : "Reps").frame(width: Tokens.Size.amountColumn)
             Text("RPE").frame(width: Tokens.Size.rpeColumn)
             Color.clear.frame(width: Tokens.Size.tickColumn, height: 1)
@@ -704,6 +705,7 @@ private struct ExerciseSection: View {
 /// Tapping the number opens a menu to mark the set as a warm-up, a drop set or a set to failure.
 private struct SetRow: View {
     @Environment(\.palette) private var palette
+    @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     @Bindable var session: WorkoutSession
     let setID: UUID
     /// Whether this ticked set beat your best for its shape, shown as a small arrow by its number.
@@ -754,13 +756,15 @@ private struct SetRow: View {
             }
             .accessibilityLabel(isRecord ? "\(spoken), record" : spoken)
             .accessibilityHint("Changes the set's type")
-            Text(set.previous.isEmpty ? "-" : set.previous)
+            Text(set.previous?.text(in: unit) ?? "-")
                 .foregroundStyle(palette.foregroundMuted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            NumberCell(text: $session.exercises[e].sets[i].weight, isDone: set.isDone, accessibilityName: "Weight in kilograms", focus: focus, cell: .weight(set.id))
-                .frame(width: Tokens.Size.weightColumn)
+            WeightEntry(kilograms: $session.exercises[e].sets[i].weight) { text in
+                NumberCell(text: text, isDone: set.isDone, accessibilityName: "Weight in \(unit.name)", focus: focus, cell: .weight(set.id))
+            }
+            .frame(width: Tokens.Size.weightColumn)
             NumberCell(
                 text: $session.exercises[e].sets[i].amount,
                 suffix: set.kind == .hold ? "s" : "",
