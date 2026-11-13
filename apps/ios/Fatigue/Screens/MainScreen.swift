@@ -91,7 +91,9 @@ struct MainScreen: View {
     private func share(_ visibility: PostVisibility?, before: [FinishedWorkout]) {
         guard let visibility, let finished = store.history.first, finished.id != before.first?.id else { return }
         let records = ExerciseStats.beaten(by: finished, history: before, splitBy: { ExerciseSplit.remembered(for: $0) }, in: unit)
-        Task { await social.share(finished, records: records, visibility: visibility) }
+        // Every photo and video on it goes too, the same as the share sheet starts with all of them ticked.
+        let media = store.media.media(for: finished.id)
+        Task { await social.share(finished, records: records, visibility: visibility, media: media) }
     }
 
     /// Debug builds start the leg day workout on launch with `-openWorkout`, or start it minimised

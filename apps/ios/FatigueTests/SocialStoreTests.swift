@@ -53,9 +53,60 @@ private final class FakeSocialAPI: SocialAPI, @unchecked Sendable {
     func share(_ request: ShareRequest, token: String) async throws -> Post {
         if let shareFailure { throw shareFailure }
         shares.append(request)
-        return Post(id: request.id, author: .init(userId: "anton", handle: "anton", name: "Anton"), workoutId: request.workoutId,
-                    caption: request.caption, visibility: request.visibility, startedAt: request.startedAt, createdAt: .now, snapshot: request.snapshot)
+        return post(for: request.id, request)
     }
+
+    private func post(for id: String, _ request: ShareRequest? = nil) -> Post {
+        let request = request ?? shares.last { $0.id == id }!
+        return Post(id: id, author: .init(userId: "anton", handle: "anton", name: "Anton"), workoutId: request.workoutId,
+                    caption: request.caption, visibility: request.visibility, startedAt: request.startedAt, createdAt: .now, snapshot: request.snapshot,
+                    media: ready[id] ?? [])
+    }
+
+    /// What happens to media, in order, such as "prepare m1", "upload m1", "complete m1".
+    var mediaCalls: [String] = []
+    /// Finished media per post, as the API would return it.
+    var ready: [String: [PostMedia]] = [:]
+    /// Makes uploads fail as if the connection dropped.
+    var uploadsOffline = false
+    var photoID: String?
+
+    func post(_ id: String, token: String) async throws -> Post? { shares.contains { $0.id == id } ? post(for: id) : nil }
+
+    func prepareMedia(_ details: MediaDetails, id: String, postId: String, token: String) async throws -> PreparedUpload {
+        mediaCalls.append("prepare \(id)")
+        return PreparedUpload(id: id, status: "pending", upload: UploadLink(url: URL(string: "https://storage.test/\(id)")!, method: "PUT", headers: [:]))
+    }
+
+    func upload(_ file: URL, to link: UploadLink) async throws {
+        if uploadsOffline { throw APIError.offline }
+        mediaCalls.append("upload \(link.url.lastPathComponent)")
+    }
+
+    func completeMedia(_ id: String, postId: String, token: String) async throws {
+        mediaCalls.append("complete \(id)")
+        ready[postId, default: []].append(PostMedia(id: id, kind: .photo, width: 10, height: 10, durationSeconds: nil, position: ready[postId]?.count ?? 0,
+                                                    url: URL(string: "https://storage.test/\(id)")!, expiresAt: .now.addingTimeInterval(3600)))
+    }
+
+    func removeMedia(_ id: String, postId: String, token: String) async throws {
+        mediaCalls.append("remove \(id)")
+        ready[postId]?.removeAll { $0.id == id }
+    }
+
+    func preparePhoto(id: String, byteSize: Int, token: String) async throws -> UploadLink {
+        UploadLink(url: URL(string: "https://storage.test/profile/\(id)")!, method: "PUT", headers: [:])
+    }
+
+    func setPhoto(id: String, byteSize: Int, token: String) async throws -> MyProfile {
+        photoID = id
+        var saved = profile!
+        saved.photoUrl = URL(string: "https://storage.test/profile/\(id)")
+        profile = saved
+        return saved
+    }
+
+    func clearPhoto(token: String) async throws { photoID = nil }
 
     func deletePost(_ id: String, token: String) async throws {
         if let failure { throw failure }
@@ -73,8 +124,23 @@ struct SocialStoreTests {
     let mine = MyProfile(userId: "anton", handle: "anton", name: "Anton", bio: nil, defaultVisibility: .everyone)
 
     private func store(_ api: FakeSocialAPI, token: String? = "token", defaults: UserDefaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!) -> SocialStore {
-        SocialStore(api: api, token: { token }, defaults: defaults)
+        SocialStore(api: api, token: { token }, defaults: defaults, mediaFolder: FileManager.default.temporaryDirectory, export: Self.fakeExport,
+                    localPhoto: { nil })
     }
+
+    /// Stands in for shrinking: a tiny file in the scratch folder.
+    private static let fakeExport: @Sendable (URL, WorkoutMedia.Kind, String, Int) async throws -> ExportedMedia = { _, kind, id, position in
+        let url = FileManager.default.temporaryDirectory.appending(path: "export-\(id)")
+        try Data([1, 2, 3]).write(to: url)
+        return ExportedMedia(url: url, details: MediaDetails(kind: kind, contentType: "image/jpeg", byteSize: 3, position: position))
+    }
+
+    private func photo(_ id: String) -> WorkoutMedia {
+        WorkoutMedia(id: UUID(uuidString: id)!, workoutID: legDay.id, kind: .photo, fileName: "\(id).jpg", createdAt: .now)
+    }
+
+    private let one = "00000000-0000-0000-0000-000000000001"
+    private let two = "00000000-0000-0000-0000-000000000002"
 
     private func sharing(_ api: FakeSocialAPI = FakeSocialAPI(), defaults: UserDefaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!) async -> (SocialStore, FakeSocialAPI) {
         api.profile = mine
@@ -321,5 +387,68 @@ struct SocialStoreTests {
         #expect(json.contains(#""visibility":"public""#))
         let back = try JSONDecoder.api.decode(ShareRequest.self, from: Data(json.utf8))
         #expect(back == request)
+    }
+
+    // MARK: Photos and videos
+
+    @Test func sharingWithMediaUploadsEachFileAfterThePost() async {
+        let (social, api) = await sharing()
+        await social.share(legDay, records: [], visibility: .friends, media: [photo(one), photo(two)])
+        #expect(api.mediaCalls == ["prepare \(one)", "upload \(one)", "complete \(one)", "prepare \(two)", "upload \(two)", "complete \(two)"])
+        #expect(social.uploads.isEmpty)
+    }
+
+    @Test func anUploadCutOffByTheConnectionFinishesLater() async {
+        let defaults = UserDefaults(suiteName: "fatigue-tests-\(UUID())")!
+        let (social, api) = await sharing(defaults: defaults)
+        api.uploadsOffline = true
+        await social.share(legDay, records: [], visibility: .friends, media: [photo(one)])
+        #expect(social.uploads.map(\.media.id) == [one])
+
+        // Kept on the phone, so a fresh launch picks it up.
+        let relaunched = store(api, defaults: defaults)
+        await relaunched.load()
+        api.uploadsOffline = false
+        await relaunched.sendPending()
+        #expect(api.mediaCalls.suffix(3) == ["prepare \(one)", "upload \(one)", "complete \(one)"])
+        #expect(relaunched.uploads.isEmpty)
+    }
+
+    @Test func sharingAgainWithoutAPhotoTakesItOffThePost() async {
+        let (social, api) = await sharing()
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .friends, media: [photo(one), photo(two)])
+        await social.share(workout, records: [], visibility: .friends, media: [photo(two)])
+        #expect(api.mediaCalls.last == "remove \(one)")
+        #expect(api.ready.values.flatMap { $0 }.map(\.id) == [two])
+    }
+
+    @Test func sharingAgainDoesntUploadWhatsAlreadyThere() async {
+        let (social, api) = await sharing()
+        let workout = legDay
+        await social.share(workout, records: [], visibility: .friends, media: [photo(one)])
+        let before = api.mediaCalls.count
+        await social.share(workout, records: [], visibility: .friends, media: [photo(one)])
+        #expect(api.mediaCalls.count == before)
+    }
+
+    @Test func aNewProfilePhotoBecomesYours() async throws {
+        let (social, api) = await sharing()
+        try await social.setProfilePhoto(Data([0xFF, 0xD8, 0xFF]))
+        #expect(api.photoID != nil)
+        #expect(social.myProfile?.photoUrl != nil)
+    }
+
+    @Test func aPostsMediaDecodesFromTheAPI() throws {
+        let json = """
+        {"id":"p1","author":{"userId":"a","handle":"a","name":"A","photoUrl":"https://x.test/p.jpg"},"workoutId":null,"caption":null,
+         "visibility":"friends","startedAt":"2026-11-10T18:00:00.000Z","createdAt":"2026-11-10T18:00:00.000Z","snapshotVersion":99,"snapshot":{},
+         "media":[{"id":"m1","kind":"video","width":1920,"height":1080,"durationSeconds":12.5,"position":0,"url":"https://x.test/m1.mp4",
+                   "expiresAt":"2026-11-10T19:00:00.000Z"}]}
+        """
+        let post = try JSONDecoder.api.decode(Post.self, from: Data(json.utf8))
+        #expect(post.media.first?.kind == .video)
+        #expect(abs((post.media.first?.aspectRatio ?? 0) - 16.0 / 9.0) < 0.0001)
+        #expect(post.author.photoUrl?.absoluteString == "https://x.test/p.jpg")
     }
 }

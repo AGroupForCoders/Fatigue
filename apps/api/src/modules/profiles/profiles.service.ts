@@ -2,6 +2,8 @@ import { and, asc, eq, like, ne, or } from "drizzle-orm";
 import type { Database } from "../../db/client";
 import { friendship, profile, user, visibilities, type Visibility } from "../../db/schema";
 import { friendshipBetween, relationFrom, type Relation } from "../../lib/friendship";
+import type { MediaStorage } from "../../lib/storage/storage";
+import { idPattern, uploadSeconds } from "../posts/media.service";
 
 /** Someone as other people see them: enough for a search row or the top of a profile. */
 export type Person = {
@@ -19,7 +21,13 @@ export type ProfileInput = { handle?: unknown; bio?: unknown; defaultVisibility?
 
 export class ProfileError extends Error {
   constructor(
-    readonly code: "invalid_handle" | "handle_taken" | "invalid_bio" | "invalid_visibility" | "no_handle",
+    readonly code: | "invalid_handle"
+      | "handle_taken"
+      | "invalid_bio"
+      | "invalid_visibility"
+      | "no_handle"
+      | "invalid_photo"
+      | "photo_not_uploaded",
     message: string,
   ) {
     super(message);
@@ -127,4 +135,48 @@ export async function search(db: Database, me: string, query: string): Promise<P
     ...person,
     relation: relationFrom(me, person.userId, requesterId && status ? { requesterId, status } : undefined),
   }));
+}
+
+/** The largest profile photo. The phone sends a 512 pixel JPEG, well under this. */
+export const maxPhotoBytes = 2 * 1024 * 1024;
+
+export type PhotoInput = { id?: unknown; byteSize?: unknown };
+
+function photoKey(userId: string, input: PhotoInput) {
+  if (typeof input.id !== "string" || !idPattern.test(input.id)) throw new ProfileError("invalid_photo", "Photo IDs are letters, numbers and dashes.");
+  if (!Number.isInteger(input.byteSize) || (input.byteSize as number) < 1 || (input.byteSize as number) > maxPhotoBytes) {
+    throw new ProfileError("invalid_photo", "A profile photo is a JPEG of up to 2 MB.");
+  }
+  return { key: `users/${userId}/profile/${input.id}.jpg`, byteSize: input.byteSize as number };
+}
+
+/** Where to send a new profile photo. It shows once `setPhoto` confirms it arrived. */
+export async function preparePhoto(db: Database, storage: MediaStorage, userId: string, input: PhotoInput, now = new Date()) {
+  if (!(await getMine(db, userId))) throw new ProfileError("no_handle", "Pick a handle first.");
+  const { key, byteSize } = photoKey(userId, input);
+  return { upload: await storage.uploadLink(key, "image/jpeg", byteSize, uploadSeconds, now) };
+}
+
+/** Makes the uploaded photo your profile photo, and deletes the one before it. */
+export async function setPhoto(db: Database, storage: MediaStorage, userId: string, input: PhotoInput) {
+  const { key, byteSize } = photoKey(userId, input);
+  const [current] = await db.select({ photoKey: profile.photoKey }).from(profile).where(eq(profile.userId, userId));
+  if (!current) throw new ProfileError("no_handle", "Pick a handle first.");
+  if (current.photoKey !== key) {
+    const size = await storage.size(key);
+    if (size === null) throw new ProfileError("photo_not_uploaded", "The photo hasn't arrived yet.");
+    if (size !== byteSize) throw new ProfileError("invalid_photo", "The photo that arrived isn't the size you said.");
+    await db.update(profile).set({ photoKey: key }).where(eq(profile.userId, userId));
+    if (current.photoKey) await storage.delete(current.photoKey).catch(() => {});
+  }
+  return (await getMine(db, userId))!;
+}
+
+/** Removes your profile photo. */
+export async function clearPhoto(db: Database, storage: MediaStorage, userId: string) {
+  const [current] = await db.select({ photoKey: profile.photoKey }).from(profile).where(eq(profile.userId, userId));
+  if (current?.photoKey) {
+    await db.update(profile).set({ photoKey: null }).where(eq(profile.userId, userId));
+    await storage.delete(current.photoKey).catch(() => {});
+  }
 }

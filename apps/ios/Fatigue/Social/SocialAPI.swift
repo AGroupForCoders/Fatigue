@@ -28,6 +28,7 @@ nonisolated struct Person: Codable, Hashable, Identifiable, Sendable {
     let name: String
     var bio: String?
     var relation: Relation
+    var photoUrl: URL? = nil
     var id: String { userId }
 }
 
@@ -38,6 +39,7 @@ nonisolated struct MyProfile: Codable, Hashable, Sendable {
     var name: String
     var bio: String?
     var defaultVisibility: PostVisibility
+    var photoUrl: URL? = nil
 }
 
 /// A friend, or a request either way, as it shows in the friends list.
@@ -48,6 +50,7 @@ nonisolated struct FriendRow: Codable, Hashable, Identifiable, Sendable {
     var relation: Relation
     /// When the request was sent, or when it was accepted for a friend.
     let since: Date
+    var photoUrl: URL? = nil
     var id: String { userId }
 }
 
@@ -77,6 +80,22 @@ protocol SocialAPI: Sendable {
     func deletePost(_ id: String, token: String) async throws
     func feed(cursor: String?, token: String) async throws -> PostPage
     func posts(by userId: String, cursor: String?, token: String) async throws -> PostPage
+    /// One post, or nil when it's gone or you can't see it.
+    func post(_ id: String, token: String) async throws -> Post?
+
+    // Photos and videos on your posts.
+    /// Gets a file ready to upload. The answer has no link when the file is already in.
+    func prepareMedia(_ details: MediaDetails, id: String, postId: String, token: String) async throws -> PreparedUpload
+    /// Sends the file to the link from `prepareMedia`.
+    func upload(_ file: URL, to link: UploadLink) async throws
+    /// Says the file is in, so the post shows it.
+    func completeMedia(_ id: String, postId: String, token: String) async throws
+    func removeMedia(_ id: String, postId: String, token: String) async throws
+
+    // Your profile photo.
+    func preparePhoto(id: String, byteSize: Int, token: String) async throws -> UploadLink
+    func setPhoto(id: String, byteSize: Int, token: String) async throws -> MyProfile
+    func clearPhoto(token: String) async throws
 }
 
 /// Talks to the profiles and friends modules on the Fatigue API.
@@ -129,7 +148,74 @@ nonisolated struct LiveSocialAPI: SocialAPI {
     }
 
     func share(_ request: ShareRequest, token: String) async throws -> Post {
-        try await send("posts/\(request.id)", method: "PUT", body: request, token: token)
+        /// The request without the picked media, which uploads separately.
+        struct Body: Encodable {
+            let workoutId: String
+            let caption: String?
+            let visibility: PostVisibility
+            let startedAt: Date
+            let snapshotVersion: Int
+            let snapshot: PostSnapshot
+        }
+        let body = Body(workoutId: request.workoutId, caption: request.caption, visibility: request.visibility, startedAt: request.startedAt,
+                        snapshotVersion: request.snapshotVersion, snapshot: request.snapshot)
+        return try await send("posts/\(request.id)", method: "PUT", body: body, token: token)
+    }
+
+    func post(_ id: String, token: String) async throws -> Post? {
+        do {
+            return try await send("posts/\(id)", token: token)
+        } catch let error as HTTPFailure where error.status == 404 {
+            return nil
+        }
+    }
+
+    func prepareMedia(_ details: MediaDetails, id: String, postId: String, token: String) async throws -> PreparedUpload {
+        try await send("posts/\(postId)/media/\(id)", method: "PUT", body: details, token: token)
+    }
+
+    func upload(_ file: URL, to link: UploadLink) async throws {
+        var request = URLRequest(url: link.url)
+        request.httpMethod = link.method
+        for (name, value) in link.headers { request.setValue(value, forHTTPHeaderField: name) }
+        let response: URLResponse
+        do {
+            (_, response) = try await session.upload(for: request, fromFile: file)
+        } catch {
+            throw APIError.offline
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.offline }
+        // 412 means the file is already there from an earlier try.
+        guard (200..<300).contains(http.statusCode) || http.statusCode == 412 else {
+            throw HTTPFailure(status: http.statusCode, message: "The upload was refused (\(http.statusCode)).")
+        }
+    }
+
+    func completeMedia(_ id: String, postId: String, token: String) async throws {
+        _ = try await data("posts/\(postId)/media/\(id)/complete", method: "POST", token: token)
+    }
+
+    func removeMedia(_ id: String, postId: String, token: String) async throws {
+        _ = try await data("posts/\(postId)/media/\(id)", method: "DELETE", token: token)
+    }
+
+    private struct PhotoBody: Encodable {
+        let id: String
+        let byteSize: Int
+    }
+
+    func preparePhoto(id: String, byteSize: Int, token: String) async throws -> UploadLink {
+        struct Answer: Decodable { let upload: UploadLink }
+        let answer: Answer = try await send("profiles/me/photo/upload", method: "POST", body: PhotoBody(id: id, byteSize: byteSize), token: token)
+        return answer.upload
+    }
+
+    func setPhoto(id: String, byteSize: Int, token: String) async throws -> MyProfile {
+        try await send("profiles/me/photo", method: "PUT", body: PhotoBody(id: id, byteSize: byteSize), token: token)
+    }
+
+    func clearPhoto(token: String) async throws {
+        _ = try await data("profiles/me/photo", method: "DELETE", token: token)
     }
 
     func deletePost(_ id: String, token: String) async throws {

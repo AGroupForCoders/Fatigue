@@ -1,11 +1,14 @@
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "../../db/client";
 import { friendship, post, profile, user, visibilities, type Visibility } from "../../db/schema";
+import { photoUrls } from "../../lib/photos";
+import type { MediaStorage } from "../../lib/storage/storage";
+import { mediaFor, type MediaView } from "./media.service";
 
 /** A shared workout as the app shows it, with who shared it. */
 export type PostView = {
   id: string;
-  author: { userId: string; handle: string; name: string };
+  author: { userId: string; handle: string; name: string; photoUrl: string | null };
   /** The workout's ID on the sharer's phone. Only sent to the sharer. */
   workoutId: string | null;
   caption: string | null;
@@ -14,6 +17,8 @@ export type PostView = {
   createdAt: Date;
   snapshotVersion: number;
   snapshot: unknown;
+  /** Finished photos and videos, in order, with download links. Empty when storage isn't set up. */
+  media: MediaView[];
 };
 
 export type Page = { posts: PostView[]; nextCursor: string | null };
@@ -46,7 +51,7 @@ const maxSnapshotBytes = 256 * 1024;
  * after a timeout) updates the one post. Sharing a workout that already has a live post replaces that
  * post's snapshot and keeps its ID, which the result carries.
  */
-export async function share(db: Database, me: string, id: string, input: ShareInput): Promise<PostView> {
+export async function share(db: Database, me: string, id: string, input: ShareInput, storage: MediaStorage | null = null): Promise<PostView> {
   const [author] = await db.select({ defaultVisibility: profile.defaultVisibility }).from(profile).where(eq(profile.userId, me));
   if (!author) throw new PostError("no_profile", "Pick a handle before sharing.");
   const values = validate(input, author.defaultVisibility);
@@ -70,7 +75,7 @@ export async function share(db: Database, me: string, id: string, input: ShareIn
     target = id;
     await db.insert(post).values({ id, userId: me, ...values });
   }
-  return (await get(db, me, target))!;
+  return (await get(db, me, target, storage))!;
 }
 
 function validate(input: ShareInput, defaultVisibility: Visibility) {
@@ -106,20 +111,20 @@ export async function remove(db: Database, me: string, id: string) {
 }
 
 /** One post, if you're allowed to see it. */
-export async function get(db: Database, me: string, id: string): Promise<PostView | null> {
-  const [row] = await select(db, me, and(eq(post.id, id), visibleTo(me))!, 1);
+export async function get(db: Database, me: string, id: string, storage: MediaStorage | null = null): Promise<PostView | null> {
+  const [row] = await select(db, me, and(eq(post.id, id), visibleTo(me))!, 1, storage);
   return row ?? null;
 }
 
 /** Your posts and your friends' posts you can see, newest workout first. */
-export async function feed(db: Database, me: string, cursor?: string): Promise<Page> {
+export async function feed(db: Database, me: string, cursor?: string, storage: MediaStorage | null = null): Promise<Page> {
   const authors = or(eq(post.userId, me), and(inArray(post.userId, friendIdsQuery(me)), inArray(post.visibility, ["public", "friends"])));
-  return page(db, me, and(isNull(post.deletedAt), authors)!, cursor);
+  return page(db, me, and(isNull(post.deletedAt), authors)!, cursor, storage);
 }
 
 /** Someone's posts that you can see, newest workout first. All of them when it's you. */
-export async function byAuthor(db: Database, me: string, authorId: string, cursor?: string): Promise<Page> {
-  return page(db, me, and(eq(post.userId, authorId), visibleTo(me))!, cursor);
+export async function byAuthor(db: Database, me: string, authorId: string, cursor?: string, storage: MediaStorage | null = null): Promise<Page> {
+  return page(db, me, and(eq(post.userId, authorId), visibleTo(me))!, cursor, storage);
 }
 
 /** Who can see a post: the author always, anyone for public, accepted friends for friends only. Never once deleted. */
@@ -141,15 +146,15 @@ function friendIdsQuery(me: string) {
     where ${friendship.status} = 'accepted' and (${friendship.requesterId} = ${me} or ${friendship.addresseeId} = ${me}))`;
 }
 
-async function page(db: Database, me: string, where: SQL, cursor?: string): Promise<Page> {
+async function page(db: Database, me: string, where: SQL, cursor: string | undefined, storage: MediaStorage | null): Promise<Page> {
   const after = cursor ? decodeCursor(cursor) : null;
   const condition = after ? and(where, sql`(${post.startedAt}, ${post.id}) < (${after.startedAt}, ${after.id})`)! : where;
-  const posts = await select(db, me, condition, pageSize);
+  const posts = await select(db, me, condition, pageSize, storage);
   const last = posts.at(-1);
   return { posts, nextCursor: posts.length === pageSize && last ? encodeCursor(last.startedAt, last.id) : null };
 }
 
-async function select(db: Database, me: string, where: SQL, limit: number): Promise<PostView[]> {
+async function select(db: Database, me: string, where: SQL, limit: number, storage: MediaStorage | null): Promise<PostView[]> {
   const rows = await db
     .select({ post, handle: profile.handle, name: user.name })
     .from(post)
@@ -158,9 +163,19 @@ async function select(db: Database, me: string, where: SQL, limit: number): Prom
     .where(where)
     .orderBy(desc(post.startedAt), desc(post.id))
     .limit(limit);
+  const media = await mediaFor(
+    db,
+    storage,
+    rows.map((row) => row.post.id),
+  );
+  const photos = await photoUrls(
+    db,
+    storage,
+    rows.map((row) => row.post.userId),
+  );
   return rows.map(({ post: row, handle, name }) => ({
     id: row.id,
-    author: { userId: row.userId, handle, name },
+    author: { userId: row.userId, handle, name, photoUrl: photos.get(row.userId) ?? null },
     workoutId: row.userId === me ? row.workoutId : null,
     caption: row.caption,
     visibility: row.visibility,
@@ -168,6 +183,7 @@ async function select(db: Database, me: string, where: SQL, limit: number): Prom
     createdAt: row.createdAt,
     snapshotVersion: row.snapshotVersion,
     snapshot: row.snapshot,
+    media: media.get(row.id) ?? [],
   }));
 }
 

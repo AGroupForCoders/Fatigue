@@ -13,6 +13,8 @@ export type AuthOptions = {
   mailer: Mailer;
   /** Keeps an email send alive after the response is out, so it never delays the reply. Workers' `waitUntil`. */
   runInBackground?: (task: Promise<unknown>) => void;
+  /** Runs before an account is deleted, such as removing its stored files. If it throws, the account stays. */
+  beforeDeleteUser?: (userId: string) => Promise<void>;
 };
 
 /**
@@ -46,7 +48,12 @@ export function authOptions(options: AuthOptions) {
     },
     user: {
       // Lets someone delete their own account from the profile screen, confirmed with their password.
-      deleteUser: { enabled: true },
+      deleteUser: {
+        enabled: true,
+        beforeDelete: async (user) => {
+          await options.beforeDeleteUser?.(user.id);
+        },
+      },
     },
     session: {
       // A phone stays signed in for 90 days, and each use within that time pushes it back.

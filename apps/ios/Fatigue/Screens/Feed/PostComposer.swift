@@ -5,6 +5,7 @@ struct PostComposer: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(SocialStore.self) private var social
+    @Environment(MediaStore.self) private var mediaStore
     @AppStorage(WeightUnit.storageKey) private var unit: WeightUnit = .kg
     let workout: FinishedWorkout
     /// Workouts finished before this one, for the records it beat.
@@ -14,6 +15,8 @@ struct PostComposer: View {
     @State private var visibility: PostVisibility
     @State private var sharing = false
     @State private var queued = false
+    /// The workout's photos and videos going on the post. All of them to start with.
+    @State private var picked: Set<UUID>?
 
     init(workout: FinishedWorkout, earlier: [FinishedWorkout], defaultVisibility: PostVisibility) {
         self.workout = workout
@@ -54,6 +57,8 @@ struct PostComposer: View {
                 Hairline()
             }
 
+            ShareMediaPicker(items: workoutMedia, picked: Binding(get: { picked ?? Set(workoutMedia.map(\.id)) }, set: { picked = $0 }))
+
             VisibilityPicker(visibility: $visibility)
 
             if queued {
@@ -68,7 +73,9 @@ struct PostComposer: View {
                 sharing = true
                 let records = ExerciseStats.beaten(by: workout, history: earlier, splitBy: { ExerciseSplit.remembered(for: $0) }, in: unit)
                 Task {
-                    let sent = await social.share(workout, records: records, visibility: visibility, caption: caption)
+                    let chosen = picked ?? Set(workoutMedia.map(\.id))
+                    let media = workoutMedia.filter { chosen.contains($0.id) }
+                    let sent = await social.share(workout, records: records, visibility: visibility, caption: caption, media: media)
                     sharing = false
                     if sent { dismiss() } else { withAnimation(.quick) { queued = true } }
                 }
@@ -80,6 +87,8 @@ struct PostComposer: View {
         .presentationDetents([.medium, .large])
         .presentationBackground(palette.background)
     }
+
+    private var workoutMedia: [WorkoutMedia] { mediaStore.media(for: workout.id) }
 }
 
 /// Who sees a shared workout, as a caption and an outlined menu.

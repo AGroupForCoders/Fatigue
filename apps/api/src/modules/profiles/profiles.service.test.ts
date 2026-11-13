@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { profile } from "../../db/schema";
 import { addUser, testDb } from "../../db/test-db";
-import { byHandle, getMine, saveMine, search } from "./profiles.service";
+import { photoUrls } from "../../lib/photos";
+import { MemoryStorage } from "../../lib/storage/storage";
+import { byHandle, clearPhoto, getMine, preparePhoto, saveMine, search, setPhoto } from "./profiles.service";
 
 describe("profiles", () => {
   it("has no profile until you pick a handle, then saves it lowercase with public as the default", async () => {
@@ -64,5 +67,45 @@ describe("profiles", () => {
     expect(await byHandle(db, "anton", "JOS")).toEqual({ userId: "jos", handle: "jos", name: "Jos", bio: "Hi", relation: "none" });
     expect(await byHandle(db, "anton", "anton")).toMatchObject({ relation: "self" });
     expect(await byHandle(db, "anton", "nobody")).toBeNull();
+  });
+});
+
+describe("profile photos", () => {
+  async function withProfile() {
+    const db = await testDb();
+    await addUser(db, "anton");
+    await db.insert(profile).values({ userId: "anton", handle: "anton" });
+    return { db, storage: new MemoryStorage() };
+  }
+
+  it("becomes your photo once it has arrived, and replaces the one before", async () => {
+    const { db, storage } = await withProfile();
+    const { upload } = await preparePhoto(db, storage, "anton", { id: "one", byteSize: 500 });
+    expect(upload.url).toContain("users/anton/profile/one.jpg");
+    await expect(setPhoto(db, storage, "anton", { id: "one", byteSize: 500 })).rejects.toMatchObject({ code: "photo_not_uploaded" });
+
+    storage.put("users/anton/profile/one.jpg", 500);
+    await setPhoto(db, storage, "anton", { id: "one", byteSize: 500 });
+    storage.put("users/anton/profile/two.jpg", 600);
+    await setPhoto(db, storage, "anton", { id: "two", byteSize: 600 });
+
+    const urls = await photoUrls(db, storage, ["anton"]);
+    expect(urls.get("anton")).toBe("https://storage.test/users/anton/profile/two.jpg");
+    expect(storage.deleted).toEqual(["users/anton/profile/one.jpg"]);
+  });
+
+  it("can be removed", async () => {
+    const { db, storage } = await withProfile();
+    storage.put("users/anton/profile/one.jpg", 500);
+    await setPhoto(db, storage, "anton", { id: "one", byteSize: 500 });
+    await clearPhoto(db, storage, "anton");
+    expect((await photoUrls(db, storage, ["anton"])).size).toBe(0);
+    expect(storage.files.size).toBe(0);
+  });
+
+  it("refuses odd IDs and big files", async () => {
+    const { db, storage } = await withProfile();
+    await expect(preparePhoto(db, storage, "anton", { id: "a/b", byteSize: 500 })).rejects.toMatchObject({ code: "invalid_photo" });
+    await expect(preparePhoto(db, storage, "anton", { id: "a", byteSize: 3 * 1024 * 1024 })).rejects.toMatchObject({ code: "invalid_photo" });
   });
 });

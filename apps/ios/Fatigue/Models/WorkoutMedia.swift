@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// A photo or video kept with a workout, such as a form check or the machine's settings.
 /// The file lives on this phone only for now; backing it up is a follow-up.
 nonisolated struct WorkoutMedia: Identifiable, Equatable, Sendable {
-    enum Kind: String, Sendable {
+    enum Kind: String, Codable, Sendable {
         case photo, video
     }
 

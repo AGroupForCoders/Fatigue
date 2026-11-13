@@ -67,6 +67,7 @@ struct WorkoutDetailScreen: View {
                              defaultVisibility: social.myProfile?.defaultVisibility ?? .everyone)
                     .environment(\.palette, palette)
                     .environment(social)
+                    .environment(store.media)
             }
         }
         .confirmationDialog("Remove from feed?", isPresented: $confirmingUnshare, titleVisibility: .visible) {

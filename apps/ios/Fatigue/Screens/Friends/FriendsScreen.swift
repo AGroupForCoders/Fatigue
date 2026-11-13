@@ -92,7 +92,7 @@ struct FriendsScreen: View {
             message("Nobody with a handle starting \u{201C}\(query.trimmingCharacters(in: .whitespaces))\u{201D}.")
         }
         ForEach(results) { person in
-            row(userId: person.userId, name: person.name, handle: person.handle) { searchAction(person) }
+            row(userId: person.userId, name: person.name, handle: person.handle, photoUrl: person.photoUrl) { searchAction(person) }
             Hairline(soft: true)
         }
     }
@@ -104,7 +104,7 @@ struct FriendsScreen: View {
         if !social.incoming.isEmpty {
             caption("Requests")
             ForEach(social.incoming) { request in
-                row(userId: request.userId, name: request.name, handle: request.handle) {
+                row(userId: request.userId, name: request.name, handle: request.handle, photoUrl: request.photoUrl) {
                     HStack(spacing: Tokens.Space.s) {
                         Button { run { try await social.remove(request) } } label: {
                             Image(systemName: "xmark")
@@ -125,7 +125,7 @@ struct FriendsScreen: View {
         if !social.accepted.isEmpty {
             caption("Friends")
             ForEach(social.accepted) { friend in
-                row(userId: friend.userId, name: friend.name, handle: friend.handle) {
+                row(userId: friend.userId, name: friend.name, handle: friend.handle, photoUrl: friend.photoUrl) {
                     Menu {
                         Button("Remove friend", systemImage: "person.badge.minus", role: .destructive) { confirmingRemove = friend }
                     } label: {
@@ -141,7 +141,7 @@ struct FriendsScreen: View {
         if !social.outgoing.isEmpty {
             caption("Sent")
             ForEach(social.outgoing) { request in
-                row(userId: request.userId, name: request.name, handle: request.handle) {
+                row(userId: request.userId, name: request.name, handle: request.handle, photoUrl: request.photoUrl) {
                     Button { run { try await social.remove(request) } } label: {
                         OutlinedLabel(text: "Cancel", isMuted: true)
                     }
@@ -177,11 +177,11 @@ struct FriendsScreen: View {
         }
     }
 
-    private func row(userId: String, name: String, handle: String, @ViewBuilder trailing: () -> some View) -> some View {
+    private func row(userId: String, name: String, handle: String, photoUrl: URL?, @ViewBuilder trailing: () -> some View) -> some View {
         HStack(spacing: Tokens.Space.m) {
             NavigationLink(value: PersonRoute(userId: userId, handle: handle, name: name)) {
                 HStack(spacing: Tokens.Space.m) {
-                    Avatar(name: name, photo: nil, size: Tokens.Size.control)
+                    Avatar(name: name, photo: nil, url: photoUrl, size: Tokens.Size.control)
                     VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                         Text(name)
                             .textStyle(Tokens.Typography.body)

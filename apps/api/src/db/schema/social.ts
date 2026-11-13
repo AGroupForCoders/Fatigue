@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, index, integer, jsonb, pgTable, real, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 
 // Social tables. They live on the server only and never go through sync, as the Social docs page explains.
@@ -86,4 +86,38 @@ export const post = pgTable(
     uniqueIndex("post_workout").on(table.userId, table.workoutId).where(sql`${table.deletedAt} is null and ${table.workoutId} is not null`),
     check("post_caption_length", sql`char_length(${table.caption}) <= 2000`),
   ],
+);
+
+export const mediaKinds = ["photo", "video"] as const;
+export type MediaKind = (typeof mediaKinds)[number];
+
+/**
+ * A photo or video on a post. The phone makes the ID (the same as its own media row), asks for an upload
+ * link, sends the file straight to storage, then says it's done. Only `ready` rows show on the post.
+ * `removed_at` marks one taken off the post; the daily clean-up deletes its file and the row.
+ */
+export const postMedia = pgTable(
+  "post_media",
+  {
+    id: text("id").primaryKey(),
+    postId: text("post_id")
+      .notNull()
+      .references(() => post.id, { onDelete: "cascade" }),
+    /** The post's author, so files can be found per account without a join. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: mediaKinds }).notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    objectKey: text("object_key").notNull().unique(),
+    width: integer("width"),
+    height: integer("height"),
+    durationSeconds: real("duration_seconds"),
+    position: integer("position").notNull(),
+    status: text("status", { enum: ["pending", "ready"] }).notNull().default("pending"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    removedAt: timestamp("removed_at"),
+  },
+  (table) => [index("post_media_post_idx").on(table.postId, table.position), index("post_media_status_idx").on(table.status, table.createdAt)],
 );

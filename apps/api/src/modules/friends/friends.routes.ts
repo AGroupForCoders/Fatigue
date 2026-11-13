@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../context";
+import { withPhotos } from "../../lib/photos";
 import { requireSession } from "../../middleware/services";
 import { accept, FriendError, list, remove, request } from "./friends.service";
 
@@ -11,7 +12,7 @@ import { accept, FriendError, list, remove, request } from "./friends.service";
  */
 export const friendRoutes = new Hono<AppEnv>()
   .use(requireSession)
-  .get("/", async (c) => c.json(await list(c.var.db, c.var.session!.user.id)))
+  .get("/", async (c) => c.json(await withPhotos(c.var.db, c.var.storage, await list(c.var.db, c.var.session!.user.id))))
   .post("/:userId", async (c) => {
     try {
       return c.json({ relation: await request(c.var.db, c.var.session!.user.id, c.req.param("userId")) });

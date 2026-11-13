@@ -25,14 +25,33 @@ final class SocialStore {
     private(set) var pending: [ShareRequest] = []
     /// The post for each workout you've shared, by workout ID, so sharing again updates it.
     private(set) var shared: [String: String] = [:]
+    /// Photos and videos still to upload to shared workouts, oldest first.
+    private(set) var uploads: [MediaUpload] = []
     private let api: any SocialAPI
     private let token: @Sendable () -> String?
     private let defaults: UserDefaults
+    /// Where the workouts' photos and videos are, the same folder `MediaStore` keeps them in.
+    private let mediaFolder: URL
+    /// Makes the smaller copy that's sent. Tests swap it for one that just copies.
+    private let export: @Sendable (URL, WorkoutMedia.Kind, String, Int) async throws -> ExportedMedia
+    /// The profile photo saved on this phone, if any.
+    private let localPhoto: @Sendable () -> Data?
+    @ObservationIgnored private var uploading = false
 
-    init(api: any SocialAPI = LiveSocialAPI(), token: @escaping @Sendable () -> String? = { TokenStore().read() }, defaults: UserDefaults = .standard) {
+    init(
+        api: any SocialAPI = LiveSocialAPI(),
+        token: @escaping @Sendable () -> String? = { TokenStore().read() },
+        defaults: UserDefaults = .standard,
+        mediaFolder: URL = URL.applicationSupportDirectory.appending(path: "media"),
+        export: @escaping @Sendable (URL, WorkoutMedia.Kind, String, Int) async throws -> ExportedMedia = MediaExport.export,
+        localPhoto: @escaping @Sendable () -> Data? = ProfilePhoto.data
+    ) {
         self.api = api
         self.token = token
         self.defaults = defaults
+        self.mediaFolder = mediaFolder
+        self.export = export
+        self.localPhoto = localPhoto
     }
 
     var myProfile: MyProfile? {
@@ -55,6 +74,7 @@ final class SocialStore {
             if myProfile?.userId != mine.userId { restoreSaved(for: mine.userId) }
             profile = .ready(mine)
             friends = try await api.friends(token: token)
+            await uploadLocalPhotoIfNeeded(mine)
             await sendPending()
         } catch {
             if profile == .unknown { profile = .unavailable }
@@ -113,6 +133,7 @@ final class SocialStore {
         feedLoaded = false
         pending = []
         shared = [:]
+        uploads = []
         savedUserID = nil
     }
 
@@ -125,7 +146,8 @@ final class SocialStore {
     /// Shares `workout`, or shares it again with a fresh snapshot. Waits for a connection if there isn't one,
     /// and goes out on the next launch or refresh. Returns false when it's waiting.
     @discardableResult
-    func share(_ workout: FinishedWorkout, records: [ExerciseStats.Beaten], visibility: PostVisibility, caption: String? = nil) async -> Bool {
+    func share(_ workout: FinishedWorkout, records: [ExerciseStats.Beaten], visibility: PostVisibility, caption: String? = nil,
+               media: [WorkoutMedia] = []) async -> Bool {
         guard myProfile != nil else { return false }
         let workoutID = workout.id.uuidString
         let caption = caption?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -135,25 +157,31 @@ final class SocialStore {
             caption: caption?.isEmpty == false ? caption : nil,
             visibility: visibility,
             startedAt: workout.startedAt,
-            snapshot: PostSnapshot(workout, records: records)
+            snapshot: PostSnapshot(workout, records: records),
+            media: media.prefix(MediaStore.limit).enumerated().map { ShareMedia($1, position: $0) }
         )
         pending.removeAll { $0.workoutId == workoutID }
         pending.append(request)
         save()
-        return await send(request)
+        let sent = await send(request)
+        if sent { await sendUploads() }
+        return sent
     }
 
-    /// Sends every share still waiting. Stops at the first that can't reach the API, since the rest won't either.
+    /// Sends every share still waiting, then any photos and videos still to upload. Stops at the first share
+    /// that can't reach the API, since the rest won't either.
     func sendPending() async {
         for request in pending {
             guard await send(request) else { return }
         }
+        await sendUploads()
     }
 
     /// Takes a workout off the feed. A share still waiting is simply dropped.
     func unshare(_ workoutID: UUID) async throws {
         let id = workoutID.uuidString
         pending.removeAll { $0.workoutId == id }
+        uploads.removeAll { $0.workoutId == id }
         save()
         guard let postID = shared[id] else { return }
         try await api.deletePost(postID, token: try requireToken())
@@ -169,6 +197,7 @@ final class SocialStore {
             let post = try await api.share(request, token: token)
             pending.removeAll { $0.id == request.id }
             shared[request.workoutId] = post.id
+            await reconcileMedia(on: post, wanted: request.media, workoutID: request.workoutId, token: token)
             save()
             if let index = feed.firstIndex(where: { $0.id == post.id }) {
                 feed[index] = post
@@ -184,6 +213,92 @@ final class SocialStore {
             save()
             return true
         }
+    }
+
+    // MARK: Photos and videos on posts
+
+    /// Makes the post's media match what was picked: takes off what's no longer wanted and queues what's missing.
+    /// Media still uploading from an earlier try isn't in `post.media`, so it's queued again, which is harmless.
+    private func reconcileMedia(on post: Post, wanted: [ShareMedia], workoutID: String, token: String) async {
+        let wantedIDs = Swift.Set(wanted.map(\.id))
+        for media in post.media where !wantedIDs.contains(media.id) {
+            try? await api.removeMedia(media.id, postId: post.id, token: token)
+        }
+        let onPost = Swift.Set(post.media.map(\.id))
+        uploads.removeAll { $0.workoutId == workoutID && !wantedIDs.contains($0.media.id) }
+        for media in wanted where !onPost.contains(media.id) && !uploads.contains(where: { $0.media.id == media.id }) {
+            uploads.append(MediaUpload(workoutId: workoutID, media: media))
+        }
+    }
+
+    /// Uploads every photo and video still waiting, one at a time. Stops when the connection drops and picks
+    /// up again on the next launch or refresh. One the API refuses, or whose file is gone, is dropped.
+    func sendUploads() async {
+        guard !uploading, let token = token() else { return }
+        uploading = true
+        defer { uploading = false }
+        var changed: Swift.Set<String> = []
+        for upload in uploads {
+            guard let postID = shared[upload.workoutId] else { continue }
+            do {
+                try await send(upload, to: postID, token: token)
+                drop(upload)
+                changed.insert(postID)
+            } catch let error as APIError where error == .offline {
+                break
+            } catch {
+                drop(upload)
+            }
+        }
+        for postID in changed {
+            guard let fresh = try? await api.post(postID, token: token), let index = feed.firstIndex(where: { $0.id == postID }) else { continue }
+            feed[index] = fresh
+        }
+    }
+
+    private func send(_ upload: MediaUpload, to postID: String, token: String) async throws {
+        let source = mediaFolder.appending(path: upload.media.fileName)
+        let exported = try await export(source, upload.media.kind, upload.media.id, upload.media.position)
+        defer { try? FileManager.default.removeItem(at: exported.url) }
+        let prepared = try await api.prepareMedia(exported.details, id: upload.media.id, postId: postID, token: token)
+        if let link = prepared.upload {
+            try await api.upload(exported.url, to: link)
+        }
+        try await api.completeMedia(upload.media.id, postId: postID, token: token)
+    }
+
+    private func drop(_ upload: MediaUpload) {
+        uploads.removeAll { $0.media.id == upload.media.id }
+        save()
+    }
+
+    // MARK: Profile photo
+
+    /// Uploads a new profile photo, a JPEG, and makes it yours. Throws when it can't, such as offline.
+    func setProfilePhoto(_ jpeg: Data) async throws {
+        let token = try requireToken()
+        let id = UUID().uuidString
+        let file = FileManager.default.temporaryDirectory.appending(path: "\(id).jpg")
+        try jpeg.write(to: file, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let link = try await api.preparePhoto(id: id, byteSize: jpeg.count, token: token)
+        try await api.upload(file, to: link)
+        profile = .ready(try await api.setPhoto(id: id, byteSize: jpeg.count, token: token))
+    }
+
+    func clearProfilePhoto() async throws {
+        try await api.clearPhoto(token: try requireToken())
+        if case .ready(var mine) = profile {
+            mine.photoUrl = nil
+            profile = .ready(mine)
+        }
+    }
+
+    /// Photos picked before they were uploaded only lived on this phone. Sends one up the first time the
+    /// profile loads without a photo, so friends see it.
+    private func uploadLocalPhotoIfNeeded(_ mine: MyProfile) async {
+        guard mine.photoUrl == nil, let data = localPhoto() else { return }
+        try? await setProfilePhoto(data)
     }
 
     // MARK: Feed
@@ -237,12 +352,18 @@ final class SocialStore {
             pending = []
         }
         shared = defaults.dictionary(forKey: "social.shared.\(userID)") as? [String: String] ?? [:]
+        if let data = defaults.data(forKey: "social.uploads.\(userID)") {
+            uploads = (try? JSONDecoder.api.decode([MediaUpload].self, from: data)) ?? []
+        } else {
+            uploads = []
+        }
     }
 
     private func save() {
         guard let savedUserID else { return }
         defaults.set(try? JSONEncoder.api.encode(pending), forKey: "social.pending.\(savedUserID)")
         defaults.set(shared, forKey: "social.shared.\(savedUserID)")
+        defaults.set(try? JSONEncoder.api.encode(uploads), forKey: "social.uploads.\(savedUserID)")
     }
 
     private func upsert(_ row: FriendRow) {
