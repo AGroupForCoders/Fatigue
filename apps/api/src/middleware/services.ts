@@ -3,6 +3,8 @@ import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../context";
 import { createDb } from "../db/client";
 import { createMailer } from "../lib/mail/mailer";
+import { storageFromEnv } from "../lib/storage/storage";
+import { deleteAccountFiles } from "../modules/posts/media.service";
 import { createAuth } from "../modules/auth/auth";
 
 /**
@@ -11,15 +13,19 @@ import { createAuth } from "../modules/auth/auth";
  */
 export const services = createMiddleware<AppEnv>(async (c, next) => {
   const { db, close } = createDb(c.env.DATABASE_URL);
+  const storage = storageFromEnv(c.env);
   const auth = createAuth(db, {
     secret: c.env.BETTER_AUTH_SECRET,
     baseURL: c.env.BETTER_AUTH_URL,
     mailer: createMailer(c.env),
     runInBackground: (task) => void keepAlive(c, task),
+    // The database cascade can't reach storage, so an account's files go first.
+    beforeDeleteUser: storage ? (userId) => deleteAccountFiles(storage, userId) : undefined,
   });
   c.set("db", db);
   c.set("auth", auth);
   c.set("session", null);
+  c.set("storage", storage);
   try {
     await next();
   } finally {

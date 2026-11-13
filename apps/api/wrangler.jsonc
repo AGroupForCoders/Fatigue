@@ -10,6 +10,8 @@
   "routes": [{ "pattern": "api.fatigue.agroupforcoders.com", "custom_domain": true }],
   // One public URL only, so nothing signs in through a second address Better Auth doesn't expect.
   "workers_dev": false,
+  // Once a day, delete photos and videos nobody can see any more (src/modules/posts/media.service.ts, cleanUp).
+  "triggers": { "crons": ["17 15 * * *"] },
   // Keep request logs and errors in the Cloudflare dashboard. Workers Logs is included on the paid plan.
   "observability": { "enabled": true },
   // Readable stack traces in those logs.

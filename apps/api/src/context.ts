@@ -1,5 +1,6 @@
 import type { Db } from "./db/client";
 import type { Bindings } from "./env";
+import type { MediaStorage } from "./lib/storage/storage";
 import type { Auth, Session } from "./modules/auth/auth";
 
 /** What every route can read from the Hono context. */
@@ -9,5 +10,7 @@ export type AppEnv = {
     db: Db;
     auth: Auth;
     session: Session | null;
+    /** R2, or null when it isn't set up (local dev without keys). */
+    storage: MediaStorage | null;
   };
 };
