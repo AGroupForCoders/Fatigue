@@ -5,7 +5,8 @@ import Testing
 @MainActor
 struct HevyImportTests {
     /// Three workouts as Hevy writes them: a quoted description with a comma and a line break, every set type,
-    /// a hold, an alias, two names nothing built in matches, and a distance-only set that gets left out.
+    /// a hold on an exercise counted in reps, an exercise that's only holds, an alias, two names nothing built in
+    /// matches, and a distance-only set that gets left out.
     static let fixture = """
     title,start_time,end_time,description,exercise_title,superset_id,exercise_notes,set_index,set_type,weight_kg,reps,distance_km,duration_seconds,rpe
     Push,"13 Nov 2025, 07:30","13 Nov 2025, 08:25","Felt good, PR on bench.
@@ -19,7 +20,9 @@ struct HevyImportTests {
     Push,"13 Nov 2025, 07:30","13 Nov 2025, 08:25","Felt good, PR on bench.
     Shoulder a bit tight",Lateral Raise (Dumbbell),,,1,dropset,7.5,10,,,9
     Push,"13 Nov 2025, 07:30","13 Nov 2025, 08:25","Felt good, PR on bench.
-    Shoulder a bit tight",Plank,,,0,normal,,,,60,
+    Shoulder a bit tight",Lateral Raise (Dumbbell),,,2,normal,5,,,30,
+    Push,"13 Nov 2025, 07:30","13 Nov 2025, 08:25","Felt good, PR on bench.
+    Shoulder a bit tight",Hollow Hold,,,0,normal,,,,60,
     Pull,"11 Nov 2025, 18:05","11 Nov 2025, 19:00",,Lat Pulldown (Cable),,,0,normal,60,10,,,
     Pull,"11 Nov 2025, 18:05","11 Nov 2025, 19:00",,Lat Pulldown (Cable),,,1,normal,60,10,,,8.5
     Pull,"11 Nov 2025, 18:05","11 Nov 2025, 19:00",,Chin Up (Weighted),,,0,normal,10,6,,,
@@ -61,7 +64,7 @@ struct HevyImportTests {
         #expect(components(push.startedAt) == (2025, 11, 13, 7, 30))
         #expect(push.finishedAt.timeIntervalSince(push.startedAt) == 55 * 60)
         #expect(push.description == "Felt good, PR on bench.\nShoulder a bit tight")
-        #expect(push.exercises.map(\.title) == ["Bench Press (Barbell)", "Lateral Raise (Dumbbell)", "Plank"])
+        #expect(push.exercises.map(\.title) == ["Bench Press (Barbell)", "Lateral Raise (Dumbbell)", "Hollow Hold"])
         #expect(push.exercises[0].notes == "Paused reps, long rest")
         #expect(push.exercises[0].sets.map(\.weightKg) == [40, 80, 80])
         #expect(push.exercises[0].sets.map(\.reps) == [10, 5, 4])
@@ -76,7 +79,8 @@ struct HevyImportTests {
     @Test func everySetTypeAndKindComesThrough() throws {
         let push = try HevyImport.parse(Self.fixture)[0]
         #expect(push.exercises[0].sets.map(\.type) == ["warmup", "normal", "failure"])
-        #expect(push.exercises[1].sets.map(\.type) == ["normal", "drop"])
+        #expect(push.exercises[1].sets.map(\.type) == ["normal", "drop", "normal"])
+        #expect(push.exercises[1].sets.map(\.kind) == ["reps", "reps", "hold"])
         let plank = push.exercises[2].sets[0]
         #expect(plank.kind == "hold")
         #expect(plank.durationSeconds == 60)
@@ -100,7 +104,7 @@ struct HevyImportTests {
         let first = try HevyImport.parse(Self.fixture)[0]
         let again = try HevyImport.parse(Self.fixture)[0]
         #expect(first.id == again.id)
-        #expect(first.stored(exerciseName: { $0 }).exercises[0].sets[1].id == again.stored(exerciseName: { $0 }).exercises[0].sets[1].id)
+        #expect(first.stored(exerciseNames: { HevyExerciseNames(reps: $0.title, holds: $0.title) }).exercises[0].sets[1].id == again.stored(exerciseNames: { HevyExerciseNames(reps: $0.title, holds: $0.title) }).exercises[0].sets[1].id)
         let pull = try HevyImport.parse(Self.fixture)[1]
         #expect(first.id != pull.id)
     }
@@ -116,7 +120,8 @@ struct HevyImportTests {
         #expect(HevyExerciseMatcher.match("Lying Leg Curl (Machine)", among: names) == "Leg Curl")
         #expect(HevyExerciseMatcher.match("Incline Bench Press (Dumbbell)", among: names) == "Incline Dumbbell Press")
         #expect(HevyExerciseMatcher.match("Chin Up (Weighted)", among: names) == nil)
-        #expect(HevyExerciseMatcher.match("Plank", among: names) == nil)
+        #expect(HevyExerciseMatcher.match("Plank", among: names) == "Plank")
+        #expect(HevyExerciseMatcher.match("Hollow Hold", among: names) == nil)
     }
 
     @Test func aCustomExerciseFromAnEarlierImportMatchesAgain() {
@@ -140,24 +145,31 @@ struct HevyImportTests {
         let store = WorkoutStore(history: [])
         let catalog = ExerciseCatalog()
         let result = try store.importHevy(csv: Self.fixture, catalog: catalog)
-        #expect(result == HevyImportResult(imported: 3, alreadyThere: 0, newExercises: ["Plank", "Chin Up (Weighted)"]))
+        #expect(result == HevyImportResult(imported: 3, alreadyThere: 0, newExercises: ["Lateral Raise Isometric", "Hollow Hold", "Chin Up (Weighted)"]))
         #expect(store.history.map(\.title) == ["Push", "Pull", "Legs"])
 
         let push = store.history[0]
         #expect(components(push.startedAt) == (2025, 11, 13, 7, 30))
         #expect(push.duration == 55 * 60)
         #expect(push.description == "Felt good, PR on bench.\nShoulder a bit tight")
-        #expect(push.exercises.map(\.name) == ["Bench Press", "Lateral Raise", "Plank"])
+        #expect(push.exercises.map(\.name) == ["Bench Press", "Lateral Raise", "Lateral Raise Isometric", "Hollow Hold"])
         #expect(push.exercises[0].sets.map(\.weight) == ["40", "80", "80"])
         #expect(push.exercises[0].sets.map(\.amount) == ["10", "5", "4"])
         let allTicked = push.exercises[0].sets.allSatisfy(\.isDone)
         #expect(allTicked)
         #expect(push.exercises[0].notes.map(\.text) == ["Paused reps, long rest"])
         #expect(push.exercises[1].sets.map(\.weight) == ["10", "7.5"])
-        #expect(push.exercises[2].sets[0].kind == .hold)
-        #expect(push.exercises[2].sets[0].amount == "60")
+        // The hold on Lateral Raise, counted in reps, went to its isometric exercise.
+        #expect(push.exercises[2].sets.map(\.kind) == [.hold])
+        #expect(push.exercises[2].sets.map(\.weight) == ["5"])
+        #expect(push.exercises[2].sets.map(\.amount) == ["30"])
+        #expect(catalog.info(named: "Lateral Raise Isometric")?.measures == ExerciseMeasures(amount: .hold, weighted: true))
+        // An exercise that's only holds is counted in time, and keeps them.
+        #expect(push.exercises[3].sets[0].kind == .hold)
+        #expect(push.exercises[3].sets[0].amount == "60")
+        #expect(catalog.info(named: "Hollow Hold")?.measures.amount == .hold)
         #expect(store.history[1].exercises.map(\.name) == ["Lat Pulldown", "Chin Up (Weighted)", "Seated Row"])
-        #expect(catalog.info(named: "Plank")?.isCustom == true)
+        #expect(catalog.info(named: "Hollow Hold")?.isCustom == true)
         #expect(catalog.info(named: "Chin Up (Weighted)")?.isCustom == true)
     }
 
@@ -183,7 +195,8 @@ struct HevyImportTests {
         #expect(reopened.history.count == before + 3)
         let push = try #require(reopened.history.first { $0.title == "Push" && $0.exercises.first?.name == "Bench Press" })
         #expect(push.exercises[0].sets.map(\.weight) == ["40", "80", "80"])
-        #expect(ExerciseCatalog.load(from: database).info(named: "Plank")?.isCustom == true)
+        #expect(ExerciseCatalog.load(from: database).info(named: "Hollow Hold")?.isCustom == true)
+        #expect(ExerciseCatalog.load(from: database).info(named: "Lateral Raise Isometric")?.measures.amount == .hold)
 
         let stored = try #require(try database.workouts().first { $0.id == push.id.uuidString })
         #expect(stored.importKey == "hevy|13 Nov 2025, 07:30|Push")

@@ -40,8 +40,14 @@ struct HistoryTests {
 
     @Test func volumeCountsRepSetsOnly() {
         let finished = WorkoutSession.sample().finished(at: .now)
-        // The 40 kg hold is left out, the 55 × 8 rep set counts.
-        #expect(finished.volume == 440)
+        // The two ticked Adductors sets, 50 × 8 and 55 × 8.
+        #expect(finished.volume == 840)
+        let core = WorkoutSession(title: "Core", exercises: [
+            WorkoutExercise(name: "Plank", restSeconds: 60, sets: [WorkoutSet(setup: SetSetup(kind: .hold), weight: "10", amount: "60", isDone: true)],
+                            measures: ExerciseMeasures(amount: .hold, weighted: true)),
+        ])
+        // A hold isn't volume, even with a weight.
+        #expect(core.finished(at: .now).volume == 0)
     }
 
     @Test func finishingPutsTheWorkoutAtTheTopOfHistory() {
@@ -96,6 +102,6 @@ struct HistoryTests {
         let routine = FinishedWorkout.samples()[2].asRoutine()
         #expect(routine.name == "Leg day")
         #expect(routine.exercises.count == 7)
-        #expect(routine.exercises[0].sets[0].setup == SetSetup(kind: .hold, values: ["Notch": 8]))
+        #expect(routine.exercises[0].sets[0].setup == SetSetup(kind: .reps, values: ["Notch": 8]))
     }
 }

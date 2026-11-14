@@ -21,7 +21,7 @@ struct WorkoutStoreTests {
         let store = WorkoutStore()
         store.start(store.routines[0])
         store.active?.exercises[0].sets[0].weight = "100"
-        #expect(store.routines[0].exercises[0].sets[0].weight == "40")
+        #expect(store.routines[0].exercises[0].sets[0].weight == "50")
     }
 
     @Test func minimisingKeepsTheWorkoutRunning() {

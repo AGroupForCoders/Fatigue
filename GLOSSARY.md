@@ -22,29 +22,33 @@ _Avoid_: Machine, variant, manufacturer, equipment, station
 
 ## Sets
 
+**Measure**:
+One value every set of an exercise records: reps or time (exactly one, picked when the exercise is created and never changed), weight (or not, for an unloaded exercise), and any tracked number setting marked "every set", such as "Notch". An exercise has at most three.
+_Avoid_: Field, variable, column, metric
+
 **Set**:
-One effort within an exercise in a workout. Every set is either a rep set or a hold.
+One effort within an exercise in a workout, with a value for each of the exercise's measures. Every set of an exercise counted in reps is a rep set, and every set of one counted in time is a hold.
 
 **Rep set**:
-A set measured in reps, with an optional weight.
+A set of an exercise whose measures include reps, with a weight if the exercise is weighted.
 
 **Hold**:
-A set measured in time, with an optional weight.
-_Avoid_: Timed hold, isometric, time set
+A set of an exercise whose measures include time, with a weight if the exercise is weighted. A held version of an exercise is a separate exercise, such as "Shoulder Press Isometric".
+_Avoid_: Timed hold, time set
 
 **Unloaded**:
 A set with no weight logged. Unloaded is not the same as 0 kg.
 _Avoid_: Bodyweight, zero weight
 
 **Setting**:
-Something you set up on an exercise on one brand, such as "Seat 4", "Notch 7" or "Dead stop": a number, a yes/no or text. It has one value for the whole exercise in a workout, and a group of sets can override it. Settings do not carry over between brands.
+Something you set up on an exercise on one brand, such as "Seat 4", "Notch 7" or "Dead stop": a number, a yes/no or text. It has one value for the whole exercise in a workout, unless it's a tracked number marked "every set", which makes it a measure with a value on each set. Settings do not carry over between brands.
 _Avoid_: Field, custom field, set field, variable, attribute
 
 **Override**:
-A setting value that a group of sets changes from the exercise's value, such as a hold at notch 8 while the rest of the sets use notch 7.
+Retired. A setting value that a group of sets changed from the exercise's value. A setting that varies from set to set is now a measure, typed on every set. Older workouts keep their overrides as each set's value.
 
 **Group**:
-A run of sets in one exercise that share a kind and the same overrides, shown under one heading such as "Hold · Notch 8".
+Retired. A run of sets that shared a kind and the same overrides, under a heading such as "Hold · Notch 8". Every set in an exercise now has the same measures, so there is nothing to group.
 
 **Tracked setting**:
 A number setting with a direction (higher or lower is better) and a range (lowest and highest value), so the app can detect records on it and factor it into the score.
@@ -57,7 +61,7 @@ _Avoid_: ROM (in UI copy)
 ## Progress
 
 **Shape**:
-Which values a set has: rep set or hold, loaded or unloaded, and which tracked settings it has a value for. Only sets with the same shape on the same exercise and brand are compared.
+Which values a set has: rep set or hold, loaded or unloaded, and which tracked settings it has a value for. It mostly follows from the exercise's measures, but an older set can lack a measure turned on later. Only sets with the same shape on the same exercise and brand are compared.
 
 **Score**:
 A single number for a set: its load (weight × reps, or weight × time, with unloaded counting as 1) multiplied by a factor of 1.0 to 2.0 for each tracked setting, depending on where in its range the value falls.

@@ -28,7 +28,7 @@ extension ExerciseSetting {
             id: id.uuidString, name: name, kind: kindName, value: value, textValue: textValue,
             direction: direction.map { $0 == .higher ? "higher" : "lower" },
             rangeMin: rangeMin, rangeMax: rangeMax, splitByValue: splitByValue,
-            factor: kind == .yesNo ? factor : nil
+            factor: kind == .yesNo ? factor : nil, everySet: isMeasure
         )
     }
 
@@ -43,14 +43,14 @@ extension ExerciseSetting {
             id: uuid(stored.id), name: stored.name, kind: kind, value: value,
             direction: stored.direction.map { $0 == "lower" ? .lower : .higher },
             rangeMin: stored.rangeMin, rangeMax: stored.rangeMax, splitByValue: stored.splitByValue,
-            factor: stored.factor
+            factor: stored.factor, everySet: stored.everySet
         )
     }
 }
 
 // MARK: Sets and exercises
 
-/// A group's overrides, from setting names (how the app keys them) to setting ids (how they're stored).
+/// A set's every-set values (and older overrides), from setting names (how the app keys them) to setting ids (how they're stored).
 private func overrides(_ setup: SetSetup, settings: [ExerciseSetting]) -> [String: Double] {
     var byId: [String: Double] = [:]
     for (name, value) in setup.values {
@@ -104,7 +104,8 @@ extension WorkoutExercise {
                     type: SetType(rawValue: set.setType) ?? .normal, weight: set.weightKg.map(PlainNumber.string) ?? "", amount: amount(of: set), rpe: set.rpe,
                     isDone: set.completedAt != nil
                 )
-            }
+            },
+            measures: stored.measures
         )
     }
 }
@@ -174,6 +175,7 @@ extension Routine {
             RoutineExercise(
                 id: uuid(exercise.id), name: exercise.name, brand: Brand(name: exercise.brand, label: exercise.label), restSeconds: exercise.restSeconds,
                 settings: exercise.settings.map(ExerciseSetting.init(stored:)),
+                measures: exercise.measures,
                 sets: exercise.sets.map { set in
                     RoutineSet(
                         setup: setup(kind: set.kind, overrides: set.overrides, settings: exercise.settings),
@@ -194,7 +196,8 @@ extension ExerciseCatalog {
                 StoredExerciseInfo(
                     name: info.name, equipment: info.equipment.rawValue, isBuiltin: !info.isCustom,
                     muscles: [StoredMuscle(muscle: info.primaryMuscle.rawValue, share: 1)]
-                        + info.secondaryMuscles.map { StoredMuscle(muscle: $0.rawValue, share: 0.5) }
+                        + info.secondaryMuscles.map { StoredMuscle(muscle: $0.rawValue, share: 0.5) },
+                    measures: info.measures
                 )
             },
             setups: savedSetups.map { key, setup in
@@ -209,14 +212,21 @@ extension ExerciseCatalog {
     /// as it is after a sign-out emptied the phone.
     convenience init(stored: StoredLibrary, samples: Bool = true) {
         var exercises = Dictionary(ExerciseCatalog.builtIn.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        for row in stored.exercises where !row.muscles.isEmpty || !row.isBuiltin {
-            let primary = row.muscles.first { $0.share == 1 }.flatMap { Muscle(rawValue: $0.muscle) } ?? exercises[row.name]?.primaryMuscle ?? .chest
+        for row in stored.exercises {
+            let builtIn = exercises[row.name]
+            guard !row.muscles.isEmpty || !row.isBuiltin else {
+                // A built-in exercise used before its muscles were saved: only its measures can differ.
+                if let measures = row.measures { exercises[row.name]?.measures = measures }
+                continue
+            }
+            let primary = row.muscles.first { $0.share == 1 }.flatMap { Muscle(rawValue: $0.muscle) } ?? builtIn?.primaryMuscle ?? .chest
             exercises[row.name] = ExerciseInfo(
                 name: row.name,
-                equipment: Equipment(rawValue: row.equipment) ?? exercises[row.name]?.equipment ?? .other,
+                equipment: Equipment(rawValue: row.equipment) ?? builtIn?.equipment ?? .other,
                 primaryMuscle: primary,
                 secondaryMuscles: row.muscles.filter { $0.share < 1 }.compactMap { Muscle(rawValue: $0.muscle) },
-                isCustom: !row.isBuiltin
+                isCustom: !row.isBuiltin,
+                measures: row.measures ?? ExerciseCatalogNames.defaultMeasures(name: row.name, equipment: row.equipment)
             )
         }
         var setups: [String: BrandSetup] = [:]

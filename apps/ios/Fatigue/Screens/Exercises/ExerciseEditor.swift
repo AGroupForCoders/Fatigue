@@ -20,8 +20,9 @@ struct BrandMove: Equatable {
     var to: Brand?
 }
 
-/// Creates a custom exercise, or edits one: name, equipment and muscles, then the settings saved
-/// for the brand picked under the name. Switching brand switches which settings you're editing. Each setting has a value for the whole exercise, and a number setting
+/// Creates a custom exercise, or edits one: name, equipment and muscles, its measures, then the settings saved
+/// for the brand picked under the name. Reps or time is picked when the exercise is made and can't change after;
+/// weight and every-set settings can be turned on and off, up to `ExerciseMeasures.limit` measures in all. Switching brand switches which settings you're editing. Each setting has a value for the whole exercise, and a number setting
 /// can count towards the score with a direction and a range. A custom exercise can be deleted from here;
 /// it leaves the picker and prebuilt workouts, and workouts that used it keep their sets.
 struct ExerciseEditor: View {
@@ -105,6 +106,7 @@ struct ExerciseEditor: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     about
+                    measuresSection
                     settingsSection
                     deleteSection
                 }
@@ -167,6 +169,7 @@ struct ExerciseEditor: View {
                 setting: editing.setting,
                 takenNames: settings.filter { $0.id != editing.id }.map(\.setting.name),
                 isNew: !settings.contains { $0.id == editing.id },
+                everySetFits: info.measures.fits(everySet: settings.filter { $0.setting.isMeasure && $0.id != editing.id }.count + 1),
                 onSave: { setting in
                     withAnimation(.standard) {
                         if let index = settings.firstIndex(where: { $0.id == editing.id }) {
@@ -292,6 +295,83 @@ struct ExerciseEditor: View {
         .onChange(of: info.primaryMuscle) { _, primary in info.secondaryMuscles.removeAll { $0 == primary } }
     }
 
+    /// How many measures the brand being edited has: reps or time, weight if on, and its every-set settings.
+    private var everySetCount: Int { settings.filter(\.setting.isMeasure).count }
+
+    /// What every set records: Reps or Time (only picked when the exercise is new), Weight, and the settings
+    /// typed on every set, which are turned on in each setting.
+    private var measuresSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                Text("Measures")
+                    .textStyle(Tokens.Typography.exerciseName)
+                    .foregroundStyle(palette.foreground)
+                Text("What you type on every set. Up to \(ExerciseMeasures.limit), counting a tracked setting like notch that you type on every set.")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, Tokens.Space.xxxl)
+            .padding(.bottom, Tokens.Space.m)
+            Hairline()
+            row("Counted in") {
+                if isNew {
+                    HStack(spacing: Tokens.Space.s) {
+                        ForEach([SetKind.reps, .hold], id: \.self) { amount in
+                            Button { info.measures.amount = amount } label: {
+                                OptionLabel(title: amount == .hold ? "Time" : "Reps", isSelected: info.measures.amount == amount)
+                            }
+                            .buttonStyle(.press)
+                        }
+                    }
+                } else {
+                    Text(info.measures.amountName)
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.foregroundMuted)
+                }
+            }
+            if !isNew {
+                Text("Reps or time can't change once an exercise has history. Make another exercise for the other, such as \(MeasuresMigration.isometricName(of: trimmedName.isEmpty ? info.name : trimmedName)).")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, Tokens.Space.s)
+            }
+            Hairline(soft: true)
+            let canWeigh = info.measures.weighted || ExerciseMeasures(amount: info.measures.amount, weighted: true).fits(everySet: everySetCount)
+            row("Weight") {
+                HStack(spacing: Tokens.Space.s) {
+                    ForEach([true, false], id: \.self) { weighted in
+                        Button { info.measures.weighted = weighted } label: {
+                            OptionLabel(title: weighted ? "Yes" : "No", isSelected: info.measures.weighted == weighted)
+                        }
+                        .buttonStyle(.press)
+                        .disabled(weighted && !canWeigh)
+                        .opacity(weighted && !canWeigh ? 0.4 : 1)
+                    }
+                }
+            }
+            .accessibilityLabel("Weight, \(info.measures.weighted ? "on" : "off")")
+            if !canWeigh {
+                Text("Turn off a setting typed on every set to add weight.")
+                    .textStyle(Tokens.Typography.caption)
+                    .foregroundStyle(palette.foregroundFaint)
+                    .padding(.bottom, Tokens.Space.s)
+            }
+            ForEach(settings.filter(\.setting.isMeasure)) { editable in
+                Hairline(soft: true)
+                row(editable.setting.name) {
+                    Text("Every set")
+                        .textStyle(Tokens.Typography.body)
+                        .foregroundStyle(palette.foregroundMuted)
+                }
+            }
+            Hairline()
+        }
+        .sensoryFeedback(.selection, trigger: info.measures)
+        .animation(.standard, value: info.measures)
+    }
+
     /// The settings saved for this exercise on the brand picked at the top.
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -299,7 +379,7 @@ struct ExerciseEditor: View {
                 Text("Settings")
                     .textStyle(Tokens.Typography.exerciseName)
                     .foregroundStyle(palette.foreground)
-                Text("Like seat height or notch. Kept per brand, since every machine is set up differently. A group of sets can change a value from its heading.")
+                Text("Like seat height or notch. Kept per brand, since every machine is set up differently. A tracked number can be typed on every set instead of once.")
                     .textStyle(Tokens.Typography.caption)
                     .foregroundStyle(palette.foregroundMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -420,6 +500,8 @@ struct SettingEditor: View {
     @Environment(\.dismiss) private var dismiss
     let takenNames: [String]
     let isNew: Bool
+    /// Whether turning on every set keeps the exercise within its measures.
+    let everySetFits: Bool
     let onSave: (ExerciseSetting) -> Void
     let onDelete: () -> Void
 
@@ -433,9 +515,10 @@ struct SettingEditor: View {
     /// The factors offered for a yes/no setting, as in "Scores and stats".
     private static let presetFactors: [Double] = [1.25, 1.5]
 
-    init(setting: ExerciseSetting, takenNames: [String], isNew: Bool, onSave: @escaping (ExerciseSetting) -> Void, onDelete: @escaping () -> Void) {
+    init(setting: ExerciseSetting, takenNames: [String], isNew: Bool, everySetFits: Bool = true, onSave: @escaping (ExerciseSetting) -> Void, onDelete: @escaping () -> Void) {
         self.takenNames = takenNames
         self.isNew = isNew
+        self.everySetFits = everySetFits
         self.onSave = onSave
         self.onDelete = onDelete
         _setting = State(initialValue: setting)
@@ -457,6 +540,7 @@ struct SettingEditor: View {
             }
             var parts = ["Number", "counts, \(direction == .higher ? "higher" : "lower") is better, \(PlainNumber.string(min)) to \(PlainNumber.string(max))"]
             if setting.splitByValue { parts.append("own progress per value") }
+            if setting.isMeasure { parts.append("every set") }
             return parts.joined(separator: " · ")
         }
     }
@@ -571,6 +655,27 @@ struct SettingEditor: View {
                         .foregroundStyle(palette.foregroundFaint)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, Tokens.Space.s)
+                    Hairline(soft: true)
+                    let canTurnOn = setting.everySet || everySetFits
+                    row("Every set") {
+                        HStack(spacing: Tokens.Space.s) {
+                            ForEach([true, false], id: \.self) { on in
+                                Button { setting.everySet = on } label: {
+                                    OptionLabel(title: on ? "Yes" : "No", isSelected: setting.everySet == on)
+                                }
+                                .buttonStyle(.press)
+                                .disabled(on && !canTurnOn)
+                                .opacity(on && !canTurnOn ? 0.4 : 1)
+                            }
+                        }
+                    }
+                    Text(canTurnOn
+                         ? "Gives it a box on every set, as one of the exercise's measures, instead of one value for the exercise."
+                         : "The exercise already has \(ExerciseMeasures.limit) measures. Turn off weight or another every-set setting first.")
+                        .textStyle(Tokens.Typography.caption)
+                        .foregroundStyle(palette.foregroundFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, Tokens.Space.s)
                 }
             }
             Hairline()
@@ -607,6 +712,7 @@ struct SettingEditor: View {
                     saved.rangeMin = nil
                     saved.rangeMax = nil
                     saved.splitByValue = false
+                    saved.everySet = false
                 }
                 if saved.kind == .yesNo {
                     if let own = Double(ownFactor) { saved.factor = own }

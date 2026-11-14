@@ -32,6 +32,8 @@ nonisolated struct SyncItem: Codable, Equatable, Sendable {
         var name: String
         var equipment: String
         var muscles: [Muscle]
+        /// Such as ["weight", "reps"]. Nil from a build before measures.
+        var measures: [String]?
     }
 
     struct Muscle: Codable, Equatable, Sendable {
@@ -58,6 +60,8 @@ nonisolated struct SyncItem: Codable, Equatable, Sendable {
         var rangeMax: Double?
         var splitByValue: Bool
         var factor: Double?
+        /// Typed on every set, as one of the exercise's measures. Missing from builds before measures.
+        var everySet: Bool = false
         var position: Double
         var deletedAt: Int64?
     }
@@ -192,5 +196,24 @@ nonisolated struct SyncItem: Codable, Equatable, Sendable {
         content.deletedAt = deletedAt == nil ? nil : 1
         let data = (try? encoder.encode(content)) ?? Data()
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+nonisolated extension SyncItem.Setting {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, kind, value, textValue, direction, rangeMin, rangeMax, splitByValue, factor, everySet, position, deletedAt
+    }
+
+    /// Takes a setting without `everySet`, as a server from before measures sends it, as not every set.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(String.self, forKey: .id), name: try c.decode(String.self, forKey: .name), kind: try c.decode(String.self, forKey: .kind),
+            value: try c.decodeIfPresent(Double.self, forKey: .value), textValue: try c.decodeIfPresent(String.self, forKey: .textValue),
+            direction: try c.decodeIfPresent(String.self, forKey: .direction), rangeMin: try c.decodeIfPresent(Double.self, forKey: .rangeMin),
+            rangeMax: try c.decodeIfPresent(Double.self, forKey: .rangeMax), splitByValue: try c.decode(Bool.self, forKey: .splitByValue),
+            factor: try c.decodeIfPresent(Double.self, forKey: .factor), everySet: try c.decodeIfPresent(Bool.self, forKey: .everySet) ?? false,
+            position: try c.decode(Double.self, forKey: .position), deletedAt: try c.decodeIfPresent(Int64.self, forKey: .deletedAt)
+        )
     }
 }

@@ -24,6 +24,8 @@ struct ExerciseInfo: Identifiable, Equatable {
     /// Other muscles it works, with a share of 0.5 each to start.
     var secondaryMuscles: [Muscle] = []
     var isCustom = false
+    /// Reps or time, and weight or not. Reps or time is picked when the exercise is made and never changes.
+    var measures = ExerciseMeasures()
     var id: String { name }
 }
 
@@ -76,6 +78,11 @@ final class ExerciseCatalog {
 
     func info(named name: String) -> ExerciseInfo? {
         exercises.first { $0.name == name }
+    }
+
+    /// What every set of an exercise records. One the library doesn't have is weighted reps.
+    func measures(for name: String) -> ExerciseMeasures {
+        info(named: name)?.measures ?? ExerciseMeasures()
     }
 
     /// The brands with settings saved for an exercise.
@@ -183,7 +190,7 @@ final class ExerciseCatalog {
 extension ExerciseCatalog {
     static let sampleAdductorSettings = [
         ExerciseSetting(name: "Seat", value: "4"),
-        ExerciseSetting(name: "Notch", value: "7", direction: .higher, rangeMin: 1, rangeMax: 10, splitByValue: true),
+        ExerciseSetting(name: "Notch", value: "7", direction: .higher, rangeMin: 1, rangeMax: 10, splitByValue: true, everySet: true),
         ExerciseSetting(name: "Dead stop", kind: .yesNo, value: "yes", factor: 1.5),
     ]
 
@@ -200,6 +207,7 @@ extension ExerciseCatalog {
         ExerciseInfo(name: "Cable Fly", equipment: .cable, primaryMuscle: .chest, secondaryMuscles: [.shoulders]),
         ExerciseInfo(name: "Calf Raise", equipment: .machine, primaryMuscle: .calves),
         ExerciseInfo(name: "Chest Press", equipment: .machine, primaryMuscle: .chest, secondaryMuscles: [.shoulders, .triceps]),
+        ExerciseInfo(name: "Dead Hang", equipment: .bodyweight, primaryMuscle: .forearms, secondaryMuscles: [.lats], measures: ExerciseMeasures(amount: .hold, weighted: false)),
         ExerciseInfo(name: "Deadlift", equipment: .barbell, primaryMuscle: .lowerBack, secondaryMuscles: [.glutes, .hamstrings, .traps]),
         ExerciseInfo(name: "Hack Squat", equipment: .machine, primaryMuscle: .quadriceps, secondaryMuscles: [.glutes]),
         ExerciseInfo(name: "Hip Thrust", equipment: .barbell, primaryMuscle: .glutes, secondaryMuscles: [.hamstrings]),
@@ -211,7 +219,8 @@ extension ExerciseCatalog {
         ExerciseInfo(name: "Leg Press", equipment: .machine, primaryMuscle: .quadriceps, secondaryMuscles: [.glutes, .hamstrings]),
         ExerciseInfo(name: "Pec Deck", equipment: .machine, primaryMuscle: .chest),
         ExerciseInfo(name: "Preacher Curl", equipment: .machine, primaryMuscle: .biceps),
-        ExerciseInfo(name: "Pull Up", equipment: .bodyweight, primaryMuscle: .lats, secondaryMuscles: [.biceps, .middleBack]),
+        ExerciseInfo(name: "Plank", equipment: .bodyweight, primaryMuscle: .abdominals, measures: ExerciseMeasures(amount: .hold, weighted: false)),
+        ExerciseInfo(name: "Pull Up", equipment: .bodyweight, primaryMuscle: .lats, secondaryMuscles: [.biceps, .middleBack], measures: ExerciseMeasures(weighted: false)),
         ExerciseInfo(name: "Rear Delt Fly", equipment: .machine, primaryMuscle: .shoulders, secondaryMuscles: [.middleBack]),
         ExerciseInfo(name: "Romanian Deadlift", equipment: .barbell, primaryMuscle: .hamstrings, secondaryMuscles: [.glutes, .lowerBack]),
         ExerciseInfo(name: "Seated Calf Raise", equipment: .machine, primaryMuscle: .calves),
@@ -219,5 +228,6 @@ extension ExerciseCatalog {
         ExerciseInfo(name: "Shoulder Press", equipment: .machine, primaryMuscle: .shoulders, secondaryMuscles: [.triceps]),
         ExerciseInfo(name: "Squat", equipment: .barbell, primaryMuscle: .quadriceps, secondaryMuscles: [.glutes, .hamstrings, .lowerBack]),
         ExerciseInfo(name: "Triceps Pushdown", equipment: .cable, primaryMuscle: .triceps),
+        ExerciseInfo(name: "Wall Sit", equipment: .bodyweight, primaryMuscle: .quadriceps, secondaryMuscles: [.glutes], measures: ExerciseMeasures(amount: .hold, weighted: false)),
     ]
 }

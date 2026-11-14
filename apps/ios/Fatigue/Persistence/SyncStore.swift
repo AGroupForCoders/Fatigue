@@ -45,7 +45,8 @@ nonisolated extension AppDatabase {
     // MARK: What needs pushing
 
     /// Every item in the database: custom exercises, brands with their settings, routines, finished workouts
-    /// and the user setting, deleted ones included. The running workout and built-in exercises never sync.
+    /// and the user setting, deleted ones included. The running workout never syncs, and a built-in exercise
+    /// only once its measures differ from its defaults.
     func syncItems() throws -> [LocalSyncItem] {
         try writer.read { try Self.syncItems(in: $0) }
     }
@@ -146,6 +147,9 @@ nonisolated extension AppDatabase {
                 guard let now = after[item.key] else { continue }
                 try Self.agree(on: now, in: db)
             }
+            // After agreeing, so whatever this changes is pushed: an older build can still send holds on an
+            // exercise counted in reps, or a new exercise without measures.
+            if !written.isEmpty { try MeasuresMigration.tidyPulled(in: db) }
             try db.execute(sql: "INSERT INTO sync_state (key, value) VALUES ('cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", arguments: [String(cursor)])
             return outcome
         }
@@ -275,13 +279,22 @@ nonisolated extension AppDatabase {
     private static func syncItems(in db: Database) throws -> [LocalSyncItem] {
         var items: [SyncItem] = []
 
-        // Custom exercises.
+        // Custom exercises, and built-in ones whose measures were changed from their defaults. A built-in one
+        // that has synced before stays in, so changing it back to its defaults syncs too.
         let muscles = grouped(try Row.fetchAll(db, sql: "SELECT * FROM exercise_muscle ORDER BY muscle"), by: "exercise_id")
-        for row in try Row.fetchAll(db, sql: "SELECT * FROM exercise WHERE is_builtin = 0 ORDER BY id") {
+        let synced = Set(try String.fetchAll(db, sql: "SELECT id FROM sync_item WHERE kind = 'exercise'"))
+        for row in try Row.fetchAll(db, sql: "SELECT * FROM exercise ORDER BY id") {
             let id: String = row["id"]
+            let name: String = row["name"]
+            let equipment: String = row["equipment"]
+            let measures = ExerciseMeasures(stored: row["measures"])
+            if row["is_builtin"] as Bool {
+                guard let measures, measures != ExerciseCatalogNames.defaultMeasures(name: name, equipment: equipment) || synced.contains(lower(id)) else { continue }
+            }
             let body = SyncItem.ExerciseBody(
-                name: row["name"], equipment: row["equipment"],
-                muscles: (muscles[id] ?? []).map { SyncItem.Muscle(muscle: $0["muscle"], share: $0["share"]) }
+                name: name, equipment: equipment,
+                muscles: (muscles[id] ?? []).map { SyncItem.Muscle(muscle: $0["muscle"], share: $0["share"]) },
+                measures: measures?.names
             )
             items.append(SyncItem(kind: .exercise, id: lower(id), updatedAt: row["updated_at"], deletedAt: row["deleted_at"], body: .exercise(body)))
         }
@@ -296,7 +309,7 @@ nonisolated extension AppDatabase {
                     SyncItem.Setting(
                         id: lower(s["id"]), name: s["name"], kind: s["kind"], value: s["value"], textValue: s["text_value"],
                         direction: s["direction"], rangeMin: s["range_min"], rangeMax: s["range_max"], splitByValue: s["split_by_value"],
-                        factor: s["factor"], position: s["position"], deletedAt: s["deleted_at"]
+                        factor: s["factor"], everySet: s["every_set"], position: s["position"], deletedAt: s["deleted_at"]
                     )
                 }
             )
@@ -390,10 +403,14 @@ nonisolated extension AppDatabase {
         let id = upper(item.id)
         switch item.body {
         case .exercise(let body):
+            // Built in or not is decided by the name, so a built-in exercise with changed measures stays built in.
+            // Measures from a build before them stay as the phone has them.
+            let measures = body.measures.flatMap(ExerciseMeasures.init(names:))?.stored
             try db.execute(sql: """
-                INSERT INTO exercise (id, name, equipment, is_builtin, updated_at, deleted_at) VALUES (?, ?, ?, 0, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET name = excluded.name, equipment = excluded.equipment, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at
-                """, arguments: [id, body.name, body.equipment, item.updatedAt, item.deletedAt])
+                INSERT INTO exercise (id, name, equipment, is_builtin, measures, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, equipment = excluded.equipment, is_builtin = excluded.is_builtin,
+                    measures = coalesce(excluded.measures, exercise.measures), updated_at = excluded.updated_at, deleted_at = excluded.deleted_at
+                """, arguments: [id, body.name, body.equipment, ExerciseCatalogNames.builtIn.contains(body.name), measures, item.updatedAt, item.deletedAt])
             try db.execute(sql: "DELETE FROM exercise_muscle WHERE exercise_id = ?", arguments: [id])
             for muscle in body.muscles {
                 try db.execute(sql: "INSERT INTO exercise_muscle (exercise_id, muscle, share) VALUES (?, ?, ?)", arguments: [id, muscle.muscle, muscle.share])
@@ -419,14 +436,14 @@ nonisolated extension AppDatabase {
             )
             for setting in body.settings {
                 try db.execute(sql: """
-                    INSERT INTO setting (id, exercise_brand_id, name, kind, value, text_value, direction, range_min, range_max, split_by_value, factor, position, updated_at, deleted_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO setting (id, exercise_brand_id, name, kind, value, text_value, direction, range_min, range_max, split_by_value, factor, every_set, position, updated_at, deleted_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET exercise_brand_id = excluded.exercise_brand_id, name = excluded.name, kind = excluded.kind,
                         value = excluded.value, text_value = excluded.text_value, direction = excluded.direction, range_min = excluded.range_min,
-                        range_max = excluded.range_max, split_by_value = excluded.split_by_value, factor = excluded.factor, position = excluded.position,
-                        updated_at = excluded.updated_at, deleted_at = excluded.deleted_at
+                        range_max = excluded.range_max, split_by_value = excluded.split_by_value, factor = excluded.factor, every_set = excluded.every_set,
+                        position = excluded.position, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at
                     """, arguments: [upper(setting.id), id, setting.name, setting.kind, setting.value, setting.textValue, setting.direction, setting.rangeMin,
-                                     setting.rangeMax, setting.splitByValue, setting.factor, setting.position, item.updatedAt, setting.deletedAt])
+                                     setting.rangeMax, setting.splitByValue, setting.factor, setting.everySet, setting.position, item.updatedAt, setting.deletedAt])
             }
 
         case .routine(let body):

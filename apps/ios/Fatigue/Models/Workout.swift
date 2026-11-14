@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// Whether a set counts reps or holds for a time.
-enum SetKind: String {
+nonisolated enum SetKind: String, Sendable {
     case reps
     case hold
 
@@ -43,8 +43,8 @@ enum SetType: String, CaseIterable {
 }
 
 /// A setting on an exercise, shown as a row under its name: seat height, notch, dead stop.
-/// Every set uses the exercise's value unless its group overrides it from the group heading,
-/// so a hold at notch 8 sits under "Hold · Notch 8" while the rest of the sets use notch 7.
+/// It has one value for the whole exercise, unless it's a tracked number marked `everySet`, which makes it
+/// one of the exercise's measures: it gets a box on every set, such as a notch typed for each set.
 /// Saved per exercise and brand, since every machine is set up differently.
 struct ExerciseSetting: Identifiable, Hashable {
     enum Kind: Hashable {
@@ -76,6 +76,8 @@ struct ExerciseSetting: Identifiable, Hashable {
     /// How much harder a yes/no setting makes a set when it's on, ×1 to ×2, such as ×1.5 for a dead stop.
     /// Nil until you say it makes the set harder. See ADR 0002.
     var factor: Double? = nil
+    /// Typed on every set rather than once for the exercise. Only a tracked number can be. See ADR 0003.
+    var everySet = false
 
     /// Whether this setting counts towards the set's score: a number with a direction and a range,
     /// or a yes/no setting with a factor above ×1.
@@ -91,7 +93,13 @@ struct ExerciseSetting: Identifiable, Hashable {
         }
     }
 
-    /// The exercise-wide value as a number, for comparing with a group's override. Yes is 1 and no is 0.
+    /// Whether it can be typed on every set: a tracked number, such as a notch with a range.
+    var canBeEverySet: Bool { kind == .number && isTracked }
+
+    /// Whether it gets a box on every set rather than one value for the exercise.
+    var isMeasure: Bool { everySet && canBeEverySet }
+
+    /// The exercise-wide value as a number. Yes is 1 and no is 0.
     var numberValue: Double? {
         switch kind {
         case .number: Double(value)
@@ -100,17 +108,65 @@ struct ExerciseSetting: Identifiable, Hashable {
         }
     }
 
-    /// How an override reads in a heading, such as "Notch 8", "Dead stop" or "No dead stop".
-    func label(for override: Double) -> String {
+    /// How a set's value reads, such as "Notch 8", "Dead stop" or "No dead stop".
+    func label(for value: Double) -> String {
         switch kind {
-        case .number, .text: "\(name) \(PlainNumber.string(override))"
-        case .yesNo: override == 1 ? name : "No \(name.lowercased())"
+        case .number, .text: "\(name) \(PlainNumber.string(value))"
+        case .yesNo: value == 1 ? name : "No \(name.lowercased())"
         }
     }
 }
 
-/// How a set is done: reps or a hold, plus any settings this set's group changes from the exercise's
-/// values, keyed by setting name. A yes/no override is 1 for yes and 0 for no.
+/// What every set of an exercise records: reps or time, chosen when the exercise is made and never changed,
+/// and weight or not. Tracked settings marked every set are measures too, and live on the brand's settings.
+/// An exercise has at most `limit` measures in all (ADR 0003).
+nonisolated struct ExerciseMeasures: Hashable, Sendable {
+    /// The most measures an exercise can have, counting reps or time, weight and every-set settings.
+    static let limit = 3
+
+    /// `.reps` counts reps, `.hold` counts seconds.
+    var amount: SetKind = .reps
+    /// Off for an unloaded exercise, which has no weight box. The score counts unloaded as weight 1.
+    var weighted = true
+
+    init(amount: SetKind = .reps, weighted: Bool = true) {
+        self.amount = amount
+        self.weighted = weighted
+    }
+
+    /// From the names stored and synced, such as ["weight", "reps"]. Nil unless there's exactly one of reps and time.
+    init?(names: [String]) {
+        let amounts = names.filter { $0 == "reps" || $0 == "time" }
+        guard amounts.count == 1, names.allSatisfy({ ["weight", "reps", "time"].contains($0) }), Set(names).count == names.count else { return nil }
+        self.init(amount: amounts[0] == "time" ? .hold : .reps, weighted: names.contains("weight"))
+    }
+
+    /// As stored in `exercise.measures`, such as "weight,reps".
+    init?(stored: String?) {
+        guard let stored else { return nil }
+        self.init(names: stored.split(separator: ",").map(String.init))
+    }
+
+    /// Such as ["weight", "reps"], as the API takes them.
+    var names: [String] { (weighted ? ["weight"] : []) + [amount == .hold ? "time" : "reps"] }
+    var stored: String { names.joined(separator: ",") }
+
+    /// How many measures there are with this many every-set settings.
+    func count(everySet: Int) -> Int { (weighted ? 1 : 0) + 1 + everySet }
+
+    /// Whether this many every-set settings fit alongside weight and reps or time.
+    func fits(everySet: Int) -> Bool { count(everySet: everySet) <= Self.limit }
+
+    /// Reps or Time, as the column heading and the editor say it.
+    var amountName: String { amount == .hold ? "Time" : "Reps" }
+
+    /// Such as "Weight · Reps" or "Time".
+    var summary: String { ((weighted ? ["Weight"] : []) + [amountName]).joined(separator: " · ") }
+}
+
+/// A set's kind (reps or a hold, from its exercise's measures) and its every-set settings' values, keyed by
+/// setting name. Older workouts can hold values for other settings too, from when a group of sets could
+/// override them; those still count, but nothing shows or edits them now.
 struct SetSetup: Hashable {
     var kind: SetKind
     var values: [String: Double] = [:]
@@ -217,9 +273,11 @@ struct WorkoutExercise: Identifiable {
     var brand: Brand?
     var restSeconds: Int
     var notes: [ExerciseNote] = []
-    /// Settings like seat height or notch, in the order they show under the name and in headings.
+    /// Settings like seat height or notch, in the order they show under the name and as set boxes.
     var settings: [ExerciseSetting] = []
     var sets: [WorkoutSet]
+    /// Reps or time, and whether it's weighted. Comes from the library, so every set shows the same boxes.
+    var measures = ExerciseMeasures()
 }
 
 /// A brand you have used for an exercise, for the brand picker.
@@ -256,31 +314,41 @@ enum FocusedCell: Hashable {
     case note(UUID)
     case settingName(UUID)
     case settingValue(UUID)
+    /// An every-set setting's box on one set: the set's id, then the setting's.
+    case everySet(UUID, UUID)
 }
 
-
-/// A run of sets that share a kind and setup, shown under one small heading.
-struct SetGroup: Identifiable, Equatable {
-    /// The heading, such as "Hold · Notch 8". Empty when the exercise has nothing to separate.
-    let heading: String
-    let setIndices: [Int]
-    var id: Int { setIndices.first ?? 0 }
+/// One box on every set of an exercise, under one header row.
+enum SetBox: Hashable {
+    /// Weight, in the unit picked in Settings. Only on a weighted exercise.
+    case weight
+    /// Reps or seconds.
+    case amount
+    /// A tracked setting typed on every set, such as Notch.
+    case setting(ExerciseSetting)
 }
 
 extension WorkoutExercise {
-    /// The settings a setup changes from the exercise's values, in display form, such as ["Notch 8"].
-    /// An override that matches the exercise's value, or names a setting that no longer exists, is left out.
-    func labels(for setup: SetSetup) -> [String] {
-        settings.compactMap { setting in
-            guard setting.kind != .text, let value = setup.values[setting.name], value != setting.numberValue else { return nil }
-            return setting.label(for: value)
-        }
+    /// The boxes every set shows, in order: weight if the exercise is weighted, reps or time, then each
+    /// every-set setting. Previous, RPE and the tick sit either side of them.
+    var setBoxes: [SetBox] {
+        (measures.weighted ? [.weight] : []) + [.amount] + everySetSettings.map(SetBox.setting)
     }
 
-    /// The settings as one line for under the exercise name, such as "Seat 4 · Notch 7 · Dead stop".
+    /// The tracked settings typed on every set, such as Notch, in the order their boxes show.
+    var everySetSettings: [ExerciseSetting] {
+        settings.filter { $0.isMeasure && !$0.name.isEmpty }
+    }
+
+    /// The settings with one value for the whole exercise, shown under its name.
+    var plainSettings: [ExerciseSetting] {
+        settings.filter { !$0.isMeasure }
+    }
+
+    /// The plain settings as one line for under the exercise name, such as "Seat 4 · Dead stop".
     /// A yes/no setting that's off reads "No dead stop". A setting with no value yet shows just its name.
     var settingsSummary: String {
-        settings.filter { !$0.name.isEmpty }.map { setting in
+        plainSettings.filter { !$0.name.isEmpty }.map { setting in
             switch setting.kind {
             case .yesNo: setting.value == "yes" ? setting.name : "No \(setting.name.lowercased())"
             case .number, .text: setting.value.isEmpty ? setting.name : "\(setting.name) \(setting.value)"
@@ -289,43 +357,17 @@ extension WorkoutExercise {
         .joined(separator: " · ")
     }
 
-    /// The value a setting has for a set: the group's override, or the exercise's value.
+    /// The value a setting has for a set. An every-set setting has only the set's own value, so an older set
+    /// typed before it was one has none. Any other setting has the exercise's value, unless an older set
+    /// overrode it.
     func value(of setting: ExerciseSetting, in setup: SetSetup) -> Double? {
-        setup.values[setting.name] ?? setting.numberValue
+        if setting.isMeasure { return setup.values[setting.name] }
+        return setup.values[setting.name] ?? setting.numberValue
     }
 
-    /// The heading for a setup, such as "Hold · Notch 8".
-    func heading(for setup: SetSetup) -> String {
-        ([setup.kind.name] + labels(for: setup)).joined(separator: " · ")
-    }
-
-    /// Every setup used in this exercise, in the order they first appear.
-    var setups: [SetSetup] {
-        var seen: [SetSetup] = []
-        for set in sets where !seen.contains(set.setup) { seen.append(set.setup) }
-        return seen
-    }
-
-    /// Splits the sets into groups wherever the kind or setup changes.
-    /// An exercise where every set is a plain rep set gets one group with no heading.
-    var groups: [SetGroup] {
-        let plain = sets.allSatisfy { $0.kind == .reps && labels(for: $0.setup).isEmpty }
-        var groups: [SetGroup] = []
-        var current: [Int] = []
-        var currentKey: String?
-        for (index, set) in sets.enumerated() {
-            let key = heading(for: set.setup)
-            if key != currentKey, !current.isEmpty {
-                groups.append(SetGroup(heading: plain ? "" : currentKey ?? "", setIndices: current))
-                current = []
-            }
-            currentKey = key
-            current.append(index)
-        }
-        if !current.isEmpty {
-            groups.append(SetGroup(heading: plain ? "" : currentKey ?? "", setIndices: current))
-        }
-        return groups
+    /// A set's every-set values, such as ["Notch 8"], for history and posts. Ones it has no value for are left out.
+    func everySetLabels(for set: WorkoutSet) -> [String] {
+        everySetSettings.compactMap { setting in set.setup.values[setting.name].map(setting.label(for:)) }
     }
 }
 
@@ -405,10 +447,14 @@ final class WorkoutSession {
         }
     }
 
-    /// Adds a set that copies the last one's setup, weight and amount, not yet done.
-    /// With no sets left, it adds a plain rep set.
+    /// Adds a set like the last one: the same weight, reps or time and every-set values, not yet done.
+    /// With no sets left, it adds an empty one.
     func addSet(to exerciseIndex: Int) {
-        addSet(to: exerciseIndex, setup: exercises[exerciseIndex].sets.last?.setup ?? SetSetup(kind: .reps))
+        let exercise = exercises[exerciseIndex]
+        let last = exercise.sets.last
+        let setup = SetSetup(kind: exercise.measures.amount, values: last?.setup.values ?? [:])
+        let weight = exercise.measures.weighted ? last?.weight ?? "" : ""
+        exercises[exerciseIndex].sets.append(WorkoutSet(setup: setup, weight: weight, amount: last?.amount ?? "", previous: nil))
     }
 
     /// Removes an exercise and everything logged on it.
@@ -432,22 +478,6 @@ final class WorkoutSession {
     /// Deletes a note from whichever exercise has it.
     func deleteNote(_ noteID: UUID) {
         for index in exercises.indices { exercises[index].notes.removeAll { $0.id == noteID } }
-    }
-
-    /// Adds a set with the given setup, straight after the last set that already uses it,
-    /// so it joins that group. A setup nothing uses yet goes at the end, under a new heading.
-    /// Weight and amount copy the set it follows.
-    func addSet(to exerciseIndex: Int, setup: SetSetup) {
-        let sets = exercises[exerciseIndex].sets
-        let after = sets.lastIndex { $0.setup == setup }
-        let template = after.map { sets[$0] } ?? sets.last
-        let set = WorkoutSet(setup: setup, weight: template?.weight ?? "", amount: template?.amount ?? "", previous: nil)
-        exercises[exerciseIndex].sets.insert(set, at: after.map { $0 + 1 } ?? sets.count)
-    }
-
-    /// Changes the setup of every set in a group, such as moving them all to notch 8.
-    func changeSetup(of setIndices: [Int], in exerciseIndex: Int, to setup: SetSetup) {
-        for index in setIndices { exercises[exerciseIndex].sets[index].setup = setup }
     }
 
     /// Marks a set as normal, a warm-up, a drop set or a set to failure.
@@ -544,9 +574,9 @@ extension WorkoutSession {
                     notes: [ExerciseNote(text: "Pads on the widest setting.")],
                     settings: ExerciseCatalog.sampleAdductorSettings,
                     sets: [
-                        WorkoutSet(setup: SetSetup(kind: .hold, values: ["Notch": 8]), weight: "40", amount: "50", rpe: 8, previous: PreviousSet(kind: .hold, weightKg: 40, amount: "45", rpe: 8), isDone: true),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", rpe: 8.5, previous: PreviousSet(kind: .reps, weightKg: 55, amount: "8", rpe: 8.5), isDone: true),
-                        WorkoutSet(setup: SetSetup(kind: .reps), weight: "55", amount: "8", previous: PreviousSet(kind: .reps, weightKg: 55, amount: "7", rpe: 9)),
+                        WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 8]), weight: "50", amount: "8", rpe: 8, previous: PreviousSet(kind: .reps, weightKg: 50, amount: "8", rpe: 8), isDone: true),
+                        WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7]), weight: "55", amount: "8", rpe: 8.5, previous: PreviousSet(kind: .reps, weightKg: 55, amount: "8", rpe: 8.5), isDone: true),
+                        WorkoutSet(setup: SetSetup(kind: .reps, values: ["Notch": 7]), weight: "55", amount: "8", previous: PreviousSet(kind: .reps, weightKg: 55, amount: "7", rpe: 9)),
                     ]
                 ),
                 WorkoutExercise(

@@ -168,6 +168,9 @@ struct PostScreen: View {
                                 .foregroundStyle(set.isNormal ? palette.foregroundFaint : palette.foregroundMuted)
                                 .frame(width: Tokens.Size.setNumberColumn, alignment: .leading)
                             Text(set.text(in: unit)).foregroundStyle(palette.foreground)
+                            ForEach(set.values ?? [], id: \.self) { value in
+                                Text(value).foregroundStyle(palette.foregroundMuted)
+                            }
                             if let rpe = set.rpe {
                                 Text("@\(PlainNumber.string(rpe))").foregroundStyle(palette.foregroundMuted)
                             }

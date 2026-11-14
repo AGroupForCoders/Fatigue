@@ -25,7 +25,8 @@ nonisolated struct PostSnapshot: Codable, Hashable, Sendable {
         var groups: [Group]
     }
 
-    /// Sets under one heading, such as "Hold · Notch 8". The heading is empty when there's nothing to separate.
+    /// An exercise's sets. Shared by builds before measures with a heading such as "Hold · Notch 8"; now every
+    /// exercise has one group with no heading, and a set's every-set values are on the set.
     struct Group: Codable, Hashable, Sendable {
         var heading: String
         var sets: [LoggedSet]
@@ -40,6 +41,8 @@ nonisolated struct PostSnapshot: Codable, Hashable, Sendable {
         /// Reps for a rep set, seconds for a hold.
         var amount: String
         var rpe: Double?
+        /// Its every-set values, such as ["Notch 8"]. Nil in posts from builds before measures.
+        var values: [String]? = nil
     }
 
     struct Record: Codable, Hashable, Sendable {
@@ -77,15 +80,14 @@ extension PostSnapshot {
                 Exercise(
                     name: exercise.name,
                     brand: exercise.brand?.display,
-                    settings: exercise.settings.map { "\($0.name) \(SettingEditor.displayValue($0))" },
+                    settings: exercise.plainSettings.map { "\($0.name) \(SettingEditor.displayValue($0))" },
                     notes: exercise.notes.map(\.text).filter { !$0.isEmpty },
-                    groups: exercise.groups.map { group in
-                        Group(heading: group.heading, sets: group.setIndices.map { index in
-                            let set = exercise.sets[index]
-                            return LoggedSet(mark: exercise.sets.mark(at: index), type: set.type.rawValue, kind: set.kind.rawValue,
-                                       weightKg: Double(set.weight), amount: set.amount, rpe: set.rpe)
-                        })
-                    }
+                    groups: [Group(heading: "", sets: exercise.sets.indices.map { index in
+                        let set = exercise.sets[index]
+                        let values = exercise.everySetLabels(for: set)
+                        return LoggedSet(mark: exercise.sets.mark(at: index), type: set.type.rawValue, kind: set.kind.rawValue,
+                                         weightKg: Double(set.weight), amount: set.amount, rpe: set.rpe, values: values.isEmpty ? nil : values)
+                    })]
                 )
             },
             records: records.map { Record(exercise: $0.exercise, brand: $0.brand?.display, record: $0.record, value: $0.value) }
