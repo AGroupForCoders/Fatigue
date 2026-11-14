@@ -101,6 +101,13 @@ struct NumberCell: View {
         .frame(maxWidth: .infinity)
         .frame(height: Tokens.Size.cell)
         .background(palette.surface, in: .rect(cornerRadius: Tokens.Radius.control))
+        // An outline while you're typing in it, since an empty cell's "-" otherwise looks the same.
+        .overlay {
+            RoundedRectangle(cornerRadius: Tokens.Radius.control)
+                .strokeBorder(palette.foreground, lineWidth: Tokens.Size.line)
+                .opacity(focus.wrappedValue == cell ? 1 : 0)
+        }
+        .animation(.quick, value: focus.wrappedValue == cell)
         .contentShape(Rectangle())
         .onTapGesture { focus.wrappedValue = cell }
         .accessibilityElement(children: .combine)

@@ -710,6 +710,19 @@ private struct SetRow: View {
         }
     }
 
+    /// One of this set's values, found by the set's id on every read and write. The boxes in a row update on
+    /// their own, so after a delete one can redraw before the row is gone; by id it reads `empty` instead of
+    /// an index that no longer exists.
+    private func field<Value>(_ path: WritableKeyPath<WorkoutSet, Value>, empty: Value) -> Binding<Value> {
+        Binding(
+            get: { session.place(of: setID).map { session.exercises[$0.exercise].sets[$0.set][keyPath: path] } ?? empty },
+            set: { value in
+                guard let place = session.place(of: setID) else { return }
+                session.exercises[place.exercise].sets[place.set][keyPath: path] = value
+            }
+        )
+    }
+
     private func row(_ set: WorkoutSet, exercise e: Int, index i: Int) -> some View {
         let sets = session.exercises[e].sets
         let measures = session.exercises[e].measures
@@ -754,13 +767,13 @@ private struct SetRow: View {
             ForEach(session.exercises[e].setBoxes, id: \.self) { box in
                 switch box {
                 case .weight:
-                    WeightEntry(kilograms: $session.exercises[e].sets[i].weight) { text in
+                    WeightEntry(kilograms: field(\.weight, empty: set.weight)) { text in
                         NumberCell(text: text, isDone: set.isDone, accessibilityName: "Weight in \(unit.name)", focus: focus, cell: .weight(set.id))
                     }
                     .frame(width: Tokens.Size.weightColumn)
                 case .amount:
                     NumberCell(
-                        text: $session.exercises[e].sets[i].amount,
+                        text: field(\.amount, empty: set.amount),
                         suffix: measures.amount == .hold ? "s" : "",
                         isDone: set.isDone,
                         accessibilityName: measures.amount == .hold ? "Seconds" : "Reps",
@@ -769,7 +782,7 @@ private struct SetRow: View {
                     )
                     .frame(width: Tokens.Size.amountColumn)
                 case .setting(let setting):
-                    EverySetCell(value: $session.exercises[e].sets[i].setup.values[setting.name]) { text in
+                    EverySetCell(value: field(\.setup.values[setting.name], empty: nil)) { text in
                         NumberCell(text: text, isDone: set.isDone, accessibilityName: setting.name, focus: focus, cell: .everySet(set.id, setting.id))
                     }
                     .frame(width: Tokens.Size.amountColumn)

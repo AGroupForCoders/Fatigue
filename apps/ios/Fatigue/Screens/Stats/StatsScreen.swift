@@ -37,6 +37,8 @@ struct StatsScreen: View {
                     exercises
                 }
             }
+            // Full width even when it only holds a short line, so the page never shrinks to its text.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Tokens.Space.xxl)
             .padding(.bottom, Tokens.Space.xxxl)
         }
