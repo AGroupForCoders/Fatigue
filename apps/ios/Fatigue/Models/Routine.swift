@@ -138,7 +138,9 @@ final class WorkoutStore {
 
     /// Loads everything saved on the phone, including a workout that was running when the app closed,
     /// and its rest timer if that's still running.
-    /// Debug builds fill an empty database with the sample workouts, so there's something to look at.
+    /// Debug builds in the simulator fill an empty database with the sample workouts, so there's something to
+    /// look at. Not on a real iPhone, which syncs with the live API: the samples would be backed up as the
+    /// signed-in account's own workouts.
     init(database: AppDatabase, media: MediaStore? = nil, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.database = database
         self.defaults = defaults
@@ -148,7 +150,7 @@ final class WorkoutStore {
         routines = ((try? database.routines()) ?? []).map(Routine.init(stored:))
         history = workouts.filter { $0.finishedAt != nil }.map(FinishedWorkout.init(stored:))
         active = workouts.first { $0.finishedAt == nil }.map { WorkoutSession(stored: $0, now: now) }
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         // Not after a sign-out emptied the phone: the next account to sign in would back the samples up as its own.
         if routines.isEmpty, history.isEmpty, active == nil, !((try? database.wasWiped()) ?? false) {
             routines = Routine.samples
