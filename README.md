@@ -15,7 +15,7 @@ Then open http://localhost:3000. You need Node 22 or newer and pnpm. The docs co
 
 ## Run the app
 
-- **iOS:** open `apps/ios/Fatigue.xcodeproj` in Xcode and run the Fatigue scheme. Debug builds look for the API at http://localhost:8787.
+- **iOS:** open `apps/ios/Fatigue.xcodeproj` in Xcode and run the Fatigue scheme. In the simulator, debug builds look for the API at http://localhost:8787. On a real iPhone they use the live API at https://api.fatigue.agroupforcoders.com.
 - **API:** `apps/api/README.md` has the steps. In short, start a Postgres, copy `.env.example` to `.env`, then `pnpm api:migrate` and `pnpm api:dev`.
 - **Tokens:** edit `packages/tokens/tokens.json`, then `pnpm tokens:build` and commit the generated `Tokens.swift`.
 

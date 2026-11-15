@@ -109,8 +109,9 @@ nonisolated struct LiveAuthAPI: AuthAPI {
 
 /// Where the API lives.
 ///
-/// Debug builds talk to the API running on this Mac; release builds (TestFlight, App Store) talk to
-/// the deployed Worker. Change `productionBaseURL` when the API moves, for example to a custom domain.
+/// Debug builds in the simulator talk to the API running on this Mac. Everything else (debug builds on
+/// a real iPhone, TestFlight, the App Store) talks to the deployed Worker, because on a phone
+/// `localhost` is the phone itself. Change `productionBaseURL` when the API moves, for example to a custom domain.
 nonisolated enum APIConfig {
     /// The API running on this Mac with `pnpm api:dev`. The simulator reaches it as localhost.
     static let localBaseURL = URL(string: "http://localhost:8787")!
@@ -119,7 +120,7 @@ nonisolated enum APIConfig {
     /// Must match `BETTER_AUTH_URL` on the Worker, or Better Auth rejects sign-in.
     static let productionBaseURL = URL(string: "https://api.fatigue.agroupforcoders.com")!
 
-    #if DEBUG
+    #if DEBUG && targetEnvironment(simulator)
     static let baseURL = localBaseURL
     #else
     static let baseURL = productionBaseURL
